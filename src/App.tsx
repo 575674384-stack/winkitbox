@@ -1092,11 +1092,16 @@ export function App() {
       )}
 
       {activeView === "catalog" && (
-        <section className="workspace">
-          <header className="topbar">
-            <div>
-              <p className="eyebrow">一键恢复熟悉环境</p>
-              <h2>选择工具，安装 / 打开 / 卸载</h2>
+        <section className="workspace workspace-catalog">
+          <header className="command-bar">
+            <div className="command-bar-title">
+              <div className="command-bar-icon">
+                <Sparkles size={22} />
+              </div>
+              <div>
+                <p className="eyebrow">装机方案</p>
+                <h2>选择工具，一键恢复环境</h2>
+              </div>
             </div>
             <div className="top-actions">
               <button
@@ -1105,28 +1110,29 @@ export function App() {
                 onClick={() => setSelectedIds(getDefaultSelection(allTools))}
               >
                 <RotateCcw size={16} />
-                默认
+                恢复默认
               </button>
               <button className="ghost-button danger" type="button" onClick={() => setSelectedIds(new Set())}>
-                清空
+                <Trash2 size={16} />
+                清空选择
               </button>
             </div>
           </header>
 
           <div className="stats-row">
-            <Metric label="已选择" value={dashboardStats.selectedCount} tone="blue" />
-            <Metric label="已安装" value={dashboardStats.installedCount} tone="green" />
-            <Metric label="可自动安装" value={dashboardStats.readyCount} tone="green" />
-            <Metric label="手动来源" value={dashboardStats.manualCount} tone="amber" />
-            <Metric label="需管理员" value={dashboardStats.adminCount} tone="red" />
+            <Metric label="已选择" value={dashboardStats.selectedCount} tone="blue" icon={ListChecks} />
+            <Metric label="已安装" value={dashboardStats.installedCount} tone="green" icon={Check} />
+            <Metric label="可自动安装" value={dashboardStats.readyCount} tone="teal" icon={Download} />
+            <Metric label="手动来源" value={dashboardStats.manualCount} tone="amber" icon={ExternalLink} />
+            <Metric label="需管理员" value={dashboardStats.adminCount} tone="red" icon={ShieldAlert} />
           </div>
 
-          <div className="search-row">
-            <Search size={17} />
+          <div className="search-row search-row-prominent">
+            <Search size={18} />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索工具、标签、来源"
+              placeholder="搜索工具名称、标签、来源..."
             />
           </div>
 
@@ -1150,15 +1156,20 @@ export function App() {
 
       {activeView === "catalog" && (
         <aside className="plan-panel" aria-label="Install plan">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">安装计划</p>
-              <h2>{dashboardStats.selectedCount} 个工具</h2>
+          <div className="plan-panel-header">
+            <div className="plan-panel-brand">
+              <div className="plan-panel-icon">
+                <Play size={20} />
+              </div>
+              <div>
+                <p className="eyebrow">安装计划</p>
+                <h2>{dashboardStats.selectedCount} 个已选工具</h2>
+              </div>
             </div>
             {installPlan.highRiskCount > 0 && (
               <span className="risk-warning">
                 <ShieldAlert size={15} />
-                {installPlan.highRiskCount} 项谨慎
+                {installPlan.highRiskCount} 项需谨慎
               </span>
             )}
           </div>
@@ -1262,15 +1273,20 @@ function InstallProgressCard({
 function Metric({
   label,
   value,
-  tone
+  tone,
+  icon: Icon
 }: {
   label: string;
   value: number;
-  tone: "blue" | "green" | "amber" | "red";
+  tone: "blue" | "green" | "teal" | "amber" | "red";
+  icon?: typeof Download;
 }) {
   return (
     <div className={`metric ${tone}`}>
-      <span>{label}</span>
+      <div className="metric-header">
+        <span>{label}</span>
+        {Icon && <Icon size={16} />}
+      </div>
       <strong>{value}</strong>
     </div>
   );
@@ -1407,14 +1423,19 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
 
   return (
     <div className="system-page">
-      <header className="topbar page-topbar">
-        <div>
-          <p className="eyebrow">本机配置</p>
-          <h2>查看本机，调整 IP / DNS</h2>
+      <header className="command-bar page-topbar">
+        <div className="command-bar-title">
+          <div className="command-bar-icon system-icon">
+            <Laptop size={22} />
+          </div>
+          <div>
+            <p className="eyebrow">本机配置</p>
+            <h2>查看本机，调整 IP / DNS</h2>
+          </div>
         </div>
         <button className="ghost-button" type="button" disabled={isLoading} onClick={refreshSystemInfo}>
-          <RotateCcw size={16} />
-          {isLoading ? "刷新中" : "刷新"}
+          <RotateCcw size={16} className={isLoading ? "spin" : ""} />
+          {isLoading ? "刷新中" : "刷新配置"}
         </button>
       </header>
 
@@ -1719,10 +1740,15 @@ function SettingsView({
 
   return (
     <div className="settings-page">
-      <header className="topbar page-topbar">
-        <div>
-          <p className="eyebrow">设置</p>
-          <h2>工具目录、更新、配置同步和日志</h2>
+      <header className="command-bar page-topbar">
+        <div className="command-bar-title">
+          <div className="command-bar-icon settings-icon">
+            <Settings size={22} />
+          </div>
+          <div>
+            <p className="eyebrow">设置</p>
+            <h2>工具目录、AI、主题和配置同步</h2>
+          </div>
         </div>
       </header>
 
@@ -2029,26 +2055,30 @@ function ToolCard({
       </div>
 
       <div className="tool-footer">
-        <span className={`tool-status-pill ${toolState.status}`} title={toolState.message}>
-          {getStatusLabel(toolState.status)}
-        </span>
-        <span className={`risk-pill ${tool.risk}`}>{riskLabels[tool.risk]}</span>
-        {tool.requiresAdmin && <span className="admin-pill">管理员</span>}
-        <button className="mini-action install" type="button" disabled={installDisabled} onClick={onInstall}>
-          <Download size={14} />
-          {getInstallButtonLabel(toolState.status)}
-        </button>
-        <button className="mini-action open" type="button" disabled={openDisabled} onClick={onLaunch}>
-          <Play size={14} />
-          {toolState.status === "opening" ? "打开中" : "打开"}
-        </button>
-        <button className="mini-action uninstall" type="button" disabled={uninstallDisabled} onClick={onUninstall}>
-          <Trash2 size={14} />
-          {toolState.status === "uninstalling" ? "卸载中" : "卸载"}
-        </button>
-        <button className="icon-button" type="button" aria-label={`打开 ${tool.name} 来源`} onClick={onOpen}>
-          <ExternalLink size={15} />
-        </button>
+        <div className="tool-meta-pills">
+          <span className={`tool-status-pill ${toolState.status}`} title={toolState.message}>
+            {getStatusLabel(toolState.status)}
+          </span>
+          <span className={`risk-pill ${tool.risk}`}>{riskLabels[tool.risk]}</span>
+          {tool.requiresAdmin && <span className="admin-pill">管理员</span>}
+        </div>
+        <div className="tool-actions">
+          <button className="mini-action install" type="button" disabled={installDisabled} onClick={onInstall}>
+            <Download size={14} />
+            {getInstallButtonLabel(toolState.status)}
+          </button>
+          <button className="mini-action open" type="button" disabled={openDisabled} onClick={onLaunch}>
+            <Play size={14} />
+            {toolState.status === "opening" ? "打开中" : "打开"}
+          </button>
+          <button className="mini-action uninstall" type="button" disabled={uninstallDisabled} onClick={onUninstall}>
+            <Trash2 size={14} />
+            {toolState.status === "uninstalling" ? "卸载中" : "卸载"}
+          </button>
+          <button className="icon-button" type="button" aria-label={`打开 ${tool.name} 来源`} onClick={onOpen}>
+            <ExternalLink size={15} />
+          </button>
+        </div>
       </div>
     </article>
   );

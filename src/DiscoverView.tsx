@@ -163,13 +163,18 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
 
   return (
     <section className="discover-view">
-      <header className="topbar discover-topbar">
-        <div>
-          <p className="eyebrow">发现好项目</p>
-          <h2>GitHub 周榜 / 月榜</h2>
+      <header className="command-bar discover-topbar">
+        <div className="command-bar-title">
+          <div className="command-bar-icon discover-icon">
+            <Github size={22} />
+          </div>
+          <div>
+            <p className="eyebrow">发现好项目</p>
+            <h2>GitHub 周榜 / 月榜</h2>
+          </div>
         </div>
         <button className="primary-button" type="button" onClick={refreshTrending} disabled={status === "loading"}>
-          <RefreshCw size={16} />
+          <RefreshCw size={16} className={status === "loading" ? "spin" : ""} />
           刷新榜单
         </button>
       </header>
@@ -226,7 +231,7 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
                 <div className="repo-rank">#{index + 1}</div>
                 <div className="repo-header">
                   <img src={repo.avatarUrl ?? `https://github.com/${repo.owner}.png?size=64`} alt="" />
-                  <div>
+                  <div className="repo-title">
                     <h3>{repo.fullName}</h3>
                     <p>{repo.language ?? "Unknown"}</p>
                   </div>
@@ -241,19 +246,6 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
                     <small>{repo.description}</small>
                   )}
                 </div>
-                <div className="repo-meta">
-                  <span>
-                    <Star size={14} />
-                    {formatNumber(repo.stars)}
-                  </span>
-                  {repo.periodStars !== undefined && (
-                    <span>
-                      <Zap size={14} />
-                      +{formatNumber(repo.periodStars)}
-                    </span>
-                  )}
-                  {repo.license && <span>{repo.license}</span>}
-                </div>
                 {repo.topics.length > 0 && (
                   <div className="topic-row">
                     {repo.topics.slice(0, 4).map((topic) => (
@@ -261,18 +253,33 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
                     ))}
                   </div>
                 )}
-                <div className="repo-actions">
-                  <button className="mini-action open" type="button" onClick={() => onOpenUrl(repo.url)}>
-                    <ExternalLink size={14} />
-                    GitHub
-                  </button>
-                  <button className="mini-action" type="button" onClick={() => addCandidate(repo)}>
-                    <ShieldCheck size={14} />
-                    候选
-                  </button>
-                  <button className="icon-button" type="button" aria-label="复制 clone 命令" onClick={() => copyCloneCommand(repo)}>
-                    <Copy size={15} />
-                  </button>
+                <div className="repo-footer">
+                  <div className="repo-meta">
+                    <span>
+                      <Star size={14} />
+                      {formatNumber(repo.stars)}
+                    </span>
+                    {repo.periodStars !== undefined && (
+                      <span className="trending">
+                        <Zap size={14} />
+                        +{formatNumber(repo.periodStars)}
+                      </span>
+                    )}
+                    {repo.license && <span>{repo.license}</span>}
+                  </div>
+                  <div className="repo-actions">
+                    <button className="mini-action open" type="button" onClick={() => onOpenUrl(repo.url)}>
+                      <ExternalLink size={14} />
+                      GitHub
+                    </button>
+                    <button className="mini-action" type="button" onClick={() => addCandidate(repo)}>
+                      <ShieldCheck size={14} />
+                      候选
+                    </button>
+                    <button className="icon-button" type="button" aria-label="复制 clone 命令" onClick={() => copyCloneCommand(repo)}>
+                      <Copy size={15} />
+                    </button>
+                  </div>
                 </div>
               </article>
             ))}
