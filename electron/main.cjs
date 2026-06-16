@@ -986,18 +986,20 @@ function normalizeSettings(settings) {
     aiBaseUrl: String(settings?.aiBaseUrl ?? "").trim(),
     aiApiKey: String(settings?.aiApiKey ?? "").trim(),
     aiModel: String(settings?.aiModel ?? "").trim(),
-    themeId: normalizeThemeId(String(settings?.themeId ?? "default")),
-    themeBackgrounds: normalizeThemeBackgrounds(settings?.themeBackgrounds)
+    themeId: normalizeThemeId(String(settings?.themeId ?? "light")),
+    themeBackgrounds: normalizeThemeBackgrounds(settings?.themeBackgrounds),
+    glassOpacity: normalizeGlassOpacity(settings?.glassOpacity),
+    glassBlur: normalizeGlassBlur(settings?.glassBlur)
   };
 }
 
 function normalizeThemeId(value) {
-  const allowed = new Set(["default", "bleach", "naruto", "jianlai", "doraemon"]);
-  return allowed.has(value) ? value : "default";
+  const allowed = new Set(["light", "dark", "slate", "teal", "rose"]);
+  return allowed.has(value) ? value : "light";
 }
 
 function normalizeThemeBackgrounds(value) {
-  const allowed = new Set(["default", "bleach", "naruto", "jianlai", "doraemon"]);
+  const allowed = new Set(["light", "dark", "slate", "teal", "rose"]);
   const result = {};
 
   if (!value || typeof value !== "object") {
@@ -1011,6 +1013,22 @@ function normalizeThemeBackgrounds(value) {
   }
 
   return result;
+}
+
+function normalizeGlassOpacity(value) {
+  const num = Number(value);
+  if (Number.isNaN(num)) {
+    return 0.72;
+  }
+  return Math.max(0.3, Math.min(0.95, num));
+}
+
+function normalizeGlassBlur(value) {
+  const num = Number(value);
+  if (Number.isNaN(num)) {
+    return 28;
+  }
+  return Math.max(8, Math.min(48, Math.round(num)));
 }
 
 function ensureDirectory(targetPath) {

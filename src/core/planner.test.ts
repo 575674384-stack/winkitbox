@@ -189,10 +189,9 @@ describe("planner", () => {
     );
   });
 
-  it("builds the default selection from catalog metadata", () => {
+  it("returns an empty default selection", () => {
     const selected = getDefaultSelection(tools);
 
-    expect(selected.has("powertoys")).toBe(true);
-    expect(selected.has("bleachbit")).toBe(false);
+    expect(selected.size).toBe(0);
   });
 });

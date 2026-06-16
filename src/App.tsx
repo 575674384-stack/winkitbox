@@ -61,7 +61,7 @@ import {
   type ToolRuntimeState,
   type ToolRuntimeStates
 } from "./core/toolStatus";
-import { themeDefinitions, type ThemeId } from "./core/themes";
+import { getThemeDefinition, themeDefinitions, type ThemeId } from "./core/themes";
 import type { UpdateInfo } from "./core/update";
 
 type CategoryFilter = "all" | ToolCategory;
@@ -82,6 +82,8 @@ type ToolPathSettings = {
   aiModel: string;
   themeId: ThemeId;
   themeBackgrounds: Partial<Record<ThemeId, string>>;
+  glassOpacity: number;
+  glassBlur: number;
 };
 
 type SystemAdapter = {
@@ -171,8 +173,10 @@ const fallbackSettings: ToolPathSettings = {
   aiBaseUrl: "",
   aiApiKey: "",
   aiModel: "",
-  themeId: "default",
-  themeBackgrounds: {}
+  themeId: "light",
+  themeBackgrounds: {},
+  glassOpacity: 0.72,
+  glassBlur: 28
 };
 const releasePageUrl = "https://github.com/575674384-stack/winkitbox/releases";
 
@@ -296,15 +300,19 @@ export function App() {
       activeCategory === "all" ? allTools : allTools.filter((tool) => tool.category === activeCategory);
     return searchTools(categoryFiltered, query);
   }, [allTools, activeCategory, query]);
+  const currentTheme = useMemo(() => getThemeDefinition(settings.themeId), [settings.themeId]);
   const currentThemeBackground = settings.themeBackgrounds[settings.themeId];
   const themeStyle = useMemo(
     () =>
-      currentThemeBackground
-        ? ({
-            "--theme-background-image": `url("${currentThemeBackground.replace(/"/g, "%22")}")`
-          } as CSSProperties)
-        : undefined,
-    [currentThemeBackground]
+      ({
+        "--theme-background-image": currentThemeBackground
+          ? `url("${currentThemeBackground.replace(/"/g, "%22")}")`
+          : "none",
+        "--theme-backdrop": currentTheme.background,
+        "--glass-opacity": String(settings.glassOpacity),
+        "--glass-blur": `${settings.glassBlur}px`
+      } as CSSProperties),
+    [currentTheme, currentThemeBackground, settings.glassOpacity, settings.glassBlur]
   );
 
   useEffect(() => {
@@ -512,7 +520,9 @@ export function App() {
       aiApiKey: nextSettings.aiApiKey,
       aiModel: nextSettings.aiModel,
       themeId: nextSettings.themeId,
-      themeBackgrounds: nextSettings.themeBackgrounds
+      themeBackgrounds: nextSettings.themeBackgrounds,
+      glassOpacity: nextSettings.glassOpacity,
+      glassBlur: nextSettings.glassBlur
     });
     const normalizedSettings = {
       ...fallbackSettings,
@@ -578,11 +588,26 @@ export function App() {
   }
 
   async function saveTheme(themeId: ThemeId) {
+    const nextSettings = {
+      ...settings,
+      themeId,
+      glassOpacity: getThemeDefinition(themeId).defaultGlassOpacity,
+      glassBlur: getThemeDefinition(themeId).defaultGlassBlur
+    };
     try {
-      await persistSettings({ ...settings, themeId });
+      await persistSettings(nextSettings);
       appendLog("success", `已切换到 ${themeDefinitions.find((theme) => theme.id === themeId)?.name ?? themeId} 主题。`);
     } catch (error) {
       appendLog("error", error instanceof Error ? error.message : "保存主题失败。");
+    }
+  }
+
+  async function saveGlassSettings(glass: { glassOpacity: number; glassBlur: number }) {
+    try {
+      await persistSettings({ ...settings, ...glass });
+      appendLog("success", `毛玻璃已调整为不透明度 ${Math.round(glass.glassOpacity * 100)}%、模糊 ${glass.glassBlur}px。`);
+    } catch (error) {
+      appendLog("error", error instanceof Error ? error.message : "保存毛玻璃设置失败。");
     }
   }
 
@@ -1084,6 +1109,7 @@ export function App() {
             saveTheme={saveTheme}
             chooseThemeBackground={chooseThemeBackground}
             clearThemeBackground={clearThemeBackground}
+            saveGlassSettings={saveGlassSettings}
             onLog={appendLog}
             logs={logs}
             customTools={customTools}
@@ -1689,6 +1715,7 @@ function SettingsView({
   saveUpdateOnStartup,
   saveAiSettings,
   saveTheme,
+  saveGlassSettings,
   chooseThemeBackground,
   clearThemeBackground,
   onLog,
@@ -1714,6 +1741,7 @@ function SettingsView({
   saveTheme: (themeId: ThemeId) => Promise<void>;
   chooseThemeBackground: (themeId: ThemeId) => Promise<void>;
   clearThemeBackground: (themeId: ThemeId) => Promise<void>;
+  saveGlassSettings: (glass: { glassOpacity: number; glassBlur: number }) => Promise<void>;
   onLog: (level: LogEntry["level"], message: string) => void;
   logs: LogEntry[];
   customTools: Tool[];
@@ -1833,7 +1861,7 @@ function SettingsView({
         <section className="settings-card full-span">
           <div className="section-title">
             <Sparkles size={15} />
-            主题皮肤
+            主题与毛玻璃
           </div>
           <div className="theme-grid">
             {themeDefinitions.map((theme) => {
@@ -1842,12 +1870,18 @@ function SettingsView({
 
               return (
                 <button
-                  className={`theme-card theme-preview-${theme.id} ${active ? "active" : ""}`}
+                  className={`theme-card ${active ? "active" : ""}`}
                   key={theme.id}
                   type="button"
                   onClick={() => saveTheme(theme.id)}
                 >
-                  <span className="theme-swatch" />
+                  <span
+                    className="theme-swatch"
+                    style={{
+                      background: theme.background,
+                      borderColor: theme.accent
+                    }}
+                  />
                   <strong>{theme.name}</strong>
                   <small>{theme.description}</small>
                   {hasBackground && <em>已设置本地背景</em>}
@@ -1855,6 +1889,46 @@ function SettingsView({
               );
             })}
           </div>
+
+          <div className="glass-controls">
+            <div className="glass-slider">
+              <div className="slider-label">
+                <span>面板透明度</span>
+                <strong>{Math.round(settings.glassOpacity * 100)}%</strong>
+              </div>
+              <input
+                type="range"
+                min={30}
+                max={95}
+                value={Math.round(settings.glassOpacity * 100)}
+                onChange={(event) =>
+                  void saveGlassSettings({
+                    glassOpacity: Number(event.target.value) / 100,
+                    glassBlur: settings.glassBlur
+                  })
+                }
+              />
+            </div>
+            <div className="glass-slider">
+              <div className="slider-label">
+                <span>毛玻璃模糊</span>
+                <strong>{settings.glassBlur}px</strong>
+              </div>
+              <input
+                type="range"
+                min={8}
+                max={48}
+                value={settings.glassBlur}
+                onChange={(event) =>
+                  void saveGlassSettings({
+                    glassOpacity: settings.glassOpacity,
+                    glassBlur: Number(event.target.value)
+                  })
+                }
+              />
+            </div>
+          </div>
+
           <div className="settings-actions">
             <button className="secondary-button" type="button" onClick={() => chooseThemeBackground(settings.themeId)}>
               <Upload size={15} />
@@ -1869,7 +1943,7 @@ function SettingsView({
               <Trash2 size={15} />
               清除当前背景
             </button>
-            <span>官方角色图请在本机选择，不会写进仓库或 Release。</span>
+            <span>背景图和毛玻璃参数只保存在本机，不会写进仓库或 Release。</span>
           </div>
         </section>
 

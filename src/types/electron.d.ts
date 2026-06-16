@@ -38,6 +38,8 @@ declare global {
         aiModel: string;
         themeId: import("../core/themes").ThemeId;
         themeBackgrounds: Partial<Record<import("../core/themes").ThemeId, string>>;
+        glassOpacity: number;
+        glassBlur: number;
       }>;
       setSettings: (settings: {
         toolRootPath: string;
@@ -47,6 +49,8 @@ declare global {
         aiModel?: string;
         themeId?: import("../core/themes").ThemeId;
         themeBackgrounds?: Partial<Record<import("../core/themes").ThemeId, string>>;
+        glassOpacity?: number;
+        glassBlur?: number;
       }) => Promise<{
         toolRootPath: string;
         defaultToolRootPath: string;
@@ -56,6 +60,8 @@ declare global {
         aiModel: string;
         themeId: import("../core/themes").ThemeId;
         themeBackgrounds: Partial<Record<import("../core/themes").ThemeId, string>>;
+        glassOpacity: number;
+        glassBlur: number;
       }>;
       selectToolRoot: (currentPath?: string) => Promise<string | undefined>;
       selectLocalLauncher: (currentPath?: string) => Promise<string | undefined>;

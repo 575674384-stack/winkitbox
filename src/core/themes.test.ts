@@ -6,12 +6,12 @@ describe("theme definitions", () => {
     const ids = themeDefinitions.map((theme) => theme.id);
 
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(["default", "bleach", "naruto", "jianlai", "doraemon"]);
+    expect(ids).toEqual(["light", "dark", "slate", "teal", "rose"]);
     expect(ids.every(isThemeId)).toBe(true);
   });
 
   it("rejects unknown theme ids", () => {
-    expect(isThemeId("default")).toBe(true);
+    expect(isThemeId("light")).toBe(true);
     expect(isThemeId("official-character-pack")).toBe(false);
   });
 });

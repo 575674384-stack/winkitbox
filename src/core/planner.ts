@@ -537,6 +537,6 @@ export function searchTools(allTools: Tool[], query: string): Tool[] {
   });
 }
 
-export function getDefaultSelection(allTools: Tool[]): Set<string> {
-  return new Set(allTools.filter((tool) => tool.defaultSelected).map((tool) => tool.id));
+export function getDefaultSelection(_allTools: Tool[]): Set<string> {
+  return new Set();
 }

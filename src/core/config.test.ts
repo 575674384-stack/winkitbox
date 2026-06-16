@@ -31,7 +31,7 @@ describe("config helpers", () => {
       settings: {
         toolRootPath: "%LOCALAPPDATA%\\WinKitBox",
         updateOnStartup: true,
-        themeId: "naruto"
+        themeId: "light"
       },
       selectedToolIds: ["powertoys"],
       customTools: []
@@ -40,7 +40,7 @@ describe("config helpers", () => {
     expect(payload.length).toBeLessThan(1024 * 1024);
     const imported = parseImportedConfig(payload);
     expect(imported.selectedToolIds).toEqual(["powertoys"]);
-    expect(imported.settings.themeId).toBe("naruto");
+    expect(imported.settings.themeId).toBe("light");
   });
 
   it("drops unknown theme ids from imported configs", () => {
