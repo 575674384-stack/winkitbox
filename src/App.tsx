@@ -10,11 +10,14 @@ import {
   Gauge,
   Github,
   HardDriveDownload,
+  Inbox,
   Info,
   Keyboard,
   Laptop,
   ListChecks,
+  MonitorOff,
   Network,
+  PackageOpen,
   Play,
   Plus,
   RotateCcw,
@@ -25,7 +28,8 @@ import {
   Sparkles,
   Terminal,
   Trash2,
-  Upload
+  Upload,
+  WifiOff
 } from "lucide-react";
 import { DiscoverView } from "./DiscoverView";
 import winkitboxIconUrl from "../assets/icon/winkitbox-icon.png";
@@ -1136,21 +1140,37 @@ export function App() {
             />
           </div>
 
-          <div className="tool-grid" aria-label="Tool catalog">
-            {visibleTools.map((tool) => (
-              <ToolCard
-                key={tool.id}
-                tool={tool}
-                toolState={toolStates[tool.id] ?? { status: "unknown" }}
-                selected={selectedIds.has(tool.id)}
-                onToggle={() => toggleTool(tool.id)}
-                onInstall={() => installTool(tool)}
-                onUninstall={() => uninstallTool(tool)}
-                onLaunch={() => launchTool(tool)}
-                onOpen={() => openUrl(tool.repoUrl ?? tool.homepage)}
-              />
-            ))}
-          </div>
+          {visibleTools.length === 0 ? (
+            <EmptyState
+              icon={Search}
+              title="没有找到匹配的工具"
+              description={`当前分类和搜索词“${query || "全部"}”下没有工具，试试其他关键词或分类。`}
+              compact
+            >
+              {query && (
+                <button className="secondary-button" type="button" onClick={() => setQuery("")}>
+                  <RotateCcw size={14} />
+                  清除搜索
+                </button>
+              )}
+            </EmptyState>
+          ) : (
+            <div className="tool-grid" aria-label="Tool catalog">
+              {visibleTools.map((tool) => (
+                <ToolCard
+                  key={tool.id}
+                  tool={tool}
+                  toolState={toolStates[tool.id] ?? { status: "unknown" }}
+                  selected={selectedIds.has(tool.id)}
+                  onToggle={() => toggleTool(tool.id)}
+                  onInstall={() => installTool(tool)}
+                  onUninstall={() => uninstallTool(tool)}
+                  onLaunch={() => launchTool(tool)}
+                  onOpen={() => openUrl(tool.repoUrl ?? tool.homepage)}
+                />
+              ))}
+            </div>
+          )}
         </section>
       )}
 
@@ -1174,56 +1194,67 @@ export function App() {
             )}
           </div>
 
-          <InstallProgressCard progress={installProgress} readyCount={installPlan.readyCount} />
+          {dashboardStats.selectedCount === 0 ? (
+            <EmptyState
+              icon={PackageOpen}
+              title="还没有选择工具"
+              description="在左侧勾选想安装的软件，这里会生成对应的 PowerShell 安装计划。"
+              compact
+            />
+          ) : (
+            <>
+              <InstallProgressCard progress={installProgress} readyCount={installPlan.readyCount} />
 
-          <div className="command-preview">
-            <pre>{script}</pre>
-          </div>
+              <div className="command-preview">
+                <pre>{script}</pre>
+              </div>
 
-          <div className="plan-actions">
-            <button
-              className="primary-button"
-              type="button"
-              disabled={isRunning || installPlan.readyCount === 0}
-              onClick={runInstallPlan}
-            >
-              <Play size={16} />
-              执行安装
-            </button>
-            <button
-              className="secondary-button danger"
-              type="button"
-              disabled={isRunning || uninstallPlan.readyCount === 0}
-              onClick={runUninstallPlan}
-            >
-              <Trash2 size={16} />
-              卸载已选
-            </button>
-          </div>
+              <div className="plan-actions">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={isRunning || installPlan.readyCount === 0}
+                  onClick={runInstallPlan}
+                >
+                  <Play size={16} />
+                  执行安装
+                </button>
+                <button
+                  className="secondary-button danger"
+                  type="button"
+                  disabled={isRunning || uninstallPlan.readyCount === 0}
+                  onClick={runUninstallPlan}
+                >
+                  <Trash2 size={16} />
+                  卸载已选
+                </button>
+              </div>
 
-          <div className="manual-list">
-            <div className="section-title">
-              <ExternalLink size={15} />
-              手动来源
-            </div>
-            {installPlan.commands.filter((item) => item.manualUrl).length === 0 ? (
-              <p className="empty-text">当前没有手动下载项。</p>
-            ) : (
-              installPlan.commands
-                .filter((item) => item.manualUrl)
-                .map((item) => (
-                  <button
-                    className="manual-link"
-                    key={item.toolId}
-                    type="button"
-                    onClick={() => openUrl(item.manualUrl!)}
-                  >
-                    {item.label}
-                    <ExternalLink size={14} />
-                  </button>
-                ))
-            )}
-          </div>
+              <div className="manual-list">
+                <div className="section-title">
+                  <ExternalLink size={15} />
+                  手动来源
+                </div>
+                {installPlan.commands.filter((item) => item.manualUrl).length === 0 ? (
+                  <p className="empty-text">当前没有手动下载项。</p>
+                ) : (
+                  installPlan.commands
+                    .filter((item) => item.manualUrl)
+                    .map((item) => (
+                      <button
+                        className="manual-link"
+                        key={item.toolId}
+                        type="button"
+                        onClick={() => openUrl(item.manualUrl!)}
+                      >
+                        {item.label}
+                        <ExternalLink size={14} />
+                      </button>
+                    ))
+                )}
+              </div>
+            </>
+          )}
         </aside>
       )}
     </main>
@@ -1256,11 +1287,25 @@ function InstallProgressCard({
       ? `${progress.completed}/${progress.total} 完成 · 成功 ${progress.succeeded} · 失败 ${progress.failed}`
       : `${readyCount} ${idleText}`;
 
+  const steps = action === "uninstall" ? ["等待", "检测", "卸载", "完成"] : ["等待", "检测", "安装", "完成"];
+  const stepIndex = finished ? 3 : progress.active ? 2 : readyCount > 0 ? 1 : 0;
+
   return (
     <div className={`install-progress-card ${progress.active ? "active" : ""}`}>
       <div className="progress-head">
         <span>{title}</span>
         <strong>{percent}%</strong>
+      </div>
+      <div className="progress-stepper" aria-label="安装阶段">
+        {steps.map((label, index) => (
+          <div
+            className={`progress-step ${index < stepIndex ? "completed" : ""} ${index === stepIndex ? "active" : ""}`}
+            key={label}
+          >
+            <div className="progress-step-dot">{index < stepIndex ? <Check size={14} /> : index + 1}</div>
+            <span className="progress-step-label">{label}</span>
+          </div>
+        ))}
       </div>
       <div className="progress-track" aria-label="安装进度">
         <div className="progress-fill" style={{ width: `${percent}%` }} />
@@ -1288,6 +1333,31 @@ function Metric({
         {Icon && <Icon size={16} />}
       </div>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+  children,
+  compact = false
+}: {
+  icon: typeof Inbox;
+  title: string;
+  description: string;
+  children?: React.ReactNode;
+  compact?: boolean;
+}) {
+  return (
+    <div className={`empty-state ${compact ? "empty-state-compact" : ""}`}>
+      <div className="empty-state-icon">
+        <Icon size={compact ? 22 : 28} />
+      </div>
+      <h4>{title}</h4>
+      <p>{description}</p>
+      {children}
     </div>
   );
 }
@@ -1477,7 +1547,14 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
                 <small>{adapter.status} · {adapter.dhcpEnabled ? "DHCP" : "静态"}</small>
               </button>
             ))}
-            {!info?.adapters?.length && <p className="empty-text">还没有读取到可配置网卡。</p>}
+            {!info?.adapters?.length && (
+              <EmptyState
+                icon={MonitorOff}
+                title="还没有读取到网卡"
+                description="点击右上角“刷新配置”按钮读取本机网卡信息。"
+                compact
+              />
+            )}
           </div>
         </section>
 
@@ -1973,6 +2050,11 @@ function SettingsView({
   );
 }
 
+function getToolPlaceholder(tool: Tool) {
+  const first = tool.name.trim().slice(0, 1);
+  return first || "?";
+}
+
 function describeCustomTool(tool: Tool) {
   if (tool.wingetId) {
     return `winget · ${tool.wingetId}`;
@@ -2037,7 +2119,7 @@ function ToolCard({
           {logoUrl && !logoFailed ? (
             <img className="tool-logo" src={logoUrl} alt="" onError={() => setLogoFailed(true)} />
           ) : (
-            <Icon size={18} />
+            <div className={`tool-logo-placeholder ${tool.category}`}>{getToolPlaceholder(tool)}</div>
           )}
         </div>
         <div>

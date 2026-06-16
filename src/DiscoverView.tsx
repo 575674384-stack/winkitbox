@@ -5,11 +5,13 @@ import {
   ExternalLink,
   Github,
   Globe2,
+  Inbox,
   Languages,
   RefreshCw,
   Search,
   ShieldCheck,
   Star,
+  WifiOff,
   Zap
 } from "lucide-react";
 import {
@@ -225,35 +227,52 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
             {fetchedAt && <strong>{fetchedAt}</strong>}
           </div>
 
-          <div className="repo-grid">
-            {filteredRepos.map((repo, index) => (
-              <article className="repo-card" key={repo.fullName}>
-                <div className="repo-rank">#{index + 1}</div>
-                <div className="repo-header">
-                  <img src={repo.avatarUrl ?? `https://github.com/${repo.owner}.png?size=64`} alt="" />
-                  <div className="repo-title">
-                    <h3>{repo.fullName}</h3>
-                    <p>{repo.language ?? "Unknown"}</p>
+          {filteredRepos.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon">
+                {status === "error" ? <WifiOff size={28} /> : <Inbox size={28} />}
+              </div>
+              <h4>{status === "error" ? "无法获取 GitHub 榜单" : "没有匹配的项目"}</h4>
+              <p>
+                {status === "error"
+                  ? "可能是网络或代理问题，可以尝试切换代理模式后重新刷新。"
+                  : "当前筛选和搜索条件下没有项目，试试其他语言或清除搜索。"}
+              </p>
+              <button className="secondary-button" type="button" onClick={refreshTrending} disabled={status === "loading"}>
+                <RefreshCw size={14} className={status === "loading" ? "spin" : ""} />
+                刷新榜单
+              </button>
+            </div>
+          ) : (
+            <div className="repo-grid">
+              {filteredRepos.map((repo, index) => (
+                <article className="repo-card" key={repo.fullName}>
+                  <div className="repo-rank">#{index + 1}</div>
+                  <div className="repo-header">
+                    <img src={repo.avatarUrl ?? `https://github.com/${repo.owner}.png?size=64`} alt="" />
+                    <div className="repo-title">
+                      <h3>{repo.fullName}</h3>
+                      <p>{repo.language ?? "Unknown"}</p>
+                    </div>
                   </div>
-                </div>
-                <div className="repo-description">
-                  <p>
-                    {(translateDescriptions && repo.translatedDescription) ||
-                      repo.description ||
-                      "这个项目没有填写简介。"}
-                  </p>
-                  {translateDescriptions && repo.translatedDescription && repo.description && (
-                    <small>{repo.description}</small>
+                  <div className="repo-description">
+                    <p>
+                      {(translateDescriptions && repo.translatedDescription) ||
+                        repo.description ||
+                        "这个项目没有填写简介。"}
+                    </p>
+                    {translateDescriptions && repo.translatedDescription && repo.description && (
+                      <small>{repo.description}</small>
+                    )}
+                  </div>
+                  {repo.topics.length > 0 && (
+                    <div className="topic-row">
+                      {repo.topics.slice(0, 4).map((topic) => (
+                        <span key={topic}>{topic}</span>
+                      ))}
+                    </div>
                   )}
-                </div>
-                {repo.topics.length > 0 && (
-                  <div className="topic-row">
-                    {repo.topics.slice(0, 4).map((topic) => (
-                      <span key={topic}>{topic}</span>
-                    ))}
-                  </div>
-                )}
-                <div className="repo-footer">
+                  <div className="repo-footer">
                   <div className="repo-meta">
                     <span>
                       <Star size={14} />
@@ -284,6 +303,7 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
               </article>
             ))}
           </div>
+          )}
         </div>
 
         <aside className="network-panel">
