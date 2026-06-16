@@ -59,24 +59,24 @@ describe("launcher", () => {
 
   it("falls back to the tool name for start menu lookup", () => {
     const tool = {
-      ...tools.find((item) => item.id === "nofences")!,
+      ...tools.find((item) => item.id === "fenceless")!,
       launch: undefined
     };
 
-    expect(createLaunchDescriptor(tool).startMenuNames).toEqual(["NoFences"]);
+    expect(createLaunchDescriptor(tool).startMenuNames).toEqual(["Fenceless"]);
   });
 
   it("uses explicit logos before favicon fallback", () => {
     const powertoys = tools.find((tool) => tool.id === "powertoys");
-    const sharex = tools.find((tool) => tool.id === "sharex");
+    const localsend = tools.find((tool) => tool.id === "localsend");
 
     expect(getToolLogoUrl(powertoys!)).toContain("2020%20PowerToys%20Icon.svg");
-    expect(getToolLogoUrl(sharex!)).toBe("https://icons.duckduckgo.com/ip3/getsharex.com.ico");
+    expect(getToolLogoUrl(localsend!)).toBe("https://icons.duckduckgo.com/ip3/localsend.org.ico");
   });
 
   it("uses GitHub owner avatars for GitHub-only projects", () => {
-    const quicklook = tools.find((tool) => tool.id === "quicklook");
+    const pai = tools.find((tool) => tool.id === "p-ai");
 
-    expect(getToolLogoUrl(quicklook!)).toBe("https://github.com/QL-Win.png?size=64");
+    expect(getToolLogoUrl(pai!)).toBe("https://github.com/kawayiYokami.png?size=64");
   });
 });

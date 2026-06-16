@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildSearchApiUrl, buildTrendingUrl, mapSearchApiItems, parseTrendingHtml } from "./github";
+import {
+  buildSearchApiUrl,
+  buildTrendingUrl,
+  filterWindowsRepos,
+  mapSearchApiItems,
+  parseTrendingHtml
+} from "./github";
 
 describe("github discovery", () => {
   it("builds GitHub Trending URLs for range and language", () => {
@@ -15,6 +21,8 @@ describe("github discovery", () => {
     );
 
     expect(url).toContain("stars:>50 pushed:>=2026-06-03");
+    expect(url).toContain("windows");
+    expect(url).toContain("desktop");
     expect(url).toContain("language:python");
     expect(url).toContain("sort=stars");
   });
@@ -75,5 +83,34 @@ describe("github discovery", () => {
       license: "MIT",
       topics: ["windows", "tools"]
     });
+  });
+
+  it("filters discovery results to likely Windows applications", () => {
+    const repos = filterWindowsRepos([
+      {
+        id: "one",
+        owner: "sample",
+        name: "win-tool",
+        fullName: "sample/win-tool",
+        url: "https://github.com/sample/win-tool",
+        description: "Windows desktop utility",
+        language: "C#",
+        stars: 100,
+        topics: ["windows", "desktop-app"]
+      },
+      {
+        id: "two",
+        owner: "sample",
+        name: "linux-tool",
+        fullName: "sample/linux-tool",
+        url: "https://github.com/sample/linux-tool",
+        description: "Linux daemon",
+        language: "Go",
+        stars: 100,
+        topics: ["linux"]
+      }
+    ]);
+
+    expect(repos.map((repo) => repo.fullName)).toEqual(["sample/win-tool"]);
   });
 });

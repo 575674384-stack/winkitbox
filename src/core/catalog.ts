@@ -6,9 +6,11 @@ export type ToolCategory =
   | "cleanup"
   | "desktop"
   | "network"
-  | "rescue";
+  | "rescue"
+  | "ai"
+  | "ime";
 
-export type ToolSource = "winget" | "scoop" | "github" | "store" | "website" | "builtin";
+export type ToolSource = "winget" | "scoop" | "github" | "store" | "website" | "builtin" | "custom";
 
 export type RiskLevel = "low" | "medium" | "high";
 
@@ -44,6 +46,8 @@ export type Tool = {
     fileName: string;
     args?: string[];
   };
+  customInstallCommand?: string;
+  customUninstallCommand?: string;
   launch?: {
     appUserModelIds?: string[];
     startMenuNames?: string[];
@@ -70,10 +74,12 @@ export const categoryLabels: Record<ToolCategory, string> = {
   cleanup: "卸载清理",
   desktop: "桌面整理",
   network: "网络同步",
-  rescue: "维护急救"
+  rescue: "维护急救",
+  ai: "AI 应用",
+  ime: "输入法"
 };
 
-export const tools: Tool[] = [
+const baseTools: Tool[] = [
   {
     id: "powertoys",
     name: "PowerToys",
@@ -465,8 +471,8 @@ export const tools: Tool[] = [
     id: "fenceless",
     name: "Fenceless",
     category: "desktop",
-    summary: "NoFences 改进分支",
-    description: "便携式桌面图标容器工具，带透明度、隐藏和热键能力。",
+    summary: "轻量桌面图标容器",
+    description: "便携式桌面图标收纳工具，带透明度、隐藏和热键能力。",
     source: "github",
     license: "MIT",
     homepage: "https://github.com/Damianttje/Fenceless",
@@ -681,43 +687,235 @@ export const tools: Tool[] = [
   }
 ];
 
-export const presets: Preset[] = [
+const removedToolIds = new Set(["quicklook", "notepad-plus-plus", "sharex", "nofences"]);
+
+const additionalTools: Tool[] = [
   {
-    id: "fresh-pc",
-    name: "新电脑必装",
-    description: "换电脑后最先恢复的一组常用工具。",
-    toolIds: [
-      "powertoys",
-      "terminal",
-      "powershell",
-      "unigetui",
-      "localsend",
-      "sharex",
-      "flow-launcher",
-      "files",
-      "quicklook",
-      "nanazip",
-      "free-download-manager",
-      "sumatrapdf",
-      "notepad-plus-plus"
-    ]
+    id: "openai-codex",
+    name: "Codex",
+    category: "ai",
+    summary: "OpenAI 官方编码代理 CLI",
+    description: "运行在终端里的本地编码代理，适合在项目目录里读代码、改代码和跑测试。",
+    source: "github",
+    license: "Apache-2.0",
+    stars: 47200,
+    homepage: "https://github.com/openai/codex",
+    repoUrl: "https://github.com/openai/codex",
+    customInstallCommand:
+      "& { $ErrorActionPreference = 'Stop'; powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\"; $global:LASTEXITCODE = $LASTEXITCODE }",
+    customUninstallCommand:
+      "& { if (Get-Command npm -ErrorAction SilentlyContinue) { npm uninstall -g @openai/codex }; $global:LASTEXITCODE = 0 }",
+    launch: {
+      startMenuNames: ["Codex"],
+      commands: ["codex.exe", "codex"]
+    },
+    tags: ["AI", "开发", "CLI"],
+    risk: "medium"
   },
   {
-    id: "open-source",
-    name: "开源优先",
-    description: "优先选择 GitHub 可验证项目。",
-    toolIds: tools.filter((tool) => tool.repoUrl && tool.license !== "Freeware").map((tool) => tool.id)
+    id: "cc-switch",
+    name: "CC Switch",
+    category: "ai",
+    summary: "AI CLI 配置和服务商切换工具",
+    description: "统一管理 Claude Code、Codex、Gemini CLI 等工具的配置、代理和提供商。",
+    source: "github",
+    license: "GPL-3.0",
+    stars: 2000,
+    homepage: "https://github.com/farion1231/cc-switch",
+    repoUrl: "https://github.com/farion1231/cc-switch",
+    installer: {
+      releaseApiUrl: "https://api.github.com/repos/farion1231/cc-switch/releases/latest",
+      assetPattern: "^CC-Switch-v.*-Windows\\.msi$",
+      targetDirName: "cc-switch",
+      fileName: "CC-Switch-Windows.msi"
+    },
+    launch: {
+      startMenuNames: ["CC Switch", "CC-Switch"],
+      commands: ["CC-Switch.exe"]
+    },
+    tags: ["AI", "Claude", "Codex", "配置"],
+    risk: "medium"
   },
   {
-    id: "cleanup",
-    name: "卸载清理",
-    description: "卸载、残留、重复文件和缓存清理。",
-    toolIds: ["geek", "bcuninstaller", "czkawka", "bleachbit"]
+    id: "codex-plus-plus",
+    name: "Codex++",
+    category: "ai",
+    summary: "Codex 增强工具",
+    description: "给 Codex 桌面体验增加管理、增强、修复和用户脚本能力。",
+    source: "github",
+    license: "Unknown",
+    stars: 1500,
+    homepage: "https://github.com/BigPizzaV3/CodexPlusPlus",
+    repoUrl: "https://github.com/BigPizzaV3/CodexPlusPlus",
+    installer: {
+      releaseApiUrl: "https://api.github.com/repos/BigPizzaV3/CodexPlusPlus/releases/latest",
+      assetPattern: "^CodexPlusPlus-.*-windows-x64-setup\\.exe$",
+      targetDirName: "codex-plus-plus",
+      fileName: "CodexPlusPlusSetup.exe"
+    },
+    launch: {
+      startMenuNames: ["Codex++", "Codex++ 管理工具"],
+      commands: ["CodexPlusPlus.exe", "Codex++.exe"]
+    },
+    tags: ["AI", "Codex", "增强"],
+    risk: "medium"
   },
   {
-    id: "desktop",
-    name: "桌面整理",
-    description: "桌面收纳和文件区域整理。",
-    toolIds: ["portals", "nofences", "fenceless", "coodesker"]
+    id: "p-ai",
+    name: "P-ai",
+    category: "ai",
+    summary: "AI 工具桌面端",
+    description: "开源 AI 桌面应用，提供本地化的 AI 工作流入口。",
+    source: "github",
+    license: "Unknown",
+    stars: 700,
+    homepage: "https://github.com/kawayiYokami/P-ai",
+    repoUrl: "https://github.com/kawayiYokami/P-ai",
+    installer: {
+      releaseApiUrl: "https://api.github.com/repos/kawayiYokami/P-ai/releases/latest",
+      assetPattern: "^P-ai_.*_x64-setup\\.exe$",
+      targetDirName: "p-ai",
+      fileName: "P-aiSetup.exe"
+    },
+    launch: {
+      startMenuNames: ["P-ai", "P AI"],
+      commands: ["P-ai.exe"]
+    },
+    tags: ["AI", "桌面端", "开源"],
+    risk: "medium"
+  },
+  {
+    id: "wechat-input",
+    name: "微信输入法",
+    category: "ime",
+    summary: "微信官方中文输入法",
+    description: "腾讯微信团队出品的中文输入法，适合需要微信词库和跨端体验的人。",
+    source: "winget",
+    license: "Freeware",
+    homepage: "https://z.weixin.qq.com/",
+    wingetId: "Tencent.WeType",
+    launch: {
+      startMenuNames: ["微信输入法", "WeType"],
+      commands: ["WeType.exe"]
+    },
+    tags: ["输入法", "中文", "微信"],
+    risk: "medium"
+  },
+  {
+    id: "rime-weasel",
+    name: "小狼毫 Weasel",
+    category: "ime",
+    summary: "Rime 官方 Windows 输入法",
+    description: "基于 Rime 引擎的开源中文输入法，支持拼音、双拼、五笔、仓颉等方案。",
+    source: "winget",
+    license: "GPL-3.0",
+    stars: 7200,
+    homepage: "https://rime.im/",
+    repoUrl: "https://github.com/rime/weasel",
+    wingetId: "Rime.Weasel",
+    launch: {
+      startMenuNames: ["小狼毫", "Weasel", "Rime"],
+      commands: ["WeaselDeployer.exe", "WeaselServer.exe"]
+    },
+    tags: ["输入法", "Rime", "开源"],
+    risk: "low"
+  },
+  {
+    id: "pime",
+    name: "PIME",
+    category: "ime",
+    summary: "Windows TSF 输入法框架",
+    description: "开源 Windows 输入法框架，适合体验或开发基于 Python/Node 的输入法。",
+    source: "github",
+    license: "LGPL-2.1",
+    stars: 1700,
+    homepage: "https://github.com/EasyIME/PIME",
+    repoUrl: "https://github.com/EasyIME/PIME",
+    installer: {
+      releaseApiUrl: "https://api.github.com/repos/EasyIME/PIME/releases/latest",
+      assetPattern: "^PIME-.*-setup\\.exe$",
+      targetDirName: "pime",
+      fileName: "PIMESetup.exe"
+    },
+    launch: {
+      startMenuNames: ["PIME"],
+      commands: ["PIME.exe"]
+    },
+    tags: ["输入法", "TSF", "开源"],
+    risk: "medium"
+  },
+  {
+    id: "windows-chewing",
+    name: "Windows Chewing",
+    category: "ime",
+    summary: "新酷音 Windows 注音输入法",
+    description: "基于 Text Services Framework 的开源注音输入法，适合繁体中文注音用户。",
+    source: "github",
+    license: "GPL-3.0",
+    stars: 242,
+    homepage: "https://github.com/chewing/windows-chewing-tsf",
+    repoUrl: "https://github.com/chewing/windows-chewing-tsf",
+    installer: {
+      releaseApiUrl: "https://api.github.com/repos/chewing/windows-chewing-tsf/releases/latest",
+      assetPattern: "^windows-chewing-tsf-.*-installer\\.msi$",
+      targetDirName: "windows-chewing",
+      fileName: "WindowsChewing.msi"
+    },
+    launch: {
+      startMenuNames: ["Chewing", "新酷音"],
+      commands: []
+    },
+    tags: ["输入法", "注音", "开源"],
+    risk: "medium"
+  },
+  {
+    id: "wise-registry-cleaner",
+    name: "Wise Registry Cleaner",
+    category: "cleanup",
+    summary: "注册表清理和优化",
+    description: "用于扫描和清理无效注册表项。建议先创建还原点，再执行清理。",
+    source: "winget",
+    license: "Freeware",
+    homepage: "https://www.wisecleaner.com/wise-registry-cleaner.html",
+    wingetId: "WiseCleaner.WiseRegistryCleaner",
+    launch: {
+      startMenuNames: ["Wise Registry Cleaner"],
+      commands: ["WiseRegCleaner.exe"]
+    },
+    tags: ["注册表", "清理", "优化"],
+    risk: "high"
+  },
+  {
+    id: "zyperwin",
+    name: "ZyperWin++",
+    category: "system",
+    summary: "开源 Windows 优化工具",
+    description: "面向 Windows 7-11 的系统优化、服务优化、垃圾清理和维护工具。",
+    source: "github",
+    license: "GPL-3.0",
+    stars: 7900,
+    homepage: "https://github.com/ZyperWave/ZyperWinOptimize",
+    repoUrl: "https://github.com/ZyperWave/ZyperWinOptimize",
+    portable: {
+      releaseApiUrl: "https://api.github.com/repos/ZyperWave/ZyperWinOptimize/releases/latest",
+      assetPattern: "^ZyperWin\\+\\+.*\\.zip$",
+      targetDirName: "zyperwin",
+      archive: "zip",
+      executable: "ZyperWin++.exe"
+    },
+    launch: {
+      startMenuNames: ["ZyperWin++", "ZyperWin"],
+      commands: ["ZyperWin++.exe"]
+    },
+    tags: ["系统优化", "清理", "开源"],
+    requiresAdmin: true,
+    risk: "high"
   }
 ];
+
+export const tools: Tool[] = [
+  ...baseTools.filter((tool) => !removedToolIds.has(tool.id)),
+  ...additionalTools
+];
+
+export const presets: Preset[] = [];

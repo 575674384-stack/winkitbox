@@ -32,6 +32,13 @@ export function buildInstallCommand(tool: Tool, options: InstallOptions = {}): I
     risk: tool.risk
   };
 
+  if (tool.customInstallCommand) {
+    return {
+      ...base,
+      command: tool.customInstallCommand
+    };
+  }
+
   if (tool.portable) {
     return {
       ...base,
@@ -74,6 +81,13 @@ export function buildUninstallCommand(tool: Tool, options: InstallOptions = {}):
     requiresAdmin: Boolean(tool.requiresAdmin),
     risk: tool.risk
   };
+
+  if (tool.customUninstallCommand) {
+    return {
+      ...base,
+      command: tool.customUninstallCommand
+    };
+  }
 
   if (tool.portable) {
     return {

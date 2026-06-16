@@ -16,6 +16,7 @@ import {
   buildSearchApiUrl,
   buildTrendingUrl,
   discoverLanguages,
+  filterWindowsRepos,
   mapSearchApiItems,
   parseTrendingHtml,
   type GitHubRange,
@@ -83,7 +84,7 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
     setMessage("正在访问 GitHub。");
 
     try {
-      let nextRepos = await fetchTrendingRepos(range, language, settings);
+      let nextRepos = filterWindowsRepos(await fetchTrendingRepos(range, language, settings));
 
       if (translateDescriptions) {
         setMessage("正在翻译项目简介。");
@@ -96,8 +97,8 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
       setMessage(
         [
           window.winKitBox
-            ? "已从 GitHub Trending 实时更新。"
-            : "浏览器预览使用 GitHub API 备用查询；桌面版支持 Trending 和代理。",
+            ? "已从 GitHub 实时更新，仅显示 Windows 应用相关项目。"
+            : "浏览器预览使用 GitHub API 查询；桌面版支持代理。",
           translateDescriptions ? "项目简介已自动翻译为中文。" : ""
         ]
           .filter(Boolean)
@@ -339,17 +340,6 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
 }
 
 async function fetchTrendingRepos(range: GitHubRange, language: string, settings: ProxySettings) {
-  if (window.winKitBox) {
-    const response = await fetchGitHubText(buildTrendingUrl(range, language), settings);
-    const repos = parseTrendingHtml(response.text);
-
-    if (repos.length === 0) {
-      throw new Error("GitHub Trending 返回为空。");
-    }
-
-    return repos;
-  }
-
   const response = await fetchGitHubText(buildSearchApiUrl(range, language), settings);
   return mapSearchApiItems(JSON.parse(response.text));
 }

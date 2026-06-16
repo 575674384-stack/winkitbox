@@ -45,14 +45,14 @@ describe("planner", () => {
   });
 
   it("builds release asset commands for GitHub portable tools", () => {
-    const nofences = tools.find((tool) => tool.id === "nofences");
-    const command = buildInstallCommand(nofences!);
+    const zyperwin = tools.find((tool) => tool.id === "zyperwin");
+    const command = buildInstallCommand(zyperwin!);
 
-    expect(nofences).toBeDefined();
-    expect(command.command).toContain("https://api.github.com/repos/Twometer/NoFences/releases/latest");
-    expect(command.command).toContain("^NoFences\\.exe$");
-    expect(command.command).toContain("$targetDir = Join-Path $toolRoot 'nofences'");
-    expect(command.command).toContain("NoFences.exe");
+    expect(zyperwin).toBeDefined();
+    expect(command.command).toContain("https://api.github.com/repos/ZyperWave/ZyperWinOptimize/releases/latest");
+    expect(command.command).toContain("^ZyperWin\\+\\+.*\\.zip$");
+    expect(command.command).toContain("$targetDir = Join-Path $toolRoot 'zyperwin'");
+    expect(command.command).toContain("ZyperWin++.exe");
     expect(command.manualUrl).toBeUndefined();
   });
 
@@ -182,9 +182,11 @@ describe("planner", () => {
 
   it("searches by name, tag, and description text", () => {
     expect(searchTools(tools, "桌面整理").map((tool) => tool.id)).toEqual(
-      expect.arrayContaining(["portals", "nofences", "fenceless", "coodesker"])
+      expect.arrayContaining(["portals", "fenceless", "coodesker"])
     );
-    expect(searchTools(tools, "OCR").map((tool) => tool.id)).toContain("sharex");
+    expect(searchTools(tools, "输入法").map((tool) => tool.id)).toEqual(
+      expect.arrayContaining(["wechat-input", "rime-weasel", "pime"])
+    );
   });
 
   it("builds the default selection from catalog metadata", () => {

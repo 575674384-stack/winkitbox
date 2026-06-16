@@ -45,8 +45,42 @@ export function buildSearchApiUrl(range: GitHubRange, language = "", now = new D
   const since = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
   const date = since.toISOString().slice(0, 10);
   const languageQuery = language ? ` language:${decodeURIComponent(language)}` : "";
-  const query = `stars:>50 pushed:>=${date}${languageQuery}`;
+  const query = `windows desktop app stars:>50 pushed:>=${date}${languageQuery}`;
   return `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=stars&order=desc&per_page=25`;
+}
+
+export function filterWindowsRepos(repos: GitHubRepo[]) {
+  return repos.filter((repo) => {
+    const haystack = [
+      repo.name,
+      repo.fullName,
+      repo.description,
+      repo.language,
+      ...repo.topics
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    const positiveSignals = [
+      "windows",
+      "win32",
+      "winui",
+      "wpf",
+      "desktop",
+      "desktop-app",
+      "electron",
+      "tauri",
+      "dotnet",
+      ".net",
+      "c#",
+      "powershell"
+    ];
+    const negativeSignals = ["android", "ios", "linux-only", "macos-only", "server", "kernel"];
+
+    return positiveSignals.some((signal) => haystack.includes(signal)) &&
+      !negativeSignals.some((signal) => haystack.includes(signal));
+  });
 }
 
 export function parseTrendingHtml(html: string): GitHubRepo[] {

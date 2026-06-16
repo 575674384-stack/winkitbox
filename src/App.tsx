@@ -1,31 +1,44 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Check,
-  Clipboard,
+  Cpu,
   Download,
+  DownloadCloud,
   ExternalLink,
   Filter,
   FolderKanban,
+  Gauge,
   Github,
   HardDriveDownload,
   Info,
+  Keyboard,
+  Laptop,
   ListChecks,
+  Network,
   Play,
+  Plus,
   RotateCcw,
+  Save,
   Search,
+  Settings,
   ShieldAlert,
   Sparkles,
   Terminal,
-  Trash2
+  Trash2,
+  Upload
 } from "lucide-react";
 import { DiscoverView } from "./DiscoverView";
 import winkitboxIconUrl from "../assets/icon/winkitbox-icon.png";
-import { categoryLabels, presets, tools, type Tool, type ToolCategory } from "./core/catalog";
+import { categoryLabels, tools as catalogTools, type Tool, type ToolCategory } from "./core/catalog";
+import { createAiGeneratedTool, type AiToolCandidate, type AiToolGitHubContext } from "./core/aiTool";
+import { buildExportConfig, parseImportedConfig } from "./core/config";
 import { createDashboardStats } from "./core/dashboardStats";
 import { createLaunchDescriptor, getToolLogoUrl } from "./core/launcher";
+import { flattenDnsServers, formatDnsServers, publicDnsProviders, rankDnsResults, type DnsLatencyResult } from "./core/network";
 import {
   buildInstallCommand,
   buildPowerShellScript,
+  buildUninstallCommand,
   buildUninstallPowerShellScript,
   createInstallPlan,
   createUninstallPlan,
@@ -47,7 +60,7 @@ import {
 import type { UpdateInfo } from "./core/update";
 
 type CategoryFilter = "all" | ToolCategory;
-type ActiveView = "catalog" | "discover";
+type ActiveView = "catalog" | "discover" | "system" | "settings";
 
 type LogEntry = {
   id: number;
@@ -58,11 +71,51 @@ type LogEntry = {
 type ToolPathSettings = {
   toolRootPath: string;
   defaultToolRootPath: string;
+  updateOnStartup: boolean;
+  aiBaseUrl: string;
+  aiApiKey: string;
+  aiModel: string;
+};
+
+type SystemAdapter = {
+  id: string;
+  name: string;
+  description: string;
+  status: string;
+  macAddress: string;
+  dhcpEnabled: boolean;
+  ipv4: {
+    address: string;
+    prefixLength: number;
+  }[];
+  gateway: string;
+  dnsServers: string[];
+};
+
+type SystemInfo = {
+  computerName: string;
+  os: {
+    caption: string;
+    version: string;
+    buildNumber: string;
+  };
+  cpu: string;
+  memoryGb: number;
+  adapters: SystemAdapter[];
+};
+
+type NetworkForm = {
+  ipAddress: string;
+  prefixLength: string;
+  gateway: string;
+  dnsServers: string;
 };
 
 const categoryOrder: CategoryFilter[] = [
   "all",
   "starter",
+  "ai",
+  "ime",
   "system",
   "files",
   "capture",
@@ -78,7 +131,8 @@ const sourceLabels: Record<Tool["source"], string> = {
   github: "GitHub",
   store: "Store",
   website: "官网",
-  builtin: "内置"
+  builtin: "内置",
+  custom: "自定义"
 };
 
 const riskLabels: Record<Tool["risk"], string> = {
@@ -89,9 +143,11 @@ const riskLabels: Record<Tool["risk"], string> = {
 
 const categoryIcons: Record<ToolCategory, typeof Download> = {
   starter: Sparkles,
+  ai: Cpu,
+  ime: Keyboard,
   system: Terminal,
   files: FolderKanban,
-  capture: Clipboard,
+  capture: DownloadCloud,
   cleanup: Trash2,
   desktop: ListChecks,
   network: HardDriveDownload,
@@ -100,9 +156,14 @@ const categoryIcons: Record<ToolCategory, typeof Download> = {
 
 let logCounter = 0;
 const selectionStorageKey = "winkitbox:selected-tools:v1";
+const customToolsStorageKey = "winkitbox:custom-tools:v1";
 const fallbackSettings: ToolPathSettings = {
   toolRootPath: "%LOCALAPPDATA%\\WinKitBox",
-  defaultToolRootPath: "%LOCALAPPDATA%\\WinKitBox"
+  defaultToolRootPath: "%LOCALAPPDATA%\\WinKitBox",
+  updateOnStartup: true,
+  aiBaseUrl: "",
+  aiApiKey: "",
+  aiModel: ""
 };
 const releasePageUrl = "https://github.com/575674384-stack/winkitbox/releases";
 
@@ -122,10 +183,39 @@ function formatStars(stars?: number) {
   return `${stars}`;
 }
 
+function loadCustomTools(): Tool[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(customToolsStorageKey) || "[]");
+    return Array.isArray(parsed) ? parsed.filter(isStoredTool) : [];
+  } catch {
+    return [];
+  }
+}
+
+function isStoredTool(value: unknown): value is Tool {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Tool).id === "string" &&
+    typeof (value as Tool).name === "string" &&
+    typeof (value as Tool).category === "string" &&
+    typeof (value as Tool).customInstallCommand === "string"
+  );
+}
+
+function parseDnsText(value: string) {
+  return value
+    .split(/[,，\s]+/)
+    .map((server) => server.trim())
+    .filter(Boolean);
+}
+
 export function App() {
+  const [customTools, setCustomTools] = useState<Tool[]>(() => loadCustomTools());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
-    const fallback = getDefaultSelection(tools);
-    const knownIds = new Set(tools.map((tool) => tool.id));
+    const initialTools = [...catalogTools, ...loadCustomTools()];
+    const fallback = getDefaultSelection(initialTools);
+    const knownIds = new Set(initialTools.map((tool) => tool.id));
     const stored = localStorage.getItem(selectionStorageKey);
 
     if (!stored) {
@@ -147,7 +237,7 @@ export function App() {
     {
       id: ++logCounter,
       level: "info",
-      message: "WinKitBox 已就绪。先预览安装计划，再决定是否执行。"
+      message: "WinKitBox 已就绪。安装、打开、卸载都会自动刷新状态。"
     }
   ]);
   const [isRunning, setIsRunning] = useState(false);
@@ -158,63 +248,71 @@ export function App() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo>();
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
+  const allTools = useMemo(() => [...catalogTools, ...customTools], [customTools]);
   const plannerOptions = useMemo(
     () => ({ managedRootPath: settings.toolRootPath }),
     [settings.toolRootPath]
   );
   const installPlan = useMemo(
-    () => createInstallPlan(tools, selectedIds, plannerOptions),
-    [selectedIds, plannerOptions]
+    () => createInstallPlan(allTools, selectedIds, plannerOptions),
+    [allTools, selectedIds, plannerOptions]
   );
   const selectedInstalledIds = useMemo(
     () =>
       new Set(
-        tools
+        allTools
           .filter((tool) => selectedIds.has(tool.id) && toolStates[tool.id]?.status === "installed")
           .map((tool) => tool.id)
       ),
-    [selectedIds, toolStates]
+    [allTools, selectedIds, toolStates]
   );
   const uninstallPlan = useMemo(
-    () => createUninstallPlan(tools, selectedInstalledIds, plannerOptions),
-    [selectedInstalledIds, plannerOptions]
+    () => createUninstallPlan(allTools, selectedInstalledIds, plannerOptions),
+    [allTools, selectedInstalledIds, plannerOptions]
   );
   const script = useMemo(() => buildPowerShellScript(installPlan), [installPlan]);
   const uninstallScript = useMemo(() => buildUninstallPowerShellScript(uninstallPlan), [uninstallPlan]);
-  const selectedTools = useMemo(() => tools.filter((tool) => selectedIds.has(tool.id)), [selectedIds]);
+  const selectedTools = useMemo(() => allTools.filter((tool) => selectedIds.has(tool.id)), [allTools, selectedIds]);
   const selectedInstalledTools = useMemo(
-    () => tools.filter((tool) => selectedInstalledIds.has(tool.id)),
-    [selectedInstalledIds]
+    () => allTools.filter((tool) => selectedInstalledIds.has(tool.id)),
+    [allTools, selectedInstalledIds]
   );
   const dashboardStats = useMemo(
-    () => createDashboardStats({ tools, selectedIds, toolStates, installPlan }),
-    [selectedIds, toolStates, installPlan]
+    () => createDashboardStats({ tools: allTools, selectedIds, toolStates, installPlan }),
+    [allTools, selectedIds, toolStates, installPlan]
   );
 
   const visibleTools = useMemo(() => {
     const categoryFiltered =
-      activeCategory === "all" ? tools : tools.filter((tool) => tool.category === activeCategory);
+      activeCategory === "all" ? allTools : allTools.filter((tool) => tool.category === activeCategory);
     return searchTools(categoryFiltered, query);
-  }, [activeCategory, query]);
+  }, [allTools, activeCategory, query]);
 
   useEffect(() => {
     void (async () => {
       if (!window.winKitBox) {
-        await refreshToolStates(tools);
+        await refreshToolStates(allTools);
         return;
       }
 
       try {
         const nextSettings = await window.winKitBox.getSettings();
-        setSettings(nextSettings);
-        setToolRootDraft(nextSettings.toolRootPath);
-        await refreshToolStates(tools, { managedRootPath: nextSettings.toolRootPath });
+        const normalizedSettings = {
+          ...fallbackSettings,
+          ...nextSettings,
+          updateOnStartup: nextSettings.updateOnStartup !== false
+        };
+        setSettings(normalizedSettings);
+        setToolRootDraft(normalizedSettings.toolRootPath);
+        await refreshToolStates(allTools, { managedRootPath: normalizedSettings.toolRootPath });
+
+        if (normalizedSettings.updateOnStartup) {
+          await checkForUpdates(true);
+        }
       } catch (error) {
         appendLog("warning", error instanceof Error ? error.message : "读取工具目录设置失败。");
-        await refreshToolStates(tools);
+        await refreshToolStates(allTools);
       }
-
-      await checkForUpdates(true);
     })();
   }, []);
 
@@ -241,6 +339,18 @@ export function App() {
   useEffect(() => {
     localStorage.setItem(selectionStorageKey, JSON.stringify(Array.from(selectedIds)));
   }, [selectedIds]);
+
+  useEffect(() => {
+    localStorage.setItem(customToolsStorageKey, JSON.stringify(customTools));
+  }, [customTools]);
+
+  useEffect(() => {
+    const knownIds = new Set(allTools.map((tool) => tool.id));
+    setSelectedIds((current) => {
+      const next = new Set(Array.from(current).filter((id) => knownIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [allTools]);
 
   function appendLog(level: LogEntry["level"], message: string) {
     if (!message) {
@@ -368,31 +478,29 @@ export function App() {
     });
   }
 
-  function applyPreset(toolIds: string[]) {
-    setSelectedIds(new Set(toolIds));
-    appendLog("success", `已应用方案，共选择 ${toolIds.length} 个工具。`);
-  }
-
-  async function copyScript() {
-    await navigator.clipboard.writeText(script);
-    appendLog("success", "安装脚本已复制。");
-  }
-
-  async function copyUninstallScript() {
-    await navigator.clipboard.writeText(uninstallScript);
-    appendLog("success", "卸载脚本已复制。");
-  }
-
-  function simulateRun() {
-    appendLog("info", "开始模拟安装计划。");
-    for (const item of installPlan.commands) {
-      if (item.command) {
-        appendLog("success", `[模拟] ${item.label}: ${item.command}`);
-      } else {
-        appendLog("warning", `[手动] ${item.label}: ${item.manualUrl}`);
-      }
+  async function persistSettings(nextSettings: ToolPathSettings) {
+    if (!window.winKitBox) {
+      setSettings(nextSettings);
+      setToolRootDraft(nextSettings.toolRootPath);
+      appendLog("warning", "浏览器预览模式只会临时保存设置，桌面版才能写入本机配置。");
+      return nextSettings;
     }
-    appendLog("success", "模拟完成。");
+
+    const savedSettings = await window.winKitBox.setSettings({
+      toolRootPath: nextSettings.toolRootPath,
+      updateOnStartup: nextSettings.updateOnStartup,
+      aiBaseUrl: nextSettings.aiBaseUrl,
+      aiApiKey: nextSettings.aiApiKey,
+      aiModel: nextSettings.aiModel
+    });
+    const normalizedSettings = {
+      ...fallbackSettings,
+      ...savedSettings,
+      updateOnStartup: savedSettings.updateOnStartup !== false
+    };
+    setSettings(normalizedSettings);
+    setToolRootDraft(normalizedSettings.toolRootPath);
+    return normalizedSettings;
   }
 
   async function saveToolRootPath(path = toolRootDraft) {
@@ -403,19 +511,10 @@ export function App() {
       return;
     }
 
-    if (!window.winKitBox) {
-      setSettings({ ...settings, toolRootPath: nextPath });
-      setToolRootDraft(nextPath);
-      appendLog("warning", "浏览器预览模式只会临时显示这个目录，桌面版才能真正保存。");
-      return;
-    }
-
     try {
-      const savedSettings = await window.winKitBox.setSettings({ toolRootPath: nextPath });
-      setSettings(savedSettings);
-      setToolRootDraft(savedSettings.toolRootPath);
+      const savedSettings = await persistSettings({ ...settings, toolRootPath: nextPath });
       appendLog("success", `工具目录已切换到 ${savedSettings.toolRootPath}。`);
-      await refreshToolStates(tools, { managedRootPath: savedSettings.toolRootPath });
+      await refreshToolStates(allTools, { managedRootPath: savedSettings.toolRootPath });
     } catch (error) {
       appendLog("error", error instanceof Error ? error.message : "保存工具目录失败。");
     }
@@ -437,6 +536,24 @@ export function App() {
   async function resetToolRootPath() {
     setToolRootDraft(settings.defaultToolRootPath);
     await saveToolRootPath(settings.defaultToolRootPath);
+  }
+
+  async function saveUpdateOnStartup(updateOnStartup: boolean) {
+    try {
+      await persistSettings({ ...settings, updateOnStartup });
+      appendLog("success", updateOnStartup ? "已开启启动时自动检测更新。" : "已关闭启动时自动检测更新。");
+    } catch (error) {
+      appendLog("error", error instanceof Error ? error.message : "保存更新设置失败。");
+    }
+  }
+
+  async function saveAiSettings(aiSettings: { aiBaseUrl: string; aiApiKey: string; aiModel: string }) {
+    try {
+      await persistSettings({ ...settings, ...aiSettings });
+      appendLog("success", "AI 添加工具配置已保存。");
+    } catch (error) {
+      appendLog("error", error instanceof Error ? error.message : "保存 AI 配置失败。");
+    }
   }
 
   async function checkForUpdates(silent = false) {
@@ -481,15 +598,119 @@ export function App() {
     await openUrl(updateInfo?.releaseUrl || releasePageUrl);
   }
 
+  async function exportConfig() {
+    try {
+      const payload = buildExportConfig({
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        settings: {
+          toolRootPath: settings.toolRootPath,
+          updateOnStartup: settings.updateOnStartup
+        },
+        selectedToolIds: Array.from(selectedIds),
+        customTools
+      });
+
+      if (window.winKitBox) {
+        const result = await window.winKitBox.saveConfigFile({ content: payload });
+        if (!result.canceled) {
+          appendLog("success", `配置已导出：${result.filePath}`);
+        }
+        return;
+      }
+
+      const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "winkitbox-config.json";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      appendLog("success", "配置已导出。");
+    } catch (error) {
+      appendLog("error", error instanceof Error ? error.message : "导出配置失败。");
+    }
+  }
+
+  async function importConfig() {
+    try {
+      const opened = window.winKitBox ? await window.winKitBox.openConfigFile() : await openBrowserConfigFile();
+      if (!opened || opened.canceled || !opened.content) {
+        return;
+      }
+
+      const imported = parseImportedConfig(opened.content);
+      const nextCustomTools = imported.customTools;
+      const knownIds = new Set([...catalogTools, ...nextCustomTools].map((tool) => tool.id));
+      const nextSelectedIds = imported.selectedToolIds.filter((id) => knownIds.has(id));
+      const nextSettings = {
+        ...settings,
+        toolRootPath: imported.settings.toolRootPath || settings.toolRootPath,
+        updateOnStartup: imported.settings.updateOnStartup
+      };
+
+      setCustomTools(nextCustomTools);
+      setSelectedIds(new Set(nextSelectedIds));
+      await persistSettings(nextSettings);
+      appendLog("success", `配置已导入${opened.filePath ? `：${opened.filePath}` : ""}。`);
+      await refreshToolStates([...catalogTools, ...nextCustomTools], { managedRootPath: nextSettings.toolRootPath });
+    } catch (error) {
+      appendLog("error", error instanceof Error ? error.message : "导入配置失败。");
+    }
+  }
+
+  async function openBrowserConfigFile(): Promise<{ canceled: boolean; content?: string; filePath?: string } | undefined> {
+    return new Promise((resolve) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".json,application/json";
+      input.onchange = () => {
+        const file = input.files?.[0];
+        if (!file) {
+          resolve({ canceled: true });
+          return;
+        }
+
+        if (file.size > 1024 * 1024) {
+          resolve(undefined);
+          appendLog("error", "配置文件超过 1MB，已拒绝导入。");
+          return;
+        }
+
+        file.text().then((content) => resolve({ canceled: false, content, filePath: file.name }));
+      };
+      input.click();
+    });
+  }
+
+  function addAiGeneratedTool(candidate: AiToolCandidate, context: AiToolGitHubContext) {
+    try {
+      const customTool = createAiGeneratedTool(candidate, context, new Set(allTools.map((tool) => tool.id)));
+      setCustomTools((current) => [...current, customTool]);
+      appendLog("success", `AI 已添加工具：${customTool.name}。`);
+      setSelectedIds((current) => new Set([...current, customTool.id]));
+    } catch (error) {
+      appendLog("error", error instanceof Error ? error.message : "AI 添加工具失败。");
+    }
+  }
+
+  function removeCustomTool(toolId: string) {
+    const tool = customTools.find((item) => item.id === toolId);
+    setCustomTools((current) => current.filter((item) => item.id !== toolId));
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      next.delete(toolId);
+      return next;
+    });
+    appendLog("success", `已移除自定义工具：${tool?.name ?? toolId}。`);
+  }
+
   async function runInstallPlan() {
     if (!window.winKitBox) {
       appendLog("warning", "当前在浏览器预览模式，不能直接执行 PowerShell。");
       return;
     }
 
-    const confirmed = window.confirm(
-      `将执行 ${installPlan.readyCount} 条安装命令。建议先确认右侧脚本内容，是否继续？`
-    );
+    const confirmed = window.confirm(`将执行 ${installPlan.readyCount} 条安装命令。是否继续？`);
 
     if (!confirmed) {
       appendLog("info", "已取消执行安装计划。");
@@ -565,7 +786,7 @@ export function App() {
     }
 
     if (!window.winKitBox) {
-      appendLog("warning", `浏览器预览不能直接安装 ${tool.name}，请用桌面版或复制右侧脚本。`);
+      appendLog("warning", `浏览器预览不能直接安装 ${tool.name}，请用桌面版运行 WinKitBox。`);
       return;
     }
 
@@ -582,6 +803,14 @@ export function App() {
   }
 
   async function uninstallTool(tool: Tool) {
+    const uninstallCommand = buildUninstallCommand(tool, plannerOptions);
+
+    if (!uninstallCommand.command) {
+      appendLog("warning", `${tool.name} 没有可执行卸载命令，已打开来源页面。`);
+      await openUrl(uninstallCommand.manualUrl ?? tool.homepage);
+      return;
+    }
+
     if (!window.winKitBox) {
       appendLog("warning", `浏览器预览不能直接卸载 ${tool.name}，请用桌面版运行 WinKitBox。`);
       return;
@@ -642,287 +871,267 @@ export function App() {
   }
 
   return (
-    <main className={`app-shell ${activeView === "discover" ? "discover-mode" : ""}`}>
+    <main className={`app-shell ${activeView !== "catalog" ? "wide-mode" : ""}`}>
       <aside className="sidebar" aria-label="WinKitBox navigation">
-        <div className="brand-block">
-          <div className="brand-mark">
-            <img src={winkitboxIconUrl} alt="" />
+        <div className="sidebar-main">
+          <div className="brand-block">
+            <div className="brand-mark">
+              <img src={winkitboxIconUrl} alt="" />
+            </div>
+            <div>
+              <h1>WinKitBox</h1>
+              <p>v{__APP_VERSION__} 装机工具箱</p>
+            </div>
           </div>
-          <div>
-            <h1>WinKitBox</h1>
-            <p>v{__APP_VERSION__} 装机工具箱</p>
+
+          <div className="nav-section">
+            <div className="section-title">
+              <Laptop size={15} />
+              本机
+            </div>
+            <button
+              className={`category-button ${activeView === "system" ? "active" : ""}`}
+              type="button"
+              onClick={() => setActiveView("system")}
+            >
+              <span>
+                <Network size={16} />
+                查看本机
+              </span>
+              <strong>配置</strong>
+            </button>
+          </div>
+
+          <div className="nav-section">
+            <div className="section-title">
+              <Filter size={15} />
+              分类
+            </div>
+            <div className="category-list">
+              {categoryOrder.map((category) => {
+                const count =
+                  category === "all"
+                    ? allTools.length
+                    : allTools.filter((tool) => tool.category === category).length;
+                const Icon = category === "all" ? ListChecks : categoryIcons[category];
+
+                return (
+                  <button
+                    className={`category-button ${
+                      activeView === "catalog" && activeCategory === category ? "active" : ""
+                    }`}
+                    key={category}
+                    type="button"
+                    onClick={() => {
+                      setActiveView("catalog");
+                      setActiveCategory(category);
+                    }}
+                  >
+                    <span>
+                      <Icon size={16} />
+                      {getCategoryLabel(category)}
+                    </span>
+                    <strong>{count}</strong>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="nav-section">
+            <div className="section-title">
+              <Github size={15} />
+              发现
+            </div>
+            <button
+              className={`category-button ${activeView === "discover" ? "active" : ""}`}
+              type="button"
+              onClick={() => setActiveView("discover")}
+            >
+              <span>
+                <Github size={16} />
+                GitHub 榜单
+              </span>
+              <strong>Win</strong>
+            </button>
           </div>
         </div>
 
-        <div className="nav-section">
-          <div className="section-title">
-            <Filter size={15} />
-            分类
-          </div>
-          <div className="category-list">
-            {categoryOrder.map((category) => {
-              const count =
-                category === "all"
-                  ? tools.length
-                  : tools.filter((tool) => tool.category === category).length;
-              const Icon = category === "all" ? ListChecks : categoryIcons[category];
-
-              return (
-                <button
-                  className={`category-button ${activeCategory === category ? "active" : ""}`}
-                  key={category}
-                  type="button"
-                  onClick={() => {
-                    setActiveView("catalog");
-                    setActiveCategory(category);
-                  }}
-                >
-                  <span>
-                    <Icon size={16} />
-                    {getCategoryLabel(category)}
-                  </span>
-                  <strong>{count}</strong>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="nav-section">
-          <div className="section-title">
-            <Github size={15} />
-            发现
-          </div>
+        <div className="sidebar-bottom">
           <button
-            className={`category-button ${activeView === "discover" ? "active" : ""}`}
+            className={`category-button ${activeView === "settings" ? "active" : ""}`}
             type="button"
-            onClick={() => setActiveView("discover")}
+            onClick={() => setActiveView("settings")}
           >
             <span>
-              <Github size={16} />
-              GitHub 榜单
+              <Settings size={16} />
+              设置
             </span>
-            <strong>实时</strong>
           </button>
-        </div>
-
-        <div className="nav-section presets">
-          <div className="section-title">
-            <Sparkles size={15} />
-            方案
-          </div>
-          {presets.map((preset) => (
-            <button
-              className="preset-button"
-              key={preset.id}
-              type="button"
-              onClick={() => applyPreset(preset.toolIds)}
-            >
-              <span>{preset.name}</span>
-              <small>{preset.toolIds.length} 个工具</small>
-            </button>
-          ))}
         </div>
       </aside>
 
-      {activeView === "discover" ? (
+      {activeView === "discover" && (
         <section className="workspace">
           <DiscoverView onOpenUrl={openUrl} />
         </section>
-      ) : (
-      <section className="workspace">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">一键恢复熟悉环境</p>
-            <h2>选择工具，生成装机计划</h2>
-          </div>
-          <div className="top-actions">
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() => setSelectedIds(getDefaultSelection(tools))}
-            >
-              <RotateCcw size={16} />
-              默认
-            </button>
-            <button className="ghost-button danger" type="button" onClick={() => setSelectedIds(new Set())}>
-              清空
-            </button>
-          </div>
-        </header>
+      )}
 
-        <div className="stats-row">
-          <Metric label="已选择" value={dashboardStats.selectedCount} tone="blue" />
-          <Metric label="已安装" value={dashboardStats.installedCount} tone="green" />
-          <Metric label="可自动安装" value={dashboardStats.readyCount} tone="green" />
-          <Metric label="手动来源" value={dashboardStats.manualCount} tone="amber" />
-          <Metric label="需管理员" value={dashboardStats.adminCount} tone="red" />
-        </div>
+      {activeView === "system" && (
+        <section className="workspace">
+          <SystemView onLog={appendLog} />
+        </section>
+      )}
 
-        <div className="search-row">
-          <Search size={17} />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索工具、标签、来源"
+      {activeView === "settings" && (
+        <section className="workspace">
+          <SettingsView
+            settings={settings}
+            toolRootDraft={toolRootDraft}
+            setToolRootDraft={setToolRootDraft}
+            saveToolRootPath={saveToolRootPath}
+            chooseToolRootPath={chooseToolRootPath}
+            resetToolRootPath={resetToolRootPath}
+            updateInfo={updateInfo}
+            isCheckingUpdate={isCheckingUpdate}
+            checkForUpdates={checkForUpdates}
+            openUpdateRelease={openUpdateRelease}
+            saveUpdateOnStartup={saveUpdateOnStartup}
+            saveAiSettings={saveAiSettings}
+            onLog={appendLog}
+            logs={logs}
+            customTools={customTools}
+            onAddAiTool={addAiGeneratedTool}
+            onRemoveCustomTool={removeCustomTool}
+            onExportConfig={exportConfig}
+            onImportConfig={importConfig}
           />
-        </div>
-
-        <div className="tool-grid" aria-label="Tool catalog">
-          {visibleTools.map((tool) => (
-            <ToolCard
-              key={tool.id}
-              tool={tool}
-              toolState={toolStates[tool.id] ?? { status: "unknown" }}
-              selected={selectedIds.has(tool.id)}
-              onToggle={() => toggleTool(tool.id)}
-              onInstall={() => installTool(tool)}
-              onUninstall={() => uninstallTool(tool)}
-              onLaunch={() => launchTool(tool)}
-              onOpen={() => openUrl(tool.repoUrl ?? tool.homepage)}
-            />
-          ))}
-        </div>
-      </section>
+        </section>
       )}
 
       {activeView === "catalog" && (
-      <aside className="plan-panel" aria-label="Install plan">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">安装计划</p>
-            <h2>{dashboardStats.selectedCount} 个工具</h2>
-          </div>
-          {installPlan.highRiskCount > 0 && (
-            <span className="risk-warning">
-              <ShieldAlert size={15} />
-              {installPlan.highRiskCount} 项谨慎
-            </span>
-          )}
-        </div>
-
-        <InstallProgressCard progress={installProgress} readyCount={installPlan.readyCount} />
-
-        <div className="settings-stack">
-          <div className="settings-card">
-            <div className="section-title">
-              <HardDriveDownload size={15} />
-              工具目录
+        <section className="workspace">
+          <header className="topbar">
+            <div>
+              <p className="eyebrow">一键恢复熟悉环境</p>
+              <h2>选择工具，安装 / 打开 / 卸载</h2>
             </div>
-            <div className="path-row">
-              <input
-                value={toolRootDraft}
-                onChange={(event) => setToolRootDraft(event.target.value)}
-                placeholder="选择工具安装目录"
+            <div className="top-actions">
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => setSelectedIds(getDefaultSelection(allTools))}
+              >
+                <RotateCcw size={16} />
+                默认
+              </button>
+              <button className="ghost-button danger" type="button" onClick={() => setSelectedIds(new Set())}>
+                清空
+              </button>
+            </div>
+          </header>
+
+          <div className="stats-row">
+            <Metric label="已选择" value={dashboardStats.selectedCount} tone="blue" />
+            <Metric label="已安装" value={dashboardStats.installedCount} tone="green" />
+            <Metric label="可自动安装" value={dashboardStats.readyCount} tone="green" />
+            <Metric label="手动来源" value={dashboardStats.manualCount} tone="amber" />
+            <Metric label="需管理员" value={dashboardStats.adminCount} tone="red" />
+          </div>
+
+          <div className="search-row">
+            <Search size={17} />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索工具、标签、来源"
+            />
+          </div>
+
+          <div className="tool-grid" aria-label="Tool catalog">
+            {visibleTools.map((tool) => (
+              <ToolCard
+                key={tool.id}
+                tool={tool}
+                toolState={toolStates[tool.id] ?? { status: "unknown" }}
+                selected={selectedIds.has(tool.id)}
+                onToggle={() => toggleTool(tool.id)}
+                onInstall={() => installTool(tool)}
+                onUninstall={() => uninstallTool(tool)}
+                onLaunch={() => launchTool(tool)}
+                onOpen={() => openUrl(tool.repoUrl ?? tool.homepage)}
               />
-              <button className="secondary-button" type="button" onClick={chooseToolRootPath}>
-                选择
-              </button>
-              <button className="secondary-button" type="button" onClick={() => saveToolRootPath()}>
-                保存
-              </button>
-            </div>
-            <div className="settings-actions">
-              <button className="text-button" type="button" onClick={resetToolRootPath}>
-                恢复默认
-              </button>
-              <span>便携工具、安装器缓存和解压依赖都会放在这里。</span>
-            </div>
-          </div>
-
-          <div className={`settings-card update-card ${updateInfo?.hasUpdate ? "has-update" : ""}`}>
-            <div className="update-head">
-              <div>
-                <div className="section-title">
-                  <RotateCcw size={15} />
-                  更新
-                </div>
-                <p>
-                  当前 v{__APP_VERSION__}
-                  {updateInfo?.latestVersion ? ` · 最新 v${updateInfo.latestVersion}` : ""}
-                </p>
-              </div>
-              {updateInfo?.hasUpdate && <strong>有新版</strong>}
-            </div>
-            <div className="settings-actions">
-              <button className="secondary-button" type="button" disabled={isCheckingUpdate} onClick={() => checkForUpdates(false)}>
-                <RotateCcw size={15} />
-                {isCheckingUpdate ? "检查中" : "检查更新"}
-              </button>
-              <button className="secondary-button" type="button" onClick={openUpdateRelease}>
-                <ExternalLink size={15} />
-                发行页
-              </button>
-            </div>
-            {updateInfo?.error && <p className="settings-error">{updateInfo.error}</p>}
-          </div>
-        </div>
-
-        <div className="command-preview">
-          <pre>{script}</pre>
-        </div>
-
-        <div className="plan-actions">
-          <button className="primary-button" type="button" disabled={isRunning || installPlan.readyCount === 0} onClick={runInstallPlan}>
-            <Play size={16} />
-            执行安装
-          </button>
-          <button className="secondary-button danger" type="button" disabled={isRunning || uninstallPlan.readyCount === 0} onClick={runUninstallPlan}>
-            <Trash2 size={16} />
-            卸载已选
-          </button>
-          <button className="secondary-button" type="button" onClick={copyScript}>
-            <Clipboard size={16} />
-            复制脚本
-          </button>
-          <button className="secondary-button" type="button" onClick={copyUninstallScript}>
-            <Clipboard size={16} />
-            复制卸载
-          </button>
-          <button className="secondary-button" type="button" onClick={simulateRun}>
-            <Terminal size={16} />
-            模拟运行
-          </button>
-        </div>
-
-        <div className="manual-list">
-          <div className="section-title">
-            <ExternalLink size={15} />
-            手动来源
-          </div>
-          {installPlan.commands.filter((item) => item.manualUrl).length === 0 ? (
-            <p className="empty-text">当前没有手动下载项。</p>
-          ) : (
-            installPlan.commands
-              .filter((item) => item.manualUrl)
-              .map((item) => (
-                <button
-                  className="manual-link"
-                  key={item.toolId}
-                  type="button"
-                  onClick={() => openUrl(item.manualUrl!)}
-                >
-                  {item.label}
-                  <ExternalLink size={14} />
-                </button>
-              ))
-          )}
-        </div>
-
-        <div className="log-panel">
-          <div className="section-title">
-            <Info size={15} />
-            日志
-          </div>
-          <div className="log-list">
-            {logs.map((log) => (
-              <div className={`log-entry ${log.level}`} key={log.id}>
-                {log.message}
-              </div>
             ))}
           </div>
-        </div>
-      </aside>
+        </section>
+      )}
+
+      {activeView === "catalog" && (
+        <aside className="plan-panel" aria-label="Install plan">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">安装计划</p>
+              <h2>{dashboardStats.selectedCount} 个工具</h2>
+            </div>
+            {installPlan.highRiskCount > 0 && (
+              <span className="risk-warning">
+                <ShieldAlert size={15} />
+                {installPlan.highRiskCount} 项谨慎
+              </span>
+            )}
+          </div>
+
+          <InstallProgressCard progress={installProgress} readyCount={installPlan.readyCount} />
+
+          <div className="command-preview">
+            <pre>{script}</pre>
+          </div>
+
+          <div className="plan-actions">
+            <button
+              className="primary-button"
+              type="button"
+              disabled={isRunning || installPlan.readyCount === 0}
+              onClick={runInstallPlan}
+            >
+              <Play size={16} />
+              执行安装
+            </button>
+            <button
+              className="secondary-button danger"
+              type="button"
+              disabled={isRunning || uninstallPlan.readyCount === 0}
+              onClick={runUninstallPlan}
+            >
+              <Trash2 size={16} />
+              卸载已选
+            </button>
+          </div>
+
+          <div className="manual-list">
+            <div className="section-title">
+              <ExternalLink size={15} />
+              手动来源
+            </div>
+            {installPlan.commands.filter((item) => item.manualUrl).length === 0 ? (
+              <p className="empty-text">当前没有手动下载项。</p>
+            ) : (
+              installPlan.commands
+                .filter((item) => item.manualUrl)
+                .map((item) => (
+                  <button
+                    className="manual-link"
+                    key={item.toolId}
+                    type="button"
+                    onClick={() => openUrl(item.manualUrl!)}
+                  >
+                    {item.label}
+                    <ExternalLink size={14} />
+                  </button>
+                ))
+            )}
+          </div>
+        </aside>
       )}
     </main>
   );
@@ -983,6 +1192,646 @@ function Metric({
       <strong>{value}</strong>
     </div>
   );
+}
+
+function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: string) => void }) {
+  const [info, setInfo] = useState<SystemInfo>();
+  const [selectedAdapterId, setSelectedAdapterId] = useState("");
+  const [form, setForm] = useState<NetworkForm>({
+    ipAddress: "",
+    prefixLength: "24",
+    gateway: "",
+    dnsServers: ""
+  });
+  const [dnsResults, setDnsResults] = useState<DnsLatencyResult[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isTestingDns, setIsTestingDns] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+  const dnsCandidates = useMemo(() => flattenDnsServers(publicDnsProviders), []);
+  const selectedAdapter = info?.adapters.find((adapter) => adapter.id === selectedAdapterId);
+
+  useEffect(() => {
+    void refreshSystemInfo();
+  }, []);
+
+  async function refreshSystemInfo() {
+    if (!window.winKitBox) {
+      onLog("warning", "浏览器预览模式不能读取本机配置，请用桌面版打开。");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const nextInfo = await window.winKitBox.getSystemInfo();
+      setInfo(nextInfo);
+      const adapter = nextInfo.adapters.find((item) => item.id === selectedAdapterId) ?? nextInfo.adapters[0];
+      if (adapter) {
+        setSelectedAdapterId(adapter.id);
+        syncFormFromAdapter(adapter);
+      }
+      onLog("success", "本机配置已刷新。");
+    } catch (error) {
+      onLog("error", error instanceof Error ? error.message : "读取本机配置失败。");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function syncFormFromAdapter(adapter: SystemAdapter) {
+    const ipv4 = adapter.ipv4[0];
+    setForm({
+      ipAddress: ipv4?.address ?? "",
+      prefixLength: String(ipv4?.prefixLength ?? 24),
+      gateway: adapter.gateway ?? "",
+      dnsServers: formatDnsServers(adapter.dnsServers)
+    });
+  }
+
+  function selectAdapter(adapter: SystemAdapter) {
+    setSelectedAdapterId(adapter.id);
+    syncFormFromAdapter(adapter);
+  }
+
+  async function testDnsServers() {
+    if (!window.winKitBox) {
+      onLog("warning", "浏览器预览模式不能进行 DNS 延迟检测。");
+      return;
+    }
+
+    setIsTestingDns(true);
+    try {
+      const providerByServer = new Map(dnsCandidates.map((candidate) => [candidate.server, candidate.provider]));
+      const results = await window.winKitBox.testDnsServers(dnsCandidates.map((candidate) => candidate.server));
+      const ranked = rankDnsResults(
+        results.map((result) => ({
+          ...result,
+          provider: providerByServer.get(result.server)
+        }))
+      );
+      setDnsResults(ranked);
+      const fastest = ranked.find((result) => result.ok);
+      if (fastest) {
+        onLog("success", `DNS 延迟检测完成，最快的是 ${fastest.server}（${fastest.latencyMs}ms）。`);
+      } else {
+        onLog("warning", "DNS 延迟检测完成，但没有可用结果。");
+      }
+    } catch (error) {
+      onLog("error", error instanceof Error ? error.message : "DNS 延迟检测失败。");
+    } finally {
+      setIsTestingDns(false);
+    }
+  }
+
+  async function applyNetworkConfig(mode: "dns" | "static" | "dhcp") {
+    if (!window.winKitBox || !selectedAdapter) {
+      onLog("warning", "请选择有效网卡后再修改网络配置。");
+      return;
+    }
+
+    const message =
+      mode === "dhcp"
+        ? "将把当前网卡恢复为自动获取 IP 和 DNS，是否继续？"
+        : mode === "static"
+          ? "将修改当前网卡的静态 IP 和 DNS，系统会弹出管理员确认，是否继续？"
+          : "将修改当前网卡的 DNS，系统会弹出管理员确认，是否继续？";
+
+    if (!window.confirm(message)) {
+      return;
+    }
+
+    setIsApplying(true);
+    try {
+      const result = await window.winKitBox.applyNetworkConfig({
+        adapterId: selectedAdapter.id,
+        mode,
+        ipAddress: form.ipAddress,
+        prefixLength: Number.parseInt(form.prefixLength, 10) || 24,
+        gateway: form.gateway,
+        dnsServers: parseDnsText(form.dnsServers)
+      });
+
+      if (result.code === 0) {
+        onLog("success", "网络配置已应用。");
+      } else {
+        onLog("warning", `网络配置命令结束，退出码 ${result.code ?? "未知"}。`);
+      }
+      await refreshSystemInfo();
+    } catch (error) {
+      onLog("error", error instanceof Error ? error.message : "应用网络配置失败。");
+    } finally {
+      setIsApplying(false);
+    }
+  }
+
+  return (
+    <div className="system-page">
+      <header className="topbar page-topbar">
+        <div>
+          <p className="eyebrow">本机配置</p>
+          <h2>查看本机，调整 IP / DNS</h2>
+        </div>
+        <button className="ghost-button" type="button" disabled={isLoading} onClick={refreshSystemInfo}>
+          <RotateCcw size={16} />
+          {isLoading ? "刷新中" : "刷新"}
+        </button>
+      </header>
+
+      <div className="info-grid">
+        <div className="info-card">
+          <span>计算机名</span>
+          <strong>{info?.computerName || "未读取"}</strong>
+        </div>
+        <div className="info-card">
+          <span>系统版本</span>
+          <strong>{info?.os.caption || "未读取"}</strong>
+          {info?.os.buildNumber && <small>Build {info.os.buildNumber}</small>}
+        </div>
+        <div className="info-card">
+          <span>处理器</span>
+          <strong>{info?.cpu || "未读取"}</strong>
+        </div>
+        <div className="info-card">
+          <span>内存</span>
+          <strong>{info?.memoryGb ? `${info.memoryGb} GB` : "未读取"}</strong>
+        </div>
+      </div>
+
+      <div className="system-layout">
+        <section className="settings-card adapter-panel">
+          <div className="section-title">
+            <Network size={15} />
+            网卡
+          </div>
+          <div className="adapter-list">
+            {(info?.adapters ?? []).map((adapter) => (
+              <button
+                className={`adapter-button ${adapter.id === selectedAdapterId ? "active" : ""}`}
+                key={adapter.id}
+                type="button"
+                onClick={() => selectAdapter(adapter)}
+              >
+                <span>{adapter.name}</span>
+                <small>{adapter.status} · {adapter.dhcpEnabled ? "DHCP" : "静态"}</small>
+              </button>
+            ))}
+            {!info?.adapters?.length && <p className="empty-text">还没有读取到可配置网卡。</p>}
+          </div>
+        </section>
+
+        <section className="settings-card network-config-card">
+          <div className="section-title">
+            <Gauge size={15} />
+            IP / DNS
+          </div>
+          {selectedAdapter && (
+            <div className="adapter-summary">
+              <strong>{selectedAdapter.description || selectedAdapter.name}</strong>
+              <span>MAC：{selectedAdapter.macAddress || "未知"}</span>
+            </div>
+          )}
+          <div className="form-grid">
+            <label className="field-label">
+              IPv4 地址
+              <input
+                value={form.ipAddress}
+                onChange={(event) => setForm((current) => ({ ...current, ipAddress: event.target.value }))}
+                placeholder="例如 192.168.1.88"
+              />
+            </label>
+            <label className="field-label">
+              前缀长度
+              <input
+                value={form.prefixLength}
+                onChange={(event) => setForm((current) => ({ ...current, prefixLength: event.target.value }))}
+                placeholder="24"
+              />
+            </label>
+            <label className="field-label">
+              默认网关
+              <input
+                value={form.gateway}
+                onChange={(event) => setForm((current) => ({ ...current, gateway: event.target.value }))}
+                placeholder="例如 192.168.1.1"
+              />
+            </label>
+            <label className="field-label">
+              DNS 服务器
+              <input
+                value={form.dnsServers}
+                onChange={(event) => setForm((current) => ({ ...current, dnsServers: event.target.value }))}
+                placeholder="223.5.5.5, 119.29.29.29"
+              />
+            </label>
+          </div>
+          <div className="settings-actions">
+            <button className="primary-button" type="button" disabled={isApplying || !selectedAdapter} onClick={() => applyNetworkConfig("dns")}>
+              <Save size={15} />
+              应用 DNS
+            </button>
+            <button className="secondary-button" type="button" disabled={isApplying || !selectedAdapter} onClick={() => applyNetworkConfig("static")}>
+              应用静态 IP
+            </button>
+            <button className="secondary-button danger" type="button" disabled={isApplying || !selectedAdapter} onClick={() => applyNetworkConfig("dhcp")}>
+              恢复自动获取
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <section className="settings-card dns-card">
+        <div className="dns-head">
+          <div>
+            <div className="section-title">
+              <HardDriveDownload size={15} />
+              公共 DNS 推荐
+            </div>
+            <p>先测延迟，再点“使用”填入上方 DNS。实际快慢也会受运营商和地区影响。</p>
+          </div>
+          <button className="secondary-button" type="button" disabled={isTestingDns} onClick={testDnsServers}>
+            <Gauge size={15} />
+            {isTestingDns ? "检测中" : "延迟检测"}
+          </button>
+        </div>
+
+        <div className="dns-provider-grid">
+          {publicDnsProviders.map((provider) => (
+            <div className="dns-provider" key={provider.id}>
+              <div>
+                <strong>{provider.name}</strong>
+                <span>{provider.servers.join(" / ")}</span>
+                <small>{provider.note}</small>
+              </div>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setForm((current) => ({ ...current, dnsServers: formatDnsServers(provider.servers) }))}
+              >
+                使用
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {dnsResults.length > 0 && (
+          <div className="dns-table">
+            {dnsResults.map((result) => (
+              <div className={`dns-row ${result.ok ? "ok" : "failed"}`} key={result.server}>
+                <span>{result.provider ?? "公共 DNS"}</span>
+                <strong>{result.server}</strong>
+                <em>{result.ok ? `${result.latencyMs}ms` : result.error || "失败"}</em>
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={() => setForm((current) => ({ ...current, dnsServers: result.server }))}
+                >
+                  使用
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function SettingsView({
+  settings,
+  toolRootDraft,
+  setToolRootDraft,
+  saveToolRootPath,
+  chooseToolRootPath,
+  resetToolRootPath,
+  updateInfo,
+  isCheckingUpdate,
+  checkForUpdates,
+  openUpdateRelease,
+  saveUpdateOnStartup,
+  saveAiSettings,
+  onLog,
+  logs,
+  customTools,
+  onAddAiTool,
+  onRemoveCustomTool,
+  onExportConfig,
+  onImportConfig
+}: {
+  settings: ToolPathSettings;
+  toolRootDraft: string;
+  setToolRootDraft: (value: string) => void;
+  saveToolRootPath: (path?: string) => Promise<void>;
+  chooseToolRootPath: () => Promise<void>;
+  resetToolRootPath: () => Promise<void>;
+  updateInfo?: UpdateInfo;
+  isCheckingUpdate: boolean;
+  checkForUpdates: (silent?: boolean) => Promise<void>;
+  openUpdateRelease: () => Promise<void>;
+  saveUpdateOnStartup: (updateOnStartup: boolean) => Promise<void>;
+  saveAiSettings: (aiSettings: { aiBaseUrl: string; aiApiKey: string; aiModel: string }) => Promise<void>;
+  onLog: (level: LogEntry["level"], message: string) => void;
+  logs: LogEntry[];
+  customTools: Tool[];
+  onAddAiTool: (candidate: AiToolCandidate, context: AiToolGitHubContext) => void;
+  onRemoveCustomTool: (toolId: string) => void;
+  onExportConfig: () => Promise<void>;
+  onImportConfig: () => Promise<void>;
+}) {
+  const [aiDraft, setAiDraft] = useState({
+    aiBaseUrl: settings.aiBaseUrl,
+    aiApiKey: settings.aiApiKey,
+    aiModel: settings.aiModel,
+    githubUrl: ""
+  });
+  const [detectedModels, setDetectedModels] = useState<string[]>([]);
+  const [aiBusy, setAiBusy] = useState<"models" | "test" | "generate" | undefined>();
+
+  useEffect(() => {
+    setAiDraft((current) => ({
+      ...current,
+      aiBaseUrl: settings.aiBaseUrl,
+      aiApiKey: settings.aiApiKey,
+      aiModel: settings.aiModel
+    }));
+  }, [settings.aiBaseUrl, settings.aiApiKey, settings.aiModel]);
+
+  async function detectModels() {
+    if (!window.winKitBox) {
+      return;
+    }
+
+    setAiBusy("models");
+    try {
+      const result = await window.winKitBox.listAiModels({
+        baseUrl: aiDraft.aiBaseUrl,
+        apiKey: aiDraft.aiApiKey
+      });
+      setDetectedModels(result.models);
+      if (!aiDraft.aiModel && result.models[0]) {
+        setAiDraft((current) => ({ ...current, aiModel: result.models[0] }));
+      }
+      onLog("success", `已检测到 ${result.models.length} 个可用模型。`);
+    } catch (error) {
+      onLog("error", error instanceof Error ? error.message : "模型检测失败。");
+    } finally {
+      setAiBusy(undefined);
+    }
+  }
+
+  async function testAiConnection() {
+    if (!window.winKitBox) {
+      return;
+    }
+
+    setAiBusy("test");
+    try {
+      await window.winKitBox.testAiConnection({
+        baseUrl: aiDraft.aiBaseUrl,
+        apiKey: aiDraft.aiApiKey,
+        model: aiDraft.aiModel
+      });
+      await saveAiSettings({
+        aiBaseUrl: aiDraft.aiBaseUrl,
+        aiApiKey: aiDraft.aiApiKey,
+        aiModel: aiDraft.aiModel
+      });
+      onLog("success", "AI 接口连通性测试通过。");
+    } catch (error) {
+      onLog("error", error instanceof Error ? error.message : "AI 连通性测试失败。");
+    } finally {
+      setAiBusy(undefined);
+    }
+  }
+
+  async function generateAiTool() {
+    if (!window.winKitBox) {
+      return;
+    }
+
+    setAiBusy("generate");
+    try {
+      await saveAiSettings({
+        aiBaseUrl: aiDraft.aiBaseUrl,
+        aiApiKey: aiDraft.aiApiKey,
+        aiModel: aiDraft.aiModel
+      });
+      const result = await window.winKitBox.generateAiTool({
+        baseUrl: aiDraft.aiBaseUrl,
+        apiKey: aiDraft.aiApiKey,
+        model: aiDraft.aiModel,
+        githubUrl: aiDraft.githubUrl
+      });
+      onAddAiTool(result.candidate, result.context);
+      setAiDraft((current) => ({ ...current, githubUrl: "" }));
+    } catch (error) {
+      onLog("error", error instanceof Error ? error.message : "AI 添加工具失败。");
+    } finally {
+      setAiBusy(undefined);
+    }
+  }
+
+  return (
+    <div className="settings-page">
+      <header className="topbar page-topbar">
+        <div>
+          <p className="eyebrow">设置</p>
+          <h2>工具目录、更新、配置同步和日志</h2>
+        </div>
+      </header>
+
+      <div className="settings-layout">
+        <section className="settings-card">
+          <div className="section-title">
+            <HardDriveDownload size={15} />
+            工具目录
+          </div>
+          <div className="path-row">
+            <input
+              value={toolRootDraft}
+              onChange={(event) => setToolRootDraft(event.target.value)}
+              placeholder="选择工具安装目录"
+            />
+            <button className="secondary-button" type="button" onClick={chooseToolRootPath}>
+              选择
+            </button>
+            <button className="secondary-button" type="button" onClick={() => saveToolRootPath()}>
+              保存
+            </button>
+          </div>
+          <div className="settings-actions">
+            <button className="text-button" type="button" onClick={resetToolRootPath}>
+              恢复默认
+            </button>
+            <span>当前默认目录：{settings.defaultToolRootPath}</span>
+          </div>
+        </section>
+
+        <section className={`settings-card update-card ${updateInfo?.hasUpdate ? "has-update" : ""}`}>
+          <div className="update-head">
+            <div>
+              <div className="section-title">
+                <RotateCcw size={15} />
+                更新
+              </div>
+              <p>
+                当前 v{__APP_VERSION__}
+                {updateInfo?.latestVersion ? ` · 最新 v${updateInfo.latestVersion}` : ""}
+              </p>
+            </div>
+            {updateInfo?.hasUpdate && <strong>有新版</strong>}
+          </div>
+          <label className="setting-row">
+            <input
+              type="checkbox"
+              checked={settings.updateOnStartup}
+              onChange={(event) => void saveUpdateOnStartup(event.target.checked)}
+            />
+            <span>启动时自动检测更新</span>
+          </label>
+          <div className="settings-actions">
+            <button className="secondary-button" type="button" disabled={isCheckingUpdate} onClick={() => checkForUpdates(false)}>
+              <RotateCcw size={15} />
+              {isCheckingUpdate ? "检查中" : "检查更新"}
+            </button>
+            <button className="secondary-button" type="button" onClick={openUpdateRelease}>
+              <ExternalLink size={15} />
+              发行页
+            </button>
+          </div>
+          {updateInfo?.error && <p className="settings-error">{updateInfo.error}</p>}
+        </section>
+
+        <section className="settings-card full-span">
+          <div className="section-title">
+            <Plus size={15} />
+            AI 添加工具
+          </div>
+          <div className="custom-tool-form ai-tool-form">
+            <label className="field-label">
+              API URL
+              <input
+                value={aiDraft.aiBaseUrl}
+                onChange={(event) => setAiDraft((current) => ({ ...current, aiBaseUrl: event.target.value }))}
+                placeholder="https://api.openai.com/v1"
+              />
+            </label>
+            <label className="field-label">
+              API Key
+              <input
+                value={aiDraft.aiApiKey}
+                onChange={(event) => setAiDraft((current) => ({ ...current, aiApiKey: event.target.value }))}
+                placeholder="sk-..."
+                type="password"
+              />
+            </label>
+            <label className="field-label">
+              模型名称
+              <input
+                value={aiDraft.aiModel}
+                onChange={(event) => setAiDraft((current) => ({ ...current, aiModel: event.target.value }))}
+                placeholder="gpt-4o-mini"
+                list="ai-models"
+              />
+              <datalist id="ai-models">
+                {detectedModels.map((model) => (
+                  <option key={model} value={model} />
+                ))}
+              </datalist>
+            </label>
+            <label className="field-label wide">
+              GitHub 主页链接
+              <input
+                value={aiDraft.githubUrl}
+                onChange={(event) => setAiDraft((current) => ({ ...current, githubUrl: event.target.value }))}
+                placeholder="https://github.com/owner/repo"
+              />
+            </label>
+          </div>
+          <div className="settings-actions">
+            <button className="secondary-button" type="button" disabled={Boolean(aiBusy)} onClick={detectModels}>
+              <Search size={15} />
+              {aiBusy === "models" ? "检测中" : "检测可用模型"}
+            </button>
+            <button className="secondary-button" type="button" disabled={Boolean(aiBusy)} onClick={testAiConnection}>
+              <Gauge size={15} />
+              {aiBusy === "test" ? "测试中" : "测试连通性"}
+            </button>
+            <button className="primary-button" type="button" disabled={Boolean(aiBusy)} onClick={generateAiTool}>
+              <Plus size={15} />
+              {aiBusy === "generate" ? "生成中" : "AI 添加工具"}
+            </button>
+          </div>
+          {customTools.length > 0 && (
+            <div className="custom-tool-list">
+              {customTools.map((tool) => (
+                <div className="custom-tool-row" key={tool.id}>
+                  <div>
+                    <strong>{tool.name}</strong>
+                    <span>{categoryLabels[tool.category]} · {describeCustomTool(tool)}</span>
+                  </div>
+                  <button className="secondary-button danger" type="button" onClick={() => onRemoveCustomTool(tool.id)}>
+                    <Trash2 size={14} />
+                    移除
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="settings-card">
+          <div className="section-title">
+            <Upload size={15} />
+            配置同步
+          </div>
+          <p className="settings-text">导出的配置只包含工具目录、更新设置、已选工具和自定义工具，不包含安装包。</p>
+          <div className="settings-actions">
+            <button className="secondary-button" type="button" onClick={onExportConfig}>
+              <Download size={15} />
+              导出配置
+            </button>
+            <button className="secondary-button" type="button" onClick={onImportConfig}>
+              <Upload size={15} />
+              导入配置
+            </button>
+          </div>
+        </section>
+
+        <section className="settings-card log-panel-settings">
+          <div className="section-title">
+            <Info size={15} />
+            日志
+          </div>
+          <div className="log-list">
+            {logs.map((log) => (
+              <div className={`log-entry ${log.level}`} key={log.id}>
+                {log.message}
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function describeCustomTool(tool: Tool) {
+  if (tool.wingetId) {
+    return `winget · ${tool.wingetId}`;
+  }
+
+  if (tool.installer) {
+    return `GitHub 安装包 · ${tool.installer.assetPattern}`;
+  }
+
+  if (tool.portable) {
+    return `GitHub 便携包 · ${tool.portable.assetPattern}`;
+  }
+
+  if (tool.customInstallCommand) {
+    return "自定义命令";
+  }
+
+  return tool.repoUrl ?? tool.homepage;
 }
 
 function ToolCard({
