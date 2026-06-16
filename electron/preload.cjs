@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld("winKitBox", {
   setSettings: (settings) => ipcRenderer.invoke("settings-set", settings),
   selectToolRoot: (currentPath) => ipcRenderer.invoke("select-tool-root", currentPath),
   selectLocalLauncher: (currentPath) => ipcRenderer.invoke("select-local-launcher", currentPath),
+  selectThemeBackground: (request) => ipcRenderer.invoke("select-theme-background", request),
+  clearThemeBackground: (request) => ipcRenderer.invoke("clear-theme-background", request),
   checkUpdates: () => ipcRenderer.invoke("check-updates"),
   getSystemInfo: () => ipcRenderer.invoke("system-info"),
   testDnsServers: (servers) => ipcRenderer.invoke("test-dns-servers", servers),

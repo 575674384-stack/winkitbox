@@ -1,4 +1,5 @@
 import type { Tool, ToolCategory } from "./catalog";
+import { isThemeId, type ThemeId } from "./themes";
 
 export type WinKitBoxExportConfig = {
   version: 1;
@@ -6,6 +7,7 @@ export type WinKitBoxExportConfig = {
   settings: {
     toolRootPath: string;
     updateOnStartup: boolean;
+    themeId?: ThemeId;
   };
   selectedToolIds: string[];
   customTools: Tool[];
@@ -149,7 +151,8 @@ export function parseImportedConfig(text: string): WinKitBoxExportConfig {
     exportedAt: String(parsed.exportedAt || new Date().toISOString()),
     settings: {
       toolRootPath: String(parsed.settings.toolRootPath || ""),
-      updateOnStartup: parsed.settings.updateOnStartup !== false
+      updateOnStartup: parsed.settings.updateOnStartup !== false,
+      themeId: isThemeId(String(parsed.settings.themeId || "")) ? parsed.settings.themeId : undefined
     },
     selectedToolIds: Array.isArray(parsed.selectedToolIds) ? parsed.selectedToolIds.map(String) : [],
     customTools: parsed.customTools.slice(0, 200).filter(isLikelyTool)

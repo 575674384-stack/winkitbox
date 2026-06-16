@@ -30,13 +30,34 @@ describe("config helpers", () => {
       exportedAt: "2026-06-16T00:00:00.000Z",
       settings: {
         toolRootPath: "%LOCALAPPDATA%\\WinKitBox",
-        updateOnStartup: true
+        updateOnStartup: true,
+        themeId: "naruto"
       },
       selectedToolIds: ["powertoys"],
       customTools: []
     });
 
     expect(payload.length).toBeLessThan(1024 * 1024);
-    expect(parseImportedConfig(payload).selectedToolIds).toEqual(["powertoys"]);
+    const imported = parseImportedConfig(payload);
+    expect(imported.selectedToolIds).toEqual(["powertoys"]);
+    expect(imported.settings.themeId).toBe("naruto");
+  });
+
+  it("drops unknown theme ids from imported configs", () => {
+    const imported = parseImportedConfig(
+      JSON.stringify({
+        version: 1,
+        exportedAt: "2026-06-16T00:00:00.000Z",
+        settings: {
+          toolRootPath: "%LOCALAPPDATA%\\WinKitBox",
+          updateOnStartup: true,
+          themeId: "unknown"
+        },
+        selectedToolIds: [],
+        customTools: []
+      })
+    );
+
+    expect(imported.settings.themeId).toBeUndefined();
   });
 });

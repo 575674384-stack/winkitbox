@@ -36,6 +36,8 @@ declare global {
         aiBaseUrl: string;
         aiApiKey: string;
         aiModel: string;
+        themeId: import("../core/themes").ThemeId;
+        themeBackgrounds: Partial<Record<import("../core/themes").ThemeId, string>>;
       }>;
       setSettings: (settings: {
         toolRootPath: string;
@@ -43,6 +45,8 @@ declare global {
         aiBaseUrl?: string;
         aiApiKey?: string;
         aiModel?: string;
+        themeId?: import("../core/themes").ThemeId;
+        themeBackgrounds?: Partial<Record<import("../core/themes").ThemeId, string>>;
       }) => Promise<{
         toolRootPath: string;
         defaultToolRootPath: string;
@@ -50,9 +54,24 @@ declare global {
         aiBaseUrl: string;
         aiApiKey: string;
         aiModel: string;
+        themeId: import("../core/themes").ThemeId;
+        themeBackgrounds: Partial<Record<import("../core/themes").ThemeId, string>>;
       }>;
       selectToolRoot: (currentPath?: string) => Promise<string | undefined>;
       selectLocalLauncher: (currentPath?: string) => Promise<string | undefined>;
+      selectThemeBackground: (request: {
+        themeId: import("../core/themes").ThemeId;
+      }) => Promise<{
+        canceled: boolean;
+        themeId?: import("../core/themes").ThemeId;
+        backgroundUrl?: string;
+      }>;
+      clearThemeBackground: (request: {
+        themeId: import("../core/themes").ThemeId;
+      }) => Promise<{
+        themeId: import("../core/themes").ThemeId;
+        backgroundUrl: string;
+      }>;
       checkUpdates: () => Promise<{
         currentVersion: string;
         latestVersion?: string;

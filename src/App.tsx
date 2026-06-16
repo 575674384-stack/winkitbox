@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   Check,
   Cpu,
@@ -57,6 +57,7 @@ import {
   type ToolRuntimeState,
   type ToolRuntimeStates
 } from "./core/toolStatus";
+import { themeDefinitions, type ThemeId } from "./core/themes";
 import type { UpdateInfo } from "./core/update";
 
 type CategoryFilter = "all" | ToolCategory;
@@ -75,6 +76,8 @@ type ToolPathSettings = {
   aiBaseUrl: string;
   aiApiKey: string;
   aiModel: string;
+  themeId: ThemeId;
+  themeBackgrounds: Partial<Record<ThemeId, string>>;
 };
 
 type SystemAdapter = {
@@ -163,7 +166,9 @@ const fallbackSettings: ToolPathSettings = {
   updateOnStartup: true,
   aiBaseUrl: "",
   aiApiKey: "",
-  aiModel: ""
+  aiModel: "",
+  themeId: "default",
+  themeBackgrounds: {}
 };
 const releasePageUrl = "https://github.com/575674384-stack/winkitbox/releases";
 
@@ -287,6 +292,16 @@ export function App() {
       activeCategory === "all" ? allTools : allTools.filter((tool) => tool.category === activeCategory);
     return searchTools(categoryFiltered, query);
   }, [allTools, activeCategory, query]);
+  const currentThemeBackground = settings.themeBackgrounds[settings.themeId];
+  const themeStyle = useMemo(
+    () =>
+      currentThemeBackground
+        ? ({
+            "--theme-background-image": `url("${currentThemeBackground.replace(/"/g, "%22")}")`
+          } as CSSProperties)
+        : undefined,
+    [currentThemeBackground]
+  );
 
   useEffect(() => {
     void (async () => {
@@ -491,7 +506,9 @@ export function App() {
       updateOnStartup: nextSettings.updateOnStartup,
       aiBaseUrl: nextSettings.aiBaseUrl,
       aiApiKey: nextSettings.aiApiKey,
-      aiModel: nextSettings.aiModel
+      aiModel: nextSettings.aiModel,
+      themeId: nextSettings.themeId,
+      themeBackgrounds: nextSettings.themeBackgrounds
     });
     const normalizedSettings = {
       ...fallbackSettings,
@@ -556,6 +573,61 @@ export function App() {
     }
   }
 
+  async function saveTheme(themeId: ThemeId) {
+    try {
+      await persistSettings({ ...settings, themeId });
+      appendLog("success", `已切换到 ${themeDefinitions.find((theme) => theme.id === themeId)?.name ?? themeId} 主题。`);
+    } catch (error) {
+      appendLog("error", error instanceof Error ? error.message : "保存主题失败。");
+    }
+  }
+
+  async function chooseThemeBackground(themeId: ThemeId) {
+    if (!window.winKitBox) {
+      appendLog("warning", "浏览器预览模式不能选择本地主题图片，请用桌面版打开。");
+      return;
+    }
+
+    try {
+      const result = await window.winKitBox.selectThemeBackground({ themeId });
+      if (result.canceled || !result.backgroundUrl) {
+        return;
+      }
+
+      await persistSettings({
+        ...settings,
+        themeId,
+        themeBackgrounds: {
+          ...settings.themeBackgrounds,
+          [themeId]: result.backgroundUrl
+        }
+      });
+      appendLog("success", "主题背景图已保存到本机配置目录。");
+    } catch (error) {
+      appendLog("error", error instanceof Error ? error.message : "选择主题背景图失败。");
+    }
+  }
+
+  async function clearThemeBackground(themeId: ThemeId) {
+    if (!window.winKitBox) {
+      appendLog("warning", "浏览器预览模式不能清除本地主题图片，请用桌面版打开。");
+      return;
+    }
+
+    try {
+      await window.winKitBox.clearThemeBackground({ themeId });
+      const nextBackgrounds = { ...settings.themeBackgrounds };
+      delete nextBackgrounds[themeId];
+      await persistSettings({
+        ...settings,
+        themeBackgrounds: nextBackgrounds
+      });
+      appendLog("success", "已清除当前主题的自定义背景图。");
+    } catch (error) {
+      appendLog("error", error instanceof Error ? error.message : "清除主题背景图失败。");
+    }
+  }
+
   async function checkForUpdates(silent = false) {
     if (!window.winKitBox) {
       if (!silent) {
@@ -605,7 +677,8 @@ export function App() {
         exportedAt: new Date().toISOString(),
         settings: {
           toolRootPath: settings.toolRootPath,
-          updateOnStartup: settings.updateOnStartup
+          updateOnStartup: settings.updateOnStartup,
+          themeId: settings.themeId
         },
         selectedToolIds: Array.from(selectedIds),
         customTools
@@ -645,7 +718,8 @@ export function App() {
       const nextSettings = {
         ...settings,
         toolRootPath: imported.settings.toolRootPath || settings.toolRootPath,
-        updateOnStartup: imported.settings.updateOnStartup
+        updateOnStartup: imported.settings.updateOnStartup,
+        themeId: imported.settings.themeId ?? settings.themeId
       };
 
       setCustomTools(nextCustomTools);
@@ -871,7 +945,12 @@ export function App() {
   }
 
   return (
-    <main className={`app-shell ${activeView !== "catalog" ? "wide-mode" : ""}`}>
+    <main
+      className={`app-shell theme-${settings.themeId} ${currentThemeBackground ? "has-custom-background" : ""} ${
+        activeView !== "catalog" ? "wide-mode" : ""
+      }`}
+      style={themeStyle}
+    >
       <aside className="sidebar" aria-label="WinKitBox navigation">
         <div className="sidebar-main">
           <div className="brand-block">
@@ -998,6 +1077,9 @@ export function App() {
             openUpdateRelease={openUpdateRelease}
             saveUpdateOnStartup={saveUpdateOnStartup}
             saveAiSettings={saveAiSettings}
+            saveTheme={saveTheme}
+            chooseThemeBackground={chooseThemeBackground}
+            clearThemeBackground={clearThemeBackground}
             onLog={appendLog}
             logs={logs}
             customTools={customTools}
@@ -1508,6 +1590,9 @@ function SettingsView({
   openUpdateRelease,
   saveUpdateOnStartup,
   saveAiSettings,
+  saveTheme,
+  chooseThemeBackground,
+  clearThemeBackground,
   onLog,
   logs,
   customTools,
@@ -1528,6 +1613,9 @@ function SettingsView({
   openUpdateRelease: () => Promise<void>;
   saveUpdateOnStartup: (updateOnStartup: boolean) => Promise<void>;
   saveAiSettings: (aiSettings: { aiBaseUrl: string; aiApiKey: string; aiModel: string }) => Promise<void>;
+  saveTheme: (themeId: ThemeId) => Promise<void>;
+  chooseThemeBackground: (themeId: ThemeId) => Promise<void>;
+  clearThemeBackground: (themeId: ThemeId) => Promise<void>;
   onLog: (level: LogEntry["level"], message: string) => void;
   logs: LogEntry[];
   customTools: Tool[];
@@ -1639,6 +1727,49 @@ function SettingsView({
       </header>
 
       <div className="settings-layout">
+        <section className="settings-card full-span">
+          <div className="section-title">
+            <Sparkles size={15} />
+            主题皮肤
+          </div>
+          <div className="theme-grid">
+            {themeDefinitions.map((theme) => {
+              const active = settings.themeId === theme.id;
+              const hasBackground = Boolean(settings.themeBackgrounds[theme.id]);
+
+              return (
+                <button
+                  className={`theme-card theme-preview-${theme.id} ${active ? "active" : ""}`}
+                  key={theme.id}
+                  type="button"
+                  onClick={() => saveTheme(theme.id)}
+                >
+                  <span className="theme-swatch" />
+                  <strong>{theme.name}</strong>
+                  <small>{theme.description}</small>
+                  {hasBackground && <em>已设置本地背景</em>}
+                </button>
+              );
+            })}
+          </div>
+          <div className="settings-actions">
+            <button className="secondary-button" type="button" onClick={() => chooseThemeBackground(settings.themeId)}>
+              <Upload size={15} />
+              为当前主题选择背景图
+            </button>
+            <button
+              className="secondary-button danger"
+              type="button"
+              disabled={!settings.themeBackgrounds[settings.themeId]}
+              onClick={() => clearThemeBackground(settings.themeId)}
+            >
+              <Trash2 size={15} />
+              清除当前背景
+            </button>
+            <span>官方角色图请在本机选择，不会写进仓库或 Release。</span>
+          </div>
+        </section>
+
         <section className="settings-card">
           <div className="section-title">
             <HardDriveDownload size={15} />
@@ -1783,7 +1914,9 @@ function SettingsView({
             <Upload size={15} />
             配置同步
           </div>
-          <p className="settings-text">导出的配置只包含工具目录、更新设置、已选工具和自定义工具，不包含安装包。</p>
+          <p className="settings-text">
+            导出的配置只包含工具目录、更新设置、当前主题、已选工具和自定义工具，不包含安装包和本地背景图。
+          </p>
           <div className="settings-actions">
             <button className="secondary-button" type="button" onClick={onExportConfig}>
               <Download size={15} />

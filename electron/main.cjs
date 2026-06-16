@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, net, session, shell } =
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 const { createTrayMenuTemplate, getTrayIconPath } = require("./trayController.cjs");
 const {
   buildDetectToolsScript,
@@ -149,20 +150,7 @@ ipcMain.handle("settings-get", async () => {
 ipcMain.handle("settings-set", async (_event, settings) => {
   const normalized = normalizeSettings(settings);
   ensureDirectory(normalized.toolRootPath);
-  fs.writeFileSync(
-    getSettingsPath(),
-    JSON.stringify(
-      {
-        toolRootPath: normalized.toolRootPath,
-        updateOnStartup: normalized.updateOnStartup,
-        aiBaseUrl: normalized.aiBaseUrl,
-        aiApiKey: normalized.aiApiKey,
-        aiModel: normalized.aiModel
-      },
-      null,
-      2
-    )
-  );
+  writeSettings(normalized);
   return readSettings();
 });
 
@@ -196,6 +184,14 @@ ipcMain.handle("select-local-launcher", async (_event, currentPath) => {
   }
 
   return result.filePaths[0];
+});
+
+ipcMain.handle("select-theme-background", async (_event, request) => {
+  return selectThemeBackground(request);
+});
+
+ipcMain.handle("clear-theme-background", async (_event, request) => {
+  return clearThemeBackground(request);
 });
 
 ipcMain.handle("check-updates", async () => {
@@ -605,6 +601,71 @@ async function openConfigFile() {
   };
 }
 
+async function selectThemeBackground(request) {
+  const themeId = normalizeThemeId(String(request?.themeId ?? "default"));
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "选择主题背景图",
+    properties: ["openFile"],
+    filters: [
+      { name: "图片文件", extensions: ["png", "jpg", "jpeg", "webp"] },
+      { name: "所有文件", extensions: ["*"] }
+    ]
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { canceled: true };
+  }
+
+  const sourcePath = result.filePaths[0];
+  const extension = path.extname(sourcePath).toLowerCase();
+  const allowedExtensions = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+  if (!allowedExtensions.has(extension)) {
+    throw new Error("请选择 png、jpg、jpeg 或 webp 图片。");
+  }
+
+  const targetDir = path.join(app.getPath("userData"), "theme-backgrounds");
+  fs.mkdirSync(targetDir, { recursive: true });
+  const targetPath = path.join(targetDir, `${themeId}${extension}`);
+
+  for (const name of fs.readdirSync(targetDir)) {
+    if (name.toLowerCase().startsWith(`${themeId}.`)) {
+      fs.rmSync(path.join(targetDir, name), { force: true });
+    }
+  }
+
+  fs.copyFileSync(sourcePath, targetPath);
+  const settings = readSettings();
+  settings.themeBackgrounds[themeId] = pathToFileURL(targetPath).toString();
+  writeSettings(settings);
+
+  return {
+    canceled: false,
+    themeId,
+    backgroundUrl: settings.themeBackgrounds[themeId]
+  };
+}
+
+async function clearThemeBackground(request) {
+  const themeId = normalizeThemeId(String(request?.themeId ?? "default"));
+  const settings = readSettings();
+  delete settings.themeBackgrounds[themeId];
+  writeSettings(settings);
+
+  const targetDir = path.join(app.getPath("userData"), "theme-backgrounds");
+  if (fs.existsSync(targetDir)) {
+    for (const name of fs.readdirSync(targetDir)) {
+      if (name.toLowerCase().startsWith(`${themeId}.`)) {
+        fs.rmSync(path.join(targetDir, name), { force: true });
+      }
+    }
+  }
+
+  return {
+    themeId,
+    backgroundUrl: ""
+  };
+}
+
 async function listAiModels(request) {
   const baseUrl = String(request?.baseUrl ?? "").trim();
   const apiKey = String(request?.apiKey ?? "").trim();
@@ -894,6 +955,26 @@ function readSettings() {
   }
 }
 
+function writeSettings(settings) {
+  const normalized = normalizeSettings(settings);
+  fs.writeFileSync(
+    getSettingsPath(),
+    JSON.stringify(
+      {
+        toolRootPath: normalized.toolRootPath,
+        updateOnStartup: normalized.updateOnStartup,
+        aiBaseUrl: normalized.aiBaseUrl,
+        aiApiKey: normalized.aiApiKey,
+        aiModel: normalized.aiModel,
+        themeId: normalized.themeId,
+        themeBackgrounds: normalized.themeBackgrounds
+      },
+      null,
+      2
+    )
+  );
+}
+
 function normalizeSettings(settings) {
   const defaultToolRootPath = getDefaultToolRootPath();
   const toolRootPath = String(settings?.toolRootPath ?? defaultToolRootPath).trim() || defaultToolRootPath;
@@ -904,8 +985,32 @@ function normalizeSettings(settings) {
     updateOnStartup: settings?.updateOnStartup !== false,
     aiBaseUrl: String(settings?.aiBaseUrl ?? "").trim(),
     aiApiKey: String(settings?.aiApiKey ?? "").trim(),
-    aiModel: String(settings?.aiModel ?? "").trim()
+    aiModel: String(settings?.aiModel ?? "").trim(),
+    themeId: normalizeThemeId(String(settings?.themeId ?? "default")),
+    themeBackgrounds: normalizeThemeBackgrounds(settings?.themeBackgrounds)
   };
+}
+
+function normalizeThemeId(value) {
+  const allowed = new Set(["default", "bleach", "naruto", "jianlai", "doraemon"]);
+  return allowed.has(value) ? value : "default";
+}
+
+function normalizeThemeBackgrounds(value) {
+  const allowed = new Set(["default", "bleach", "naruto", "jianlai", "doraemon"]);
+  const result = {};
+
+  if (!value || typeof value !== "object") {
+    return result;
+  }
+
+  for (const [key, rawUrl] of Object.entries(value)) {
+    if (allowed.has(key) && typeof rawUrl === "string" && rawUrl.startsWith("file:///")) {
+      result[key] = rawUrl;
+    }
+  }
+
+  return result;
 }
 
 function ensureDirectory(targetPath) {
