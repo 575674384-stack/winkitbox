@@ -1,0 +1,81 @@
+{
+  "name": "winkitbox",
+  "version": "0.1.8",
+  "private": true,
+  "description": "WinKitBox is a Windows setup toolbox for restoring a familiar app environment on new PCs.",
+  "productName": "WinKitBox",
+  "author": "WinKitBox",
+  "copyright": "Copyright © 2026 WinKitBox",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "node scripts/dev.cjs",
+    "preview": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "package:win": "node scripts/package-win.cjs",
+    "capture": "electron scripts/capture.cjs",
+    "test": "vitest run"
+  },
+  "build": {
+    "appId": "com.winkitbox.app",
+    "productName": "WinKitBox",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "assets/icon/winkitbox-icon.png",
+      "assets/icon/winkitbox-icon.ico",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/icon/winkitbox-icon.ico",
+      "executableName": "WinKitBox",
+      "legalTrademarks": "WinKitBox",
+      "signtoolOptions": {
+        "publisherName": "WinKitBox",
+        "signingHashAlgorithms": [
+          "sha256"
+        ],
+        "timeStampServer": null,
+        "rfc3161TimeStampServer": null
+      },
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "${productName}-${version}-Setup-${arch}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "assets/icon/winkitbox-icon.ico",
+      "uninstallerIcon": "assets/icon/winkitbox-icon.ico",
+      "shortcutName": "WinKitBox"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-Portable-${arch}.${ext}"
+    },
+    "publish": null
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.2",
+    "jsdom": "^26.0.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.5",
+    "vitest": "^3.0.0"
+  }
+}
