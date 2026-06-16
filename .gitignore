@@ -58,3 +58,6 @@ Desktop.ini
 tmp/
 temp/
 *.tmp
+
+# Local tooling binaries
+.bin/
