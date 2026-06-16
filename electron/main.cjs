@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, net, session, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { createTrayMenuTemplate, getTrayIconPath } = require("./trayController.cjs");
@@ -201,6 +202,14 @@ ipcMain.handle("clear-theme-background", async (_event, request) => {
 
 ipcMain.handle("check-updates", async () => {
   return checkForUpdates();
+});
+
+ipcMain.handle("download-update", async (_event, request) => {
+  return downloadUpdatePackage(request);
+});
+
+ipcMain.handle("apply-update", async (_event, request) => {
+  return applyUpdatePackage(request);
 });
 
 ipcMain.handle("system-info", async () => {
@@ -1099,6 +1108,56 @@ async function checkForUpdates() {
       error: error instanceof Error ? error.message : "更新检查失败。"
     };
   }
+}
+
+async function downloadUpdatePackage(request) {
+  const downloadUrl = String(request?.downloadUrl ?? "").trim();
+  const fileName = String(request?.fileName ?? "").trim() || "WinKitBox-Setup.exe";
+
+  if (!downloadUrl) {
+    throw new Error("更新下载链接不能为空。");
+  }
+
+  const tempDir = path.join(os.tmpdir(), "WinKitBox");
+  fs.mkdirSync(tempDir, { recursive: true });
+  const filePath = path.join(tempDir, fileName);
+
+  const response = await net.fetch(downloadUrl, {
+    headers: {
+      "User-Agent": `WinKitBox/${app.getVersion()}`,
+      Accept: "application/octet-stream"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`下载更新包失败：${response.status}`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  fs.writeFileSync(filePath, buffer);
+
+  return { filePath };
+}
+
+function applyUpdatePackage(request) {
+  const installerPath = String(request?.installerPath ?? "").trim();
+
+  if (!installerPath || !fs.existsSync(installerPath)) {
+    throw new Error("更新安装包不存在。");
+  }
+
+  const child = spawn(installerPath, ["/S"], { detached: true, shell: false });
+
+  child.on("error", (error) => {
+    dialog.showErrorBox("更新失败", error.message);
+  });
+
+  setTimeout(() => {
+    isQuitting = true;
+    app.quit();
+  }, 800);
+
+  return { ok: true };
 }
 
 function compareVersions(left, right) {

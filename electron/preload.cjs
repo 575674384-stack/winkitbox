@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld("winKitBox", {
   selectThemeBackground: (request) => ipcRenderer.invoke("select-theme-background", request),
   clearThemeBackground: (request) => ipcRenderer.invoke("clear-theme-background", request),
   checkUpdates: () => ipcRenderer.invoke("check-updates"),
+  downloadUpdate: (request) => ipcRenderer.invoke("download-update", request),
+  applyUpdate: (request) => ipcRenderer.invoke("apply-update", request),
   getSystemInfo: () => ipcRenderer.invoke("system-info"),
   testDnsServers: (servers) => ipcRenderer.invoke("test-dns-servers", servers),
   applyNetworkConfig: (request) => ipcRenderer.invoke("apply-network-config", request),

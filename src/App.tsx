@@ -29,16 +29,31 @@ import {
   Terminal,
   Trash2,
   Upload,
-  WifiOff
+  WifiOff,
 } from "lucide-react";
 import { DiscoverView } from "./DiscoverView";
 import winkitboxIconUrl from "../assets/icon/winkitbox-icon.png";
-import { categoryLabels, tools as catalogTools, type Tool, type ToolCategory } from "./core/catalog";
-import { createAiGeneratedTool, type AiToolCandidate, type AiToolGitHubContext } from "./core/aiTool";
+import {
+  categoryLabels,
+  tools as catalogTools,
+  type Tool,
+  type ToolCategory,
+} from "./core/catalog";
+import {
+  createAiGeneratedTool,
+  type AiToolCandidate,
+  type AiToolGitHubContext,
+} from "./core/aiTool";
 import { buildExportConfig, parseImportedConfig } from "./core/config";
 import { createDashboardStats } from "./core/dashboardStats";
 import { createLaunchDescriptor, getToolLogoUrl } from "./core/launcher";
-import { flattenDnsServers, formatDnsServers, publicDnsProviders, rankDnsResults, type DnsLatencyResult } from "./core/network";
+import {
+  flattenDnsServers,
+  formatDnsServers,
+  publicDnsProviders,
+  rankDnsResults,
+  type DnsLatencyResult,
+} from "./core/network";
 import {
   buildInstallCommand,
   buildPowerShellScript,
@@ -47,7 +62,7 @@ import {
   createInstallPlan,
   createUninstallPlan,
   getDefaultSelection,
-  searchTools
+  searchTools,
 } from "./core/planner";
 import { parseRunEventLine, type RunEvent } from "./core/runEvents";
 import {
@@ -59,10 +74,14 @@ import {
   markToolsChecking,
   type InstallProgress,
   type ToolRuntimeState,
-  type ToolRuntimeStates
+  type ToolRuntimeStates,
 } from "./core/toolStatus";
-import { getThemeDefinition, themeDefinitions, type ThemeId } from "./core/themes";
-import type { UpdateInfo } from "./core/update";
+import {
+  getThemeDefinition,
+  themeDefinitions,
+  type ThemeId,
+} from "./core/themes";
+import { findSetupAsset, type UpdateInfo } from "./core/update";
 
 type CategoryFilter = "all" | ToolCategory;
 type ActiveView = "catalog" | "discover" | "system" | "settings";
@@ -131,7 +150,7 @@ const categoryOrder: CategoryFilter[] = [
   "cleanup",
   "desktop",
   "network",
-  "rescue"
+  "rescue",
 ];
 
 const sourceLabels: Record<Tool["source"], string> = {
@@ -141,13 +160,13 @@ const sourceLabels: Record<Tool["source"], string> = {
   store: "Store",
   website: "官网",
   builtin: "内置",
-  custom: "自定义"
+  custom: "自定义",
 };
 
 const riskLabels: Record<Tool["risk"], string> = {
   low: "低风险",
   medium: "需确认",
-  high: "谨慎"
+  high: "谨慎",
 };
 
 const categoryIcons: Record<ToolCategory, typeof Download> = {
@@ -160,7 +179,7 @@ const categoryIcons: Record<ToolCategory, typeof Download> = {
   cleanup: Trash2,
   desktop: ListChecks,
   network: HardDriveDownload,
-  rescue: ShieldAlert
+  rescue: ShieldAlert,
 };
 
 let logCounter = 0;
@@ -176,7 +195,7 @@ const fallbackSettings: ToolPathSettings = {
   themeId: "light",
   themeBackgrounds: {},
   glassOpacity: 0.72,
-  glassBlur: 28
+  glassBlur: 28,
 };
 const releasePageUrl = "https://github.com/575674384-stack/winkitbox/releases";
 
@@ -198,7 +217,9 @@ function formatStars(stars?: number) {
 
 function loadCustomTools(): Tool[] {
   try {
-    const parsed = JSON.parse(localStorage.getItem(customToolsStorageKey) || "[]");
+    const parsed = JSON.parse(
+      localStorage.getItem(customToolsStorageKey) || "[]",
+    );
     return Array.isArray(parsed) ? parsed.filter(isStoredTool) : [];
   } catch {
     return [];
@@ -224,7 +245,9 @@ function parseDnsText(value: string) {
 }
 
 export function App() {
-  const [customTools, setCustomTools] = useState<Tool[]>(() => loadCustomTools());
+  const [customTools, setCustomTools] = useState<Tool[]>(() =>
+    loadCustomTools(),
+  );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
     const initialTools = [...catalogTools, ...loadCustomTools()];
     const fallback = getDefaultSelection(initialTools);
@@ -250,57 +273,88 @@ export function App() {
     {
       id: ++logCounter,
       level: "info",
-      message: "WinKitBox 已就绪。安装、打开、卸载都会自动刷新状态。"
-    }
+      message: "WinKitBox 已就绪。安装、打开、卸载都会自动刷新状态。",
+    },
   ]);
   const [isRunning, setIsRunning] = useState(false);
   const [toolStates, setToolStates] = useState<ToolRuntimeStates>({});
-  const [installProgress, setInstallProgress] = useState<InstallProgress>(() => createEmptyInstallProgress());
+  const [installProgress, setInstallProgress] = useState<InstallProgress>(() =>
+    createEmptyInstallProgress(),
+  );
   const [settings, setSettings] = useState<ToolPathSettings>(fallbackSettings);
-  const [toolRootDraft, setToolRootDraft] = useState(fallbackSettings.toolRootPath);
+  const [toolRootDraft, setToolRootDraft] = useState(
+    fallbackSettings.toolRootPath,
+  );
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo>();
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
-  const allTools = useMemo(() => [...catalogTools, ...customTools], [customTools]);
+  const allTools = useMemo(
+    () => [...catalogTools, ...customTools],
+    [customTools],
+  );
   const plannerOptions = useMemo(
     () => ({ managedRootPath: settings.toolRootPath }),
-    [settings.toolRootPath]
+    [settings.toolRootPath],
   );
   const installPlan = useMemo(
     () => createInstallPlan(allTools, selectedIds, plannerOptions),
-    [allTools, selectedIds, plannerOptions]
+    [allTools, selectedIds, plannerOptions],
   );
   const selectedInstalledIds = useMemo(
     () =>
       new Set(
         allTools
-          .filter((tool) => selectedIds.has(tool.id) && toolStates[tool.id]?.status === "installed")
-          .map((tool) => tool.id)
+          .filter(
+            (tool) =>
+              selectedIds.has(tool.id) &&
+              toolStates[tool.id]?.status === "installed",
+          )
+          .map((tool) => tool.id),
       ),
-    [allTools, selectedIds, toolStates]
+    [allTools, selectedIds, toolStates],
   );
   const uninstallPlan = useMemo(
     () => createUninstallPlan(allTools, selectedInstalledIds, plannerOptions),
-    [allTools, selectedInstalledIds, plannerOptions]
+    [allTools, selectedInstalledIds, plannerOptions],
   );
-  const script = useMemo(() => buildPowerShellScript(installPlan), [installPlan]);
-  const uninstallScript = useMemo(() => buildUninstallPowerShellScript(uninstallPlan), [uninstallPlan]);
-  const selectedTools = useMemo(() => allTools.filter((tool) => selectedIds.has(tool.id)), [allTools, selectedIds]);
+  const script = useMemo(
+    () => buildPowerShellScript(installPlan),
+    [installPlan],
+  );
+  const uninstallScript = useMemo(
+    () => buildUninstallPowerShellScript(uninstallPlan),
+    [uninstallPlan],
+  );
+  const selectedTools = useMemo(
+    () => allTools.filter((tool) => selectedIds.has(tool.id)),
+    [allTools, selectedIds],
+  );
   const selectedInstalledTools = useMemo(
     () => allTools.filter((tool) => selectedInstalledIds.has(tool.id)),
-    [allTools, selectedInstalledIds]
+    [allTools, selectedInstalledIds],
   );
   const dashboardStats = useMemo(
-    () => createDashboardStats({ tools: allTools, selectedIds, toolStates, installPlan }),
-    [allTools, selectedIds, toolStates, installPlan]
+    () =>
+      createDashboardStats({
+        tools: allTools,
+        selectedIds,
+        toolStates,
+        installPlan,
+      }),
+    [allTools, selectedIds, toolStates, installPlan],
   );
 
   const visibleTools = useMemo(() => {
     const categoryFiltered =
-      activeCategory === "all" ? allTools : allTools.filter((tool) => tool.category === activeCategory);
+      activeCategory === "all"
+        ? allTools
+        : allTools.filter((tool) => tool.category === activeCategory);
     return searchTools(categoryFiltered, query);
   }, [allTools, activeCategory, query]);
-  const currentTheme = useMemo(() => getThemeDefinition(settings.themeId), [settings.themeId]);
+  const currentTheme = useMemo(
+    () => getThemeDefinition(settings.themeId),
+    [settings.themeId],
+  );
   const currentThemeBackground = settings.themeBackgrounds[settings.themeId];
   const themeStyle = useMemo(
     () =>
@@ -310,9 +364,14 @@ export function App() {
           : "none",
         "--theme-backdrop": currentTheme.background,
         "--glass-opacity": String(settings.glassOpacity),
-        "--glass-blur": `${settings.glassBlur}px`
-      } as CSSProperties),
-    [currentTheme, currentThemeBackground, settings.glassOpacity, settings.glassBlur]
+        "--glass-blur": `${settings.glassBlur}px`,
+      }) as CSSProperties,
+    [
+      currentTheme,
+      currentThemeBackground,
+      settings.glassOpacity,
+      settings.glassBlur,
+    ],
   );
 
   useEffect(() => {
@@ -327,17 +386,22 @@ export function App() {
         const normalizedSettings = {
           ...fallbackSettings,
           ...nextSettings,
-          updateOnStartup: nextSettings.updateOnStartup !== false
+          updateOnStartup: nextSettings.updateOnStartup !== false,
         };
         setSettings(normalizedSettings);
         setToolRootDraft(normalizedSettings.toolRootPath);
-        await refreshToolStates(allTools, { managedRootPath: normalizedSettings.toolRootPath });
+        await refreshToolStates(allTools, {
+          managedRootPath: normalizedSettings.toolRootPath,
+        });
 
         if (normalizedSettings.updateOnStartup) {
           await checkForUpdates(true);
         }
       } catch (error) {
-        appendLog("warning", error instanceof Error ? error.message : "读取工具目录设置失败。");
+        appendLog(
+          "warning",
+          error instanceof Error ? error.message : "读取工具目录设置失败。",
+        );
         await refreshToolStates(allTools);
       }
     })();
@@ -364,7 +428,10 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(selectionStorageKey, JSON.stringify(Array.from(selectedIds)));
+    localStorage.setItem(
+      selectionStorageKey,
+      JSON.stringify(Array.from(selectedIds)),
+    );
   }, [selectedIds]);
 
   useEffect(() => {
@@ -374,7 +441,9 @@ export function App() {
   useEffect(() => {
     const knownIds = new Set(allTools.map((tool) => tool.id));
     setSelectedIds((current) => {
-      const next = new Set(Array.from(current).filter((id) => knownIds.has(id)));
+      const next = new Set(
+        Array.from(current).filter((id) => knownIds.has(id)),
+      );
       return next.size === current.size ? current : next;
     });
   }, [allTools]);
@@ -388,9 +457,9 @@ export function App() {
       {
         id: ++logCounter,
         level,
-        message
+        message,
       },
-      ...current
+      ...current,
     ]);
   }
 
@@ -412,15 +481,21 @@ export function App() {
   }
 
   function applyRunEvent(event: RunEvent) {
-    setToolStates((current) => applyRunEventSnapshot(event, current, createEmptyInstallProgress()).states);
-    setInstallProgress((current) => applyRunEventSnapshot(event, {}, current).progress);
+    setToolStates(
+      (current) =>
+        applyRunEventSnapshot(event, current, createEmptyInstallProgress())
+          .states,
+    );
+    setInstallProgress(
+      (current) => applyRunEventSnapshot(event, {}, current).progress,
+    );
 
     if (event.type === "plan-start") {
       appendLog(
         "info",
         event.action === "uninstall"
           ? `开始执行卸载计划，共 ${event.total} 个卸载项。`
-          : `开始执行安装计划，共 ${event.total} 个自动安装项。`
+          : `开始执行安装计划，共 ${event.total} 个自动安装项。`,
       );
       return;
     }
@@ -463,19 +538,26 @@ export function App() {
     appendLog("error", `${event.label} 安装失败。`);
   }
 
-  async function refreshToolStates(targetTools: Tool[], options = plannerOptions) {
+  async function refreshToolStates(
+    targetTools: Tool[],
+    options = plannerOptions,
+  ) {
     if (!window.winKitBox || targetTools.length === 0) {
       return;
     }
 
-    const descriptors = targetTools.map((tool) => createLaunchDescriptor(tool, options));
+    const descriptors = targetTools.map((tool) =>
+      createLaunchDescriptor(tool, options),
+    );
     const toolIds = descriptors.map((descriptor) => descriptor.toolId);
 
     setToolStates((current) => markToolsChecking(current, toolIds));
 
     try {
       const results = await window.winKitBox.detectTools(descriptors);
-      setToolStates((current) => applyDetectionResults(current, results, toolIds));
+      setToolStates((current) =>
+        applyDetectionResults(current, results, toolIds),
+      );
     } catch (error) {
       setToolStates((current) => {
         const next = { ...current };
@@ -483,13 +565,16 @@ export function App() {
           if (next[toolId]?.status === "checking") {
             next[toolId] = {
               status: "unknown",
-              message: "检测失败，可以稍后重试。"
+              message: "检测失败，可以稍后重试。",
             };
           }
         }
         return next;
       });
-      appendLog("warning", error instanceof Error ? error.message : "安装状态检测失败。");
+      appendLog(
+        "warning",
+        error instanceof Error ? error.message : "安装状态检测失败。",
+      );
     }
   }
 
@@ -509,7 +594,10 @@ export function App() {
     if (!window.winKitBox) {
       setSettings(nextSettings);
       setToolRootDraft(nextSettings.toolRootPath);
-      appendLog("warning", "浏览器预览模式只会临时保存设置，桌面版才能写入本机配置。");
+      appendLog(
+        "warning",
+        "浏览器预览模式只会临时保存设置，桌面版才能写入本机配置。",
+      );
       return nextSettings;
     }
 
@@ -522,12 +610,12 @@ export function App() {
       themeId: nextSettings.themeId,
       themeBackgrounds: nextSettings.themeBackgrounds,
       glassOpacity: nextSettings.glassOpacity,
-      glassBlur: nextSettings.glassBlur
+      glassBlur: nextSettings.glassBlur,
     });
     const normalizedSettings = {
       ...fallbackSettings,
       ...savedSettings,
-      updateOnStartup: savedSettings.updateOnStartup !== false
+      updateOnStartup: savedSettings.updateOnStartup !== false,
     };
     setSettings(normalizedSettings);
     setToolRootDraft(normalizedSettings.toolRootPath);
@@ -543,11 +631,19 @@ export function App() {
     }
 
     try {
-      const savedSettings = await persistSettings({ ...settings, toolRootPath: nextPath });
+      const savedSettings = await persistSettings({
+        ...settings,
+        toolRootPath: nextPath,
+      });
       appendLog("success", `工具目录已切换到 ${savedSettings.toolRootPath}。`);
-      await refreshToolStates(allTools, { managedRootPath: savedSettings.toolRootPath });
+      await refreshToolStates(allTools, {
+        managedRootPath: savedSettings.toolRootPath,
+      });
     } catch (error) {
-      appendLog("error", error instanceof Error ? error.message : "保存工具目录失败。");
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "保存工具目录失败。",
+      );
     }
   }
 
@@ -572,18 +668,33 @@ export function App() {
   async function saveUpdateOnStartup(updateOnStartup: boolean) {
     try {
       await persistSettings({ ...settings, updateOnStartup });
-      appendLog("success", updateOnStartup ? "已开启启动时自动检测更新。" : "已关闭启动时自动检测更新。");
+      appendLog(
+        "success",
+        updateOnStartup
+          ? "已开启启动时自动检测更新。"
+          : "已关闭启动时自动检测更新。",
+      );
     } catch (error) {
-      appendLog("error", error instanceof Error ? error.message : "保存更新设置失败。");
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "保存更新设置失败。",
+      );
     }
   }
 
-  async function saveAiSettings(aiSettings: { aiBaseUrl: string; aiApiKey: string; aiModel: string }) {
+  async function saveAiSettings(aiSettings: {
+    aiBaseUrl: string;
+    aiApiKey: string;
+    aiModel: string;
+  }) {
     try {
       await persistSettings({ ...settings, ...aiSettings });
       appendLog("success", "AI 添加工具配置已保存。");
     } catch (error) {
-      appendLog("error", error instanceof Error ? error.message : "保存 AI 配置失败。");
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "保存 AI 配置失败。",
+      );
     }
   }
 
@@ -592,28 +703,46 @@ export function App() {
       ...settings,
       themeId,
       glassOpacity: getThemeDefinition(themeId).defaultGlassOpacity,
-      glassBlur: getThemeDefinition(themeId).defaultGlassBlur
+      glassBlur: getThemeDefinition(themeId).defaultGlassBlur,
     };
     try {
       await persistSettings(nextSettings);
-      appendLog("success", `已切换到 ${themeDefinitions.find((theme) => theme.id === themeId)?.name ?? themeId} 主题。`);
+      appendLog(
+        "success",
+        `已切换到 ${themeDefinitions.find((theme) => theme.id === themeId)?.name ?? themeId} 主题。`,
+      );
     } catch (error) {
-      appendLog("error", error instanceof Error ? error.message : "保存主题失败。");
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "保存主题失败。",
+      );
     }
   }
 
-  async function saveGlassSettings(glass: { glassOpacity: number; glassBlur: number }) {
+  async function saveGlassSettings(glass: {
+    glassOpacity: number;
+    glassBlur: number;
+  }) {
     try {
       await persistSettings({ ...settings, ...glass });
-      appendLog("success", `毛玻璃已调整为不透明度 ${Math.round(glass.glassOpacity * 100)}%、模糊 ${glass.glassBlur}px。`);
+      appendLog(
+        "success",
+        `毛玻璃已调整为不透明度 ${Math.round(glass.glassOpacity * 100)}%、模糊 ${glass.glassBlur}px。`,
+      );
     } catch (error) {
-      appendLog("error", error instanceof Error ? error.message : "保存毛玻璃设置失败。");
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "保存毛玻璃设置失败。",
+      );
     }
   }
 
   async function chooseThemeBackground(themeId: ThemeId) {
     if (!window.winKitBox) {
-      appendLog("warning", "浏览器预览模式不能选择本地主题图片，请用桌面版打开。");
+      appendLog(
+        "warning",
+        "浏览器预览模式不能选择本地主题图片，请用桌面版打开。",
+      );
       return;
     }
 
@@ -628,18 +757,24 @@ export function App() {
         themeId,
         themeBackgrounds: {
           ...settings.themeBackgrounds,
-          [themeId]: result.backgroundUrl
-        }
+          [themeId]: result.backgroundUrl,
+        },
       });
       appendLog("success", "主题背景图已保存到本机配置目录。");
     } catch (error) {
-      appendLog("error", error instanceof Error ? error.message : "选择主题背景图失败。");
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "选择主题背景图失败。",
+      );
     }
   }
 
   async function clearThemeBackground(themeId: ThemeId) {
     if (!window.winKitBox) {
-      appendLog("warning", "浏览器预览模式不能清除本地主题图片，请用桌面版打开。");
+      appendLog(
+        "warning",
+        "浏览器预览模式不能清除本地主题图片，请用桌面版打开。",
+      );
       return;
     }
 
@@ -649,11 +784,14 @@ export function App() {
       delete nextBackgrounds[themeId];
       await persistSettings({
         ...settings,
-        themeBackgrounds: nextBackgrounds
+        themeBackgrounds: nextBackgrounds,
       });
       appendLog("success", "已清除当前主题的自定义背景图。");
     } catch (error) {
-      appendLog("error", error instanceof Error ? error.message : "清除主题背景图失败。");
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "清除主题背景图失败。",
+      );
     }
   }
 
@@ -672,7 +810,10 @@ export function App() {
       setUpdateInfo(info);
 
       if (info.hasUpdate) {
-        appendLog("success", `发现新版 v${info.latestVersion}，可以打开发行页下载。`);
+        appendLog(
+          "success",
+          `发现新版 v${info.latestVersion}，可以打开发行页下载。`,
+        );
         return;
       }
 
@@ -688,7 +829,10 @@ export function App() {
       }
     } catch (error) {
       if (!silent) {
-        appendLog("error", error instanceof Error ? error.message : "检查更新失败。");
+        appendLog(
+          "error",
+          error instanceof Error ? error.message : "检查更新失败。",
+        );
       }
     } finally {
       setIsCheckingUpdate(false);
@@ -707,21 +851,25 @@ export function App() {
         settings: {
           toolRootPath: settings.toolRootPath,
           updateOnStartup: settings.updateOnStartup,
-          themeId: settings.themeId
+          themeId: settings.themeId,
         },
         selectedToolIds: Array.from(selectedIds),
-        customTools
+        customTools,
       });
 
       if (window.winKitBox) {
-        const result = await window.winKitBox.saveConfigFile({ content: payload });
+        const result = await window.winKitBox.saveConfigFile({
+          content: payload,
+        });
         if (!result.canceled) {
           appendLog("success", `配置已导出：${result.filePath}`);
         }
         return;
       }
 
-      const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
+      const url = URL.createObjectURL(
+        new Blob([payload], { type: "application/json" }),
+      );
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = "winkitbox-config.json";
@@ -729,39 +877,58 @@ export function App() {
       URL.revokeObjectURL(url);
       appendLog("success", "配置已导出。");
     } catch (error) {
-      appendLog("error", error instanceof Error ? error.message : "导出配置失败。");
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "导出配置失败。",
+      );
     }
   }
 
   async function importConfig() {
     try {
-      const opened = window.winKitBox ? await window.winKitBox.openConfigFile() : await openBrowserConfigFile();
+      const opened = window.winKitBox
+        ? await window.winKitBox.openConfigFile()
+        : await openBrowserConfigFile();
       if (!opened || opened.canceled || !opened.content) {
         return;
       }
 
       const imported = parseImportedConfig(opened.content);
       const nextCustomTools = imported.customTools;
-      const knownIds = new Set([...catalogTools, ...nextCustomTools].map((tool) => tool.id));
-      const nextSelectedIds = imported.selectedToolIds.filter((id) => knownIds.has(id));
+      const knownIds = new Set(
+        [...catalogTools, ...nextCustomTools].map((tool) => tool.id),
+      );
+      const nextSelectedIds = imported.selectedToolIds.filter((id) =>
+        knownIds.has(id),
+      );
       const nextSettings = {
         ...settings,
         toolRootPath: imported.settings.toolRootPath || settings.toolRootPath,
         updateOnStartup: imported.settings.updateOnStartup,
-        themeId: imported.settings.themeId ?? settings.themeId
+        themeId: imported.settings.themeId ?? settings.themeId,
       };
 
       setCustomTools(nextCustomTools);
       setSelectedIds(new Set(nextSelectedIds));
       await persistSettings(nextSettings);
-      appendLog("success", `配置已导入${opened.filePath ? `：${opened.filePath}` : ""}。`);
-      await refreshToolStates([...catalogTools, ...nextCustomTools], { managedRootPath: nextSettings.toolRootPath });
+      appendLog(
+        "success",
+        `配置已导入${opened.filePath ? `：${opened.filePath}` : ""}。`,
+      );
+      await refreshToolStates([...catalogTools, ...nextCustomTools], {
+        managedRootPath: nextSettings.toolRootPath,
+      });
     } catch (error) {
-      appendLog("error", error instanceof Error ? error.message : "导入配置失败。");
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "导入配置失败。",
+      );
     }
   }
 
-  async function openBrowserConfigFile(): Promise<{ canceled: boolean; content?: string; filePath?: string } | undefined> {
+  async function openBrowserConfigFile(): Promise<
+    { canceled: boolean; content?: string; filePath?: string } | undefined
+  > {
     return new Promise((resolve) => {
       const input = document.createElement("input");
       input.type = "file";
@@ -779,20 +946,34 @@ export function App() {
           return;
         }
 
-        file.text().then((content) => resolve({ canceled: false, content, filePath: file.name }));
+        file
+          .text()
+          .then((content) =>
+            resolve({ canceled: false, content, filePath: file.name }),
+          );
       };
       input.click();
     });
   }
 
-  function addAiGeneratedTool(candidate: AiToolCandidate, context: AiToolGitHubContext) {
+  function addAiGeneratedTool(
+    candidate: AiToolCandidate,
+    context: AiToolGitHubContext,
+  ) {
     try {
-      const customTool = createAiGeneratedTool(candidate, context, new Set(allTools.map((tool) => tool.id)));
+      const customTool = createAiGeneratedTool(
+        candidate,
+        context,
+        new Set(allTools.map((tool) => tool.id)),
+      );
       setCustomTools((current) => [...current, customTool]);
       appendLog("success", `AI 已添加工具：${customTool.name}。`);
       setSelectedIds((current) => new Set([...current, customTool.id]));
     } catch (error) {
-      appendLog("error", error instanceof Error ? error.message : "AI 添加工具失败。");
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "AI 添加工具失败。",
+      );
     }
   }
 
@@ -813,7 +994,9 @@ export function App() {
       return;
     }
 
-    const confirmed = window.confirm(`将执行 ${installPlan.readyCount} 条安装命令。是否继续？`);
+    const confirmed = window.confirm(
+      `将执行 ${installPlan.readyCount} 条安装命令。是否继续？`,
+    );
 
     if (!confirmed) {
       appendLog("info", "已取消执行安装计划。");
@@ -831,7 +1014,10 @@ export function App() {
         appendLog("error", `安装计划结束，退出码 ${result.code ?? "未知"}。`);
       }
     } catch (error) {
-      appendLog("error", error instanceof Error ? error.message : "执行安装计划失败。");
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "执行安装计划失败。",
+      );
     } finally {
       await refreshToolStates(selectedTools);
       setIsRunning(false);
@@ -845,7 +1031,7 @@ export function App() {
     }
 
     const confirmed = window.confirm(
-      `将卸载已选择且已安装的 ${uninstallPlan.readyCount} 个工具。卸载可能会弹出软件自己的确认窗口，是否继续？`
+      `将卸载已选择且已安装的 ${uninstallPlan.readyCount} 个工具。卸载可能会弹出软件自己的确认窗口，是否继续？`,
     );
 
     if (!confirmed) {
@@ -864,7 +1050,10 @@ export function App() {
         appendLog("error", `卸载计划结束，退出码 ${result.code ?? "未知"}。`);
       }
     } catch (error) {
-      appendLog("error", error instanceof Error ? error.message : "执行卸载计划失败。");
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "执行卸载计划失败。",
+      );
     } finally {
       await refreshToolStates(selectedInstalledTools);
       setIsRunning(false);
@@ -889,19 +1078,31 @@ export function App() {
     }
 
     if (!window.winKitBox) {
-      appendLog("warning", `浏览器预览不能直接安装 ${tool.name}，请用桌面版运行 WinKitBox。`);
+      appendLog(
+        "warning",
+        `浏览器预览不能直接安装 ${tool.name}，请用桌面版运行 WinKitBox。`,
+      );
       return;
     }
 
     appendLog("info", `开始安装 ${tool.name}。`);
-    const singlePlan = createInstallPlan([tool], new Set([tool.id]), plannerOptions);
-    const result = await window.winKitBox.runPowerShell(buildPowerShellScript(singlePlan));
+    const singlePlan = createInstallPlan(
+      [tool],
+      new Set([tool.id]),
+      plannerOptions,
+    );
+    const result = await window.winKitBox.runPowerShell(
+      buildPowerShellScript(singlePlan),
+    );
     await refreshToolStates([tool]);
 
     if (result.code === 0) {
       appendLog("success", `${tool.name} 安装命令已完成，可以点击打开试试。`);
     } else {
-      appendLog("error", `${tool.name} 安装命令结束，退出码 ${result.code ?? "未知"}。`);
+      appendLog(
+        "error",
+        `${tool.name} 安装命令结束，退出码 ${result.code ?? "未知"}。`,
+      );
     }
   }
 
@@ -915,11 +1116,16 @@ export function App() {
     }
 
     if (!window.winKitBox) {
-      appendLog("warning", `浏览器预览不能直接卸载 ${tool.name}，请用桌面版运行 WinKitBox。`);
+      appendLog(
+        "warning",
+        `浏览器预览不能直接卸载 ${tool.name}，请用桌面版运行 WinKitBox。`,
+      );
       return;
     }
 
-    const confirmed = window.confirm(`将卸载 ${tool.name}。卸载可能会弹出软件自己的确认窗口，是否继续？`);
+    const confirmed = window.confirm(
+      `将卸载 ${tool.name}。卸载可能会弹出软件自己的确认窗口，是否继续？`,
+    );
 
     if (!confirmed) {
       appendLog("info", `已取消卸载 ${tool.name}。`);
@@ -927,20 +1133,32 @@ export function App() {
     }
 
     appendLog("info", `开始卸载 ${tool.name}。`);
-    const singlePlan = createUninstallPlan([tool], new Set([tool.id]), plannerOptions);
-    const result = await window.winKitBox.runPowerShell(buildUninstallPowerShellScript(singlePlan));
+    const singlePlan = createUninstallPlan(
+      [tool],
+      new Set([tool.id]),
+      plannerOptions,
+    );
+    const result = await window.winKitBox.runPowerShell(
+      buildUninstallPowerShellScript(singlePlan),
+    );
     await refreshToolStates([tool]);
 
     if (result.code === 0) {
       appendLog("success", `${tool.name} 卸载命令已完成。`);
     } else {
-      appendLog("error", `${tool.name} 卸载命令结束，退出码 ${result.code ?? "未知"}。`);
+      appendLog(
+        "error",
+        `${tool.name} 卸载命令结束，退出码 ${result.code ?? "未知"}。`,
+      );
     }
   }
 
   async function launchTool(tool: Tool) {
     if (!window.winKitBox) {
-      appendLog("warning", `浏览器预览不能打开本地软件。请用桌面版运行 WinKitBox 后打开 ${tool.name}。`);
+      appendLog(
+        "warning",
+        `浏览器预览不能打开本地软件。请用桌面版运行 WinKitBox 后打开 ${tool.name}。`,
+      );
       return;
     }
 
@@ -950,11 +1168,13 @@ export function App() {
       [tool.id]: {
         ...current[tool.id],
         status: "opening",
-        message: `正在打开 ${tool.name}...`
-      }
+        message: `正在打开 ${tool.name}...`,
+      },
     }));
 
-    const result = await window.winKitBox.launchTool(createLaunchDescriptor(tool, plannerOptions));
+    const result = await window.winKitBox.launchTool(
+      createLaunchDescriptor(tool, plannerOptions),
+    );
 
     if (result.code === 0) {
       setToolStates((current) => ({
@@ -963,13 +1183,16 @@ export function App() {
           ...current[tool.id],
           status: "installed",
           message: `${tool.name} 已打开。`,
-          launcherFound: true
-        }
+          launcherFound: true,
+        },
       }));
       appendLog("success", `${tool.name} 已发送启动请求。`);
     } else {
       await refreshToolStates([tool]);
-      appendLog("warning", `没有找到 ${tool.name} 的已安装入口。可以先安装，或打开来源页面确认安装方式。`);
+      appendLog(
+        "warning",
+        `没有找到 ${tool.name} 的已安装入口。可以先安装，或打开来源页面确认安装方式。`,
+      );
     }
   }
 
@@ -1020,13 +1243,17 @@ export function App() {
                 const count =
                   category === "all"
                     ? allTools.length
-                    : allTools.filter((tool) => tool.category === category).length;
-                const Icon = category === "all" ? ListChecks : categoryIcons[category];
+                    : allTools.filter((tool) => tool.category === category)
+                        .length;
+                const Icon =
+                  category === "all" ? ListChecks : categoryIcons[category];
 
                 return (
                   <button
                     className={`category-button ${
-                      activeView === "catalog" && activeCategory === category ? "active" : ""
+                      activeView === "catalog" && activeCategory === category
+                        ? "active"
+                        : ""
                     }`}
                     key={category}
                     type="button"
@@ -1142,7 +1369,11 @@ export function App() {
                 <RotateCcw size={16} />
                 恢复默认
               </button>
-              <button className="ghost-button danger" type="button" onClick={() => setSelectedIds(new Set())}>
+              <button
+                className="ghost-button danger"
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
+              >
                 <Trash2 size={16} />
                 清空选择
               </button>
@@ -1150,11 +1381,36 @@ export function App() {
           </header>
 
           <div className="stats-row">
-            <Metric label="已选择" value={dashboardStats.selectedCount} tone="blue" icon={ListChecks} />
-            <Metric label="已安装" value={dashboardStats.installedCount} tone="green" icon={Check} />
-            <Metric label="可自动安装" value={dashboardStats.readyCount} tone="teal" icon={Download} />
-            <Metric label="手动来源" value={dashboardStats.manualCount} tone="amber" icon={ExternalLink} />
-            <Metric label="需管理员" value={dashboardStats.adminCount} tone="red" icon={ShieldAlert} />
+            <Metric
+              label="已选择"
+              value={dashboardStats.selectedCount}
+              tone="blue"
+              icon={ListChecks}
+            />
+            <Metric
+              label="已安装"
+              value={dashboardStats.installedCount}
+              tone="green"
+              icon={Check}
+            />
+            <Metric
+              label="可自动安装"
+              value={dashboardStats.readyCount}
+              tone="teal"
+              icon={Download}
+            />
+            <Metric
+              label="手动来源"
+              value={dashboardStats.manualCount}
+              tone="amber"
+              icon={ExternalLink}
+            />
+            <Metric
+              label="需管理员"
+              value={dashboardStats.adminCount}
+              tone="red"
+              icon={ShieldAlert}
+            />
           </div>
 
           <div className="search-row search-row-prominent">
@@ -1174,7 +1430,11 @@ export function App() {
               compact
             >
               {query && (
-                <button className="secondary-button" type="button" onClick={() => setQuery("")}>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => setQuery("")}
+                >
                   <RotateCcw size={14} />
                   清除搜索
                 </button>
@@ -1229,7 +1489,10 @@ export function App() {
             />
           ) : (
             <>
-              <InstallProgressCard progress={installProgress} readyCount={installPlan.readyCount} />
+              <InstallProgressCard
+                progress={installProgress}
+                readyCount={installPlan.readyCount}
+              />
 
               <div className="command-preview">
                 <pre>{script}</pre>
@@ -1261,7 +1524,8 @@ export function App() {
                   <ExternalLink size={15} />
                   手动来源
                 </div>
-                {installPlan.commands.filter((item) => item.manualUrl).length === 0 ? (
+                {installPlan.commands.filter((item) => item.manualUrl)
+                  .length === 0 ? (
                   <p className="empty-text">当前没有手动下载项。</p>
                 ) : (
                   installPlan.commands
@@ -1289,14 +1553,20 @@ export function App() {
 
 function InstallProgressCard({
   progress,
-  readyCount
+  readyCount,
 }: {
   progress: InstallProgress;
   readyCount: number;
 }) {
   const total = progress.total || readyCount;
-  const percent = total > 0 ? Math.min(100, Math.round((progress.completed / total) * 100)) : 0;
-  const finished = progress.total > 0 && progress.completed >= progress.total && !progress.active;
+  const percent =
+    total > 0
+      ? Math.min(100, Math.round((progress.completed / total) * 100))
+      : 0;
+  const finished =
+    progress.total > 0 &&
+    progress.completed >= progress.total &&
+    !progress.active;
   const action = progress.action ?? "install";
   const activeVerb = action === "uninstall" ? "正在卸载" : "正在安装";
   const finishedText = action === "uninstall" ? "卸载已完成" : "安装已完成";
@@ -1313,7 +1583,10 @@ function InstallProgressCard({
       ? `${progress.completed}/${progress.total} 完成 · 成功 ${progress.succeeded} · 失败 ${progress.failed}`
       : `${readyCount} ${idleText}`;
 
-  const steps = action === "uninstall" ? ["等待", "检测", "卸载", "完成"] : ["等待", "检测", "安装", "完成"];
+  const steps =
+    action === "uninstall"
+      ? ["等待", "检测", "卸载", "完成"]
+      : ["等待", "检测", "安装", "完成"];
   const stepIndex = finished ? 3 : progress.active ? 2 : readyCount > 0 ? 1 : 0;
 
   return (
@@ -1328,7 +1601,9 @@ function InstallProgressCard({
             className={`progress-step ${index < stepIndex ? "completed" : ""} ${index === stepIndex ? "active" : ""}`}
             key={label}
           >
-            <div className="progress-step-dot">{index < stepIndex ? <Check size={14} /> : index + 1}</div>
+            <div className="progress-step-dot">
+              {index < stepIndex ? <Check size={14} /> : index + 1}
+            </div>
             <span className="progress-step-label">{label}</span>
           </div>
         ))}
@@ -1345,7 +1620,7 @@ function Metric({
   label,
   value,
   tone,
-  icon: Icon
+  icon: Icon,
 }: {
   label: string;
   value: number;
@@ -1368,7 +1643,7 @@ function EmptyState({
   title,
   description,
   children,
-  compact = false
+  compact = false,
 }: {
   icon: typeof Inbox;
   title: string;
@@ -1388,21 +1663,30 @@ function EmptyState({
   );
 }
 
-function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: string) => void }) {
+function SystemView({
+  onLog,
+}: {
+  onLog: (level: LogEntry["level"], message: string) => void;
+}) {
   const [info, setInfo] = useState<SystemInfo>();
   const [selectedAdapterId, setSelectedAdapterId] = useState("");
   const [form, setForm] = useState<NetworkForm>({
     ipAddress: "",
     prefixLength: "24",
     gateway: "",
-    dnsServers: ""
+    dnsServers: "",
   });
   const [dnsResults, setDnsResults] = useState<DnsLatencyResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isTestingDns, setIsTestingDns] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
-  const dnsCandidates = useMemo(() => flattenDnsServers(publicDnsProviders), []);
-  const selectedAdapter = info?.adapters.find((adapter) => adapter.id === selectedAdapterId);
+  const dnsCandidates = useMemo(
+    () => flattenDnsServers(publicDnsProviders),
+    [],
+  );
+  const selectedAdapter = info?.adapters.find(
+    (adapter) => adapter.id === selectedAdapterId,
+  );
 
   useEffect(() => {
     void refreshSystemInfo();
@@ -1418,14 +1702,19 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
     try {
       const nextInfo = await window.winKitBox.getSystemInfo();
       setInfo(nextInfo);
-      const adapter = nextInfo.adapters.find((item) => item.id === selectedAdapterId) ?? nextInfo.adapters[0];
+      const adapter =
+        nextInfo.adapters.find((item) => item.id === selectedAdapterId) ??
+        nextInfo.adapters[0];
       if (adapter) {
         setSelectedAdapterId(adapter.id);
         syncFormFromAdapter(adapter);
       }
       onLog("success", "本机配置已刷新。");
     } catch (error) {
-      onLog("error", error instanceof Error ? error.message : "读取本机配置失败。");
+      onLog(
+        "error",
+        error instanceof Error ? error.message : "读取本机配置失败。",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -1437,7 +1726,7 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
       ipAddress: ipv4?.address ?? "",
       prefixLength: String(ipv4?.prefixLength ?? 24),
       gateway: adapter.gateway ?? "",
-      dnsServers: formatDnsServers(adapter.dnsServers)
+      dnsServers: formatDnsServers(adapter.dnsServers),
     });
   }
 
@@ -1454,23 +1743,36 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
 
     setIsTestingDns(true);
     try {
-      const providerByServer = new Map(dnsCandidates.map((candidate) => [candidate.server, candidate.provider]));
-      const results = await window.winKitBox.testDnsServers(dnsCandidates.map((candidate) => candidate.server));
+      const providerByServer = new Map(
+        dnsCandidates.map((candidate) => [
+          candidate.server,
+          candidate.provider,
+        ]),
+      );
+      const results = await window.winKitBox.testDnsServers(
+        dnsCandidates.map((candidate) => candidate.server),
+      );
       const ranked = rankDnsResults(
         results.map((result) => ({
           ...result,
-          provider: providerByServer.get(result.server)
-        }))
+          provider: providerByServer.get(result.server),
+        })),
       );
       setDnsResults(ranked);
       const fastest = ranked.find((result) => result.ok);
       if (fastest) {
-        onLog("success", `DNS 延迟检测完成，最快的是 ${fastest.server}（${fastest.latencyMs}ms）。`);
+        onLog(
+          "success",
+          `DNS 延迟检测完成，最快的是 ${fastest.server}（${fastest.latencyMs}ms）。`,
+        );
       } else {
         onLog("warning", "DNS 延迟检测完成，但没有可用结果。");
       }
     } catch (error) {
-      onLog("error", error instanceof Error ? error.message : "DNS 延迟检测失败。");
+      onLog(
+        "error",
+        error instanceof Error ? error.message : "DNS 延迟检测失败。",
+      );
     } finally {
       setIsTestingDns(false);
     }
@@ -1501,7 +1803,7 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
         ipAddress: form.ipAddress,
         prefixLength: Number.parseInt(form.prefixLength, 10) || 24,
         gateway: form.gateway,
-        dnsServers: parseDnsText(form.dnsServers)
+        dnsServers: parseDnsText(form.dnsServers),
       });
 
       if (result.code === 0) {
@@ -1511,7 +1813,10 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
       }
       await refreshSystemInfo();
     } catch (error) {
-      onLog("error", error instanceof Error ? error.message : "应用网络配置失败。");
+      onLog(
+        "error",
+        error instanceof Error ? error.message : "应用网络配置失败。",
+      );
     } finally {
       setIsApplying(false);
     }
@@ -1529,7 +1834,12 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
             <h2>查看本机，调整 IP / DNS</h2>
           </div>
         </div>
-        <button className="ghost-button" type="button" disabled={isLoading} onClick={refreshSystemInfo}>
+        <button
+          className="ghost-button"
+          type="button"
+          disabled={isLoading}
+          onClick={refreshSystemInfo}
+        >
           <RotateCcw size={16} className={isLoading ? "spin" : ""} />
           {isLoading ? "刷新中" : "刷新配置"}
         </button>
@@ -1570,7 +1880,9 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
                 onClick={() => selectAdapter(adapter)}
               >
                 <span>{adapter.name}</span>
-                <small>{adapter.status} · {adapter.dhcpEnabled ? "DHCP" : "静态"}</small>
+                <small>
+                  {adapter.status} · {adapter.dhcpEnabled ? "DHCP" : "静态"}
+                </small>
               </button>
             ))}
             {!info?.adapters?.length && (
@@ -1591,7 +1903,9 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
           </div>
           {selectedAdapter && (
             <div className="adapter-summary">
-              <strong>{selectedAdapter.description || selectedAdapter.name}</strong>
+              <strong>
+                {selectedAdapter.description || selectedAdapter.name}
+              </strong>
               <span>MAC：{selectedAdapter.macAddress || "未知"}</span>
             </div>
           )}
@@ -1600,7 +1914,12 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
               IPv4 地址
               <input
                 value={form.ipAddress}
-                onChange={(event) => setForm((current) => ({ ...current, ipAddress: event.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    ipAddress: event.target.value,
+                  }))
+                }
                 placeholder="例如 192.168.1.88"
               />
             </label>
@@ -1608,7 +1927,12 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
               前缀长度
               <input
                 value={form.prefixLength}
-                onChange={(event) => setForm((current) => ({ ...current, prefixLength: event.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    prefixLength: event.target.value,
+                  }))
+                }
                 placeholder="24"
               />
             </label>
@@ -1616,7 +1940,12 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
               默认网关
               <input
                 value={form.gateway}
-                onChange={(event) => setForm((current) => ({ ...current, gateway: event.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    gateway: event.target.value,
+                  }))
+                }
                 placeholder="例如 192.168.1.1"
               />
             </label>
@@ -1624,20 +1953,40 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
               DNS 服务器
               <input
                 value={form.dnsServers}
-                onChange={(event) => setForm((current) => ({ ...current, dnsServers: event.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    dnsServers: event.target.value,
+                  }))
+                }
                 placeholder="223.5.5.5, 119.29.29.29"
               />
             </label>
           </div>
           <div className="settings-actions">
-            <button className="primary-button" type="button" disabled={isApplying || !selectedAdapter} onClick={() => applyNetworkConfig("dns")}>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={isApplying || !selectedAdapter}
+              onClick={() => applyNetworkConfig("dns")}
+            >
               <Save size={15} />
               应用 DNS
             </button>
-            <button className="secondary-button" type="button" disabled={isApplying || !selectedAdapter} onClick={() => applyNetworkConfig("static")}>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={isApplying || !selectedAdapter}
+              onClick={() => applyNetworkConfig("static")}
+            >
               应用静态 IP
             </button>
-            <button className="secondary-button danger" type="button" disabled={isApplying || !selectedAdapter} onClick={() => applyNetworkConfig("dhcp")}>
+            <button
+              className="secondary-button danger"
+              type="button"
+              disabled={isApplying || !selectedAdapter}
+              onClick={() => applyNetworkConfig("dhcp")}
+            >
               恢复自动获取
             </button>
           </div>
@@ -1651,9 +2000,16 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
               <HardDriveDownload size={15} />
               公共 DNS 推荐
             </div>
-            <p>先测延迟，再点“使用”填入上方 DNS。实际快慢也会受运营商和地区影响。</p>
+            <p>
+              先测延迟，再点“使用”填入上方 DNS。实际快慢也会受运营商和地区影响。
+            </p>
           </div>
-          <button className="secondary-button" type="button" disabled={isTestingDns} onClick={testDnsServers}>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={isTestingDns}
+            onClick={testDnsServers}
+          >
             <Gauge size={15} />
             {isTestingDns ? "检测中" : "延迟检测"}
           </button>
@@ -1670,7 +2026,12 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
               <button
                 className="secondary-button"
                 type="button"
-                onClick={() => setForm((current) => ({ ...current, dnsServers: formatDnsServers(provider.servers) }))}
+                onClick={() =>
+                  setForm((current) => ({
+                    ...current,
+                    dnsServers: formatDnsServers(provider.servers),
+                  }))
+                }
               >
                 使用
               </button>
@@ -1681,14 +2042,24 @@ function SystemView({ onLog }: { onLog: (level: LogEntry["level"], message: stri
         {dnsResults.length > 0 && (
           <div className="dns-table">
             {dnsResults.map((result) => (
-              <div className={`dns-row ${result.ok ? "ok" : "failed"}`} key={result.server}>
+              <div
+                className={`dns-row ${result.ok ? "ok" : "failed"}`}
+                key={result.server}
+              >
                 <span>{result.provider ?? "公共 DNS"}</span>
                 <strong>{result.server}</strong>
-                <em>{result.ok ? `${result.latencyMs}ms` : result.error || "失败"}</em>
+                <em>
+                  {result.ok ? `${result.latencyMs}ms` : result.error || "失败"}
+                </em>
                 <button
                   className="text-button"
                   type="button"
-                  onClick={() => setForm((current) => ({ ...current, dnsServers: result.server }))}
+                  onClick={() =>
+                    setForm((current) => ({
+                      ...current,
+                      dnsServers: result.server,
+                    }))
+                  }
                 >
                   使用
                 </button>
@@ -1724,7 +2095,7 @@ function SettingsView({
   onAddAiTool,
   onRemoveCustomTool,
   onExportConfig,
-  onImportConfig
+  onImportConfig,
 }: {
   settings: ToolPathSettings;
   toolRootDraft: string;
@@ -1737,15 +2108,25 @@ function SettingsView({
   checkForUpdates: (silent?: boolean) => Promise<void>;
   openUpdateRelease: () => Promise<void>;
   saveUpdateOnStartup: (updateOnStartup: boolean) => Promise<void>;
-  saveAiSettings: (aiSettings: { aiBaseUrl: string; aiApiKey: string; aiModel: string }) => Promise<void>;
+  saveAiSettings: (aiSettings: {
+    aiBaseUrl: string;
+    aiApiKey: string;
+    aiModel: string;
+  }) => Promise<void>;
   saveTheme: (themeId: ThemeId) => Promise<void>;
   chooseThemeBackground: (themeId: ThemeId) => Promise<void>;
   clearThemeBackground: (themeId: ThemeId) => Promise<void>;
-  saveGlassSettings: (glass: { glassOpacity: number; glassBlur: number }) => Promise<void>;
+  saveGlassSettings: (glass: {
+    glassOpacity: number;
+    glassBlur: number;
+  }) => Promise<void>;
   onLog: (level: LogEntry["level"], message: string) => void;
   logs: LogEntry[];
   customTools: Tool[];
-  onAddAiTool: (candidate: AiToolCandidate, context: AiToolGitHubContext) => void;
+  onAddAiTool: (
+    candidate: AiToolCandidate,
+    context: AiToolGitHubContext,
+  ) => void;
   onRemoveCustomTool: (toolId: string) => void;
   onExportConfig: () => Promise<void>;
   onImportConfig: () => Promise<void>;
@@ -1754,19 +2135,56 @@ function SettingsView({
     aiBaseUrl: settings.aiBaseUrl,
     aiApiKey: settings.aiApiKey,
     aiModel: settings.aiModel,
-    githubUrl: ""
+    githubUrl: "",
   });
   const [detectedModels, setDetectedModels] = useState<string[]>([]);
-  const [aiBusy, setAiBusy] = useState<"models" | "test" | "generate" | undefined>();
+  const [aiBusy, setAiBusy] = useState<
+    "models" | "test" | "generate" | undefined
+  >();
+  const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
 
   useEffect(() => {
     setAiDraft((current) => ({
       ...current,
       aiBaseUrl: settings.aiBaseUrl,
       aiApiKey: settings.aiApiKey,
-      aiModel: settings.aiModel
+      aiModel: settings.aiModel,
     }));
   }, [settings.aiBaseUrl, settings.aiApiKey, settings.aiModel]);
+
+  async function downloadAndInstallUpdate() {
+    if (!window.winKitBox) {
+      onLog("warning", "浏览器预览模式不能下载更新。");
+      return;
+    }
+
+    const setupAsset = updateInfo?.assets
+      ? findSetupAsset(updateInfo.assets)
+      : undefined;
+
+    if (!setupAsset) {
+      onLog("error", "未找到可用的安装版更新包，请打开发行页手动下载。");
+      return;
+    }
+
+    setIsDownloadingUpdate(true);
+
+    try {
+      onLog("info", `正在下载 v${updateInfo?.latestVersion} 更新包...`);
+      const { filePath } = await window.winKitBox.downloadUpdate({
+        downloadUrl: setupAsset.browser_download_url,
+        fileName: setupAsset.name,
+      });
+      onLog("success", "更新包下载完成，即将静默安装并重启应用。");
+      await window.winKitBox.applyUpdate({ installerPath: filePath });
+    } catch (error) {
+      onLog(
+        "error",
+        error instanceof Error ? error.message : "下载或安装更新失败。",
+      );
+      setIsDownloadingUpdate(false);
+    }
+  }
 
   async function detectModels() {
     if (!window.winKitBox) {
@@ -1777,7 +2195,7 @@ function SettingsView({
     try {
       const result = await window.winKitBox.listAiModels({
         baseUrl: aiDraft.aiBaseUrl,
-        apiKey: aiDraft.aiApiKey
+        apiKey: aiDraft.aiApiKey,
       });
       setDetectedModels(result.models);
       if (!aiDraft.aiModel && result.models[0]) {
@@ -1801,16 +2219,19 @@ function SettingsView({
       await window.winKitBox.testAiConnection({
         baseUrl: aiDraft.aiBaseUrl,
         apiKey: aiDraft.aiApiKey,
-        model: aiDraft.aiModel
+        model: aiDraft.aiModel,
       });
       await saveAiSettings({
         aiBaseUrl: aiDraft.aiBaseUrl,
         aiApiKey: aiDraft.aiApiKey,
-        aiModel: aiDraft.aiModel
+        aiModel: aiDraft.aiModel,
       });
       onLog("success", "AI 接口连通性测试通过。");
     } catch (error) {
-      onLog("error", error instanceof Error ? error.message : "AI 连通性测试失败。");
+      onLog(
+        "error",
+        error instanceof Error ? error.message : "AI 连通性测试失败。",
+      );
     } finally {
       setAiBusy(undefined);
     }
@@ -1826,18 +2247,21 @@ function SettingsView({
       await saveAiSettings({
         aiBaseUrl: aiDraft.aiBaseUrl,
         aiApiKey: aiDraft.aiApiKey,
-        aiModel: aiDraft.aiModel
+        aiModel: aiDraft.aiModel,
       });
       const result = await window.winKitBox.generateAiTool({
         baseUrl: aiDraft.aiBaseUrl,
         apiKey: aiDraft.aiApiKey,
         model: aiDraft.aiModel,
-        githubUrl: aiDraft.githubUrl
+        githubUrl: aiDraft.githubUrl,
       });
       onAddAiTool(result.candidate, result.context);
       setAiDraft((current) => ({ ...current, githubUrl: "" }));
     } catch (error) {
-      onLog("error", error instanceof Error ? error.message : "AI 添加工具失败。");
+      onLog(
+        "error",
+        error instanceof Error ? error.message : "AI 添加工具失败。",
+      );
     } finally {
       setAiBusy(undefined);
     }
@@ -1866,7 +2290,9 @@ function SettingsView({
           <div className="theme-grid">
             {themeDefinitions.map((theme) => {
               const active = settings.themeId === theme.id;
-              const hasBackground = Boolean(settings.themeBackgrounds[theme.id]);
+              const hasBackground = Boolean(
+                settings.themeBackgrounds[theme.id],
+              );
 
               return (
                 <button
@@ -1879,7 +2305,7 @@ function SettingsView({
                     className="theme-swatch"
                     style={{
                       background: theme.background,
-                      borderColor: theme.accent
+                      borderColor: theme.accent,
                     }}
                   />
                   <strong>{theme.name}</strong>
@@ -1904,7 +2330,7 @@ function SettingsView({
                 onChange={(event) =>
                   void saveGlassSettings({
                     glassOpacity: Number(event.target.value) / 100,
-                    glassBlur: settings.glassBlur
+                    glassBlur: settings.glassBlur,
                   })
                 }
               />
@@ -1922,7 +2348,7 @@ function SettingsView({
                 onChange={(event) =>
                   void saveGlassSettings({
                     glassOpacity: settings.glassOpacity,
-                    glassBlur: Number(event.target.value)
+                    glassBlur: Number(event.target.value),
                   })
                 }
               />
@@ -1930,7 +2356,11 @@ function SettingsView({
           </div>
 
           <div className="settings-actions">
-            <button className="secondary-button" type="button" onClick={() => chooseThemeBackground(settings.themeId)}>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => chooseThemeBackground(settings.themeId)}
+            >
               <Upload size={15} />
               为当前主题选择背景图
             </button>
@@ -1943,7 +2373,9 @@ function SettingsView({
               <Trash2 size={15} />
               清除当前背景
             </button>
-            <span>背景图和毛玻璃参数只保存在本机，不会写进仓库或 Release。</span>
+            <span>
+              背景图和毛玻璃参数只保存在本机，不会写进仓库或 Release。
+            </span>
           </div>
         </section>
 
@@ -1958,22 +2390,36 @@ function SettingsView({
               onChange={(event) => setToolRootDraft(event.target.value)}
               placeholder="选择工具安装目录"
             />
-            <button className="secondary-button" type="button" onClick={chooseToolRootPath}>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={chooseToolRootPath}
+            >
               选择
             </button>
-            <button className="secondary-button" type="button" onClick={() => saveToolRootPath()}>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => saveToolRootPath()}
+            >
               保存
             </button>
           </div>
           <div className="settings-actions">
-            <button className="text-button" type="button" onClick={resetToolRootPath}>
+            <button
+              className="text-button"
+              type="button"
+              onClick={resetToolRootPath}
+            >
               恢复默认
             </button>
             <span>当前默认目录：{settings.defaultToolRootPath}</span>
           </div>
         </section>
 
-        <section className={`settings-card update-card ${updateInfo?.hasUpdate ? "has-update" : ""}`}>
+        <section
+          className={`settings-card update-card ${updateInfo?.hasUpdate ? "has-update" : ""}`}
+        >
           <div className="update-head">
             <div>
               <div className="section-title">
@@ -1982,7 +2428,9 @@ function SettingsView({
               </div>
               <p>
                 当前 v{__APP_VERSION__}
-                {updateInfo?.latestVersion ? ` · 最新 v${updateInfo.latestVersion}` : ""}
+                {updateInfo?.latestVersion
+                  ? ` · 最新 v${updateInfo.latestVersion}`
+                  : ""}
               </p>
             </div>
             {updateInfo?.hasUpdate && <strong>有新版</strong>}
@@ -1991,21 +2439,47 @@ function SettingsView({
             <input
               type="checkbox"
               checked={settings.updateOnStartup}
-              onChange={(event) => void saveUpdateOnStartup(event.target.checked)}
+              onChange={(event) =>
+                void saveUpdateOnStartup(event.target.checked)
+              }
             />
             <span>启动时自动检测更新</span>
           </label>
           <div className="settings-actions">
-            <button className="secondary-button" type="button" disabled={isCheckingUpdate} onClick={() => checkForUpdates(false)}>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={isCheckingUpdate || isDownloadingUpdate}
+              onClick={() => checkForUpdates(false)}
+            >
               <RotateCcw size={15} />
               {isCheckingUpdate ? "检查中" : "检查更新"}
             </button>
-            <button className="secondary-button" type="button" onClick={openUpdateRelease}>
+            {updateInfo?.hasUpdate && (
+              <button
+                className="primary-button"
+                type="button"
+                disabled={isDownloadingUpdate}
+                onClick={() => downloadAndInstallUpdate()}
+              >
+                <Download size={15} />
+                {isDownloadingUpdate
+                  ? "下载中"
+                  : `下载并安装 v${updateInfo.latestVersion}`}
+              </button>
+            )}
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={openUpdateRelease}
+            >
               <ExternalLink size={15} />
               发行页
             </button>
           </div>
-          {updateInfo?.error && <p className="settings-error">{updateInfo.error}</p>}
+          {updateInfo?.error && (
+            <p className="settings-error">{updateInfo.error}</p>
+          )}
         </section>
 
         <section className="settings-card full-span">
@@ -2018,7 +2492,12 @@ function SettingsView({
               API URL
               <input
                 value={aiDraft.aiBaseUrl}
-                onChange={(event) => setAiDraft((current) => ({ ...current, aiBaseUrl: event.target.value }))}
+                onChange={(event) =>
+                  setAiDraft((current) => ({
+                    ...current,
+                    aiBaseUrl: event.target.value,
+                  }))
+                }
                 placeholder="https://api.openai.com/v1"
               />
             </label>
@@ -2026,7 +2505,12 @@ function SettingsView({
               API Key
               <input
                 value={aiDraft.aiApiKey}
-                onChange={(event) => setAiDraft((current) => ({ ...current, aiApiKey: event.target.value }))}
+                onChange={(event) =>
+                  setAiDraft((current) => ({
+                    ...current,
+                    aiApiKey: event.target.value,
+                  }))
+                }
                 placeholder="sk-..."
                 type="password"
               />
@@ -2035,7 +2519,12 @@ function SettingsView({
               模型名称
               <input
                 value={aiDraft.aiModel}
-                onChange={(event) => setAiDraft((current) => ({ ...current, aiModel: event.target.value }))}
+                onChange={(event) =>
+                  setAiDraft((current) => ({
+                    ...current,
+                    aiModel: event.target.value,
+                  }))
+                }
                 placeholder="gpt-4o-mini"
                 list="ai-models"
               />
@@ -2049,21 +2538,41 @@ function SettingsView({
               GitHub 主页链接
               <input
                 value={aiDraft.githubUrl}
-                onChange={(event) => setAiDraft((current) => ({ ...current, githubUrl: event.target.value }))}
+                onChange={(event) =>
+                  setAiDraft((current) => ({
+                    ...current,
+                    githubUrl: event.target.value,
+                  }))
+                }
                 placeholder="https://github.com/owner/repo"
               />
             </label>
           </div>
           <div className="settings-actions">
-            <button className="secondary-button" type="button" disabled={Boolean(aiBusy)} onClick={detectModels}>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={Boolean(aiBusy)}
+              onClick={detectModels}
+            >
               <Search size={15} />
               {aiBusy === "models" ? "检测中" : "检测可用模型"}
             </button>
-            <button className="secondary-button" type="button" disabled={Boolean(aiBusy)} onClick={testAiConnection}>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={Boolean(aiBusy)}
+              onClick={testAiConnection}
+            >
               <Gauge size={15} />
               {aiBusy === "test" ? "测试中" : "测试连通性"}
             </button>
-            <button className="primary-button" type="button" disabled={Boolean(aiBusy)} onClick={generateAiTool}>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={Boolean(aiBusy)}
+              onClick={generateAiTool}
+            >
               <Plus size={15} />
               {aiBusy === "generate" ? "生成中" : "AI 添加工具"}
             </button>
@@ -2074,9 +2583,16 @@ function SettingsView({
                 <div className="custom-tool-row" key={tool.id}>
                   <div>
                     <strong>{tool.name}</strong>
-                    <span>{categoryLabels[tool.category]} · {describeCustomTool(tool)}</span>
+                    <span>
+                      {categoryLabels[tool.category]} ·{" "}
+                      {describeCustomTool(tool)}
+                    </span>
                   </div>
-                  <button className="secondary-button danger" type="button" onClick={() => onRemoveCustomTool(tool.id)}>
+                  <button
+                    className="secondary-button danger"
+                    type="button"
+                    onClick={() => onRemoveCustomTool(tool.id)}
+                  >
                     <Trash2 size={14} />
                     移除
                   </button>
@@ -2095,11 +2611,19 @@ function SettingsView({
             导出的配置只包含工具目录、更新设置、当前主题、已选工具和自定义工具，不包含安装包和本地背景图。
           </p>
           <div className="settings-actions">
-            <button className="secondary-button" type="button" onClick={onExportConfig}>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={onExportConfig}
+            >
               <Download size={15} />
               导出配置
             </button>
-            <button className="secondary-button" type="button" onClick={onImportConfig}>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={onImportConfig}
+            >
               <Upload size={15} />
               导入配置
             </button>
@@ -2157,7 +2681,7 @@ function ToolCard({
   onInstall,
   onUninstall,
   onLaunch,
-  onOpen
+  onOpen,
 }: {
   tool: Tool;
   toolState: ToolRuntimeState;
@@ -2172,7 +2696,9 @@ function ToolCard({
   const [logoFailed, setLogoFailed] = useState(false);
   const logoUrl = getToolLogoUrl(tool);
   const installDisabled =
-    toolState.status === "installing" || toolState.status === "uninstalling" || toolState.status === "checking";
+    toolState.status === "installing" ||
+    toolState.status === "uninstalling" ||
+    toolState.status === "checking";
   const uninstallDisabled = toolState.status !== "installed";
   const openDisabled =
     toolState.status === "installing" ||
@@ -2183,17 +2709,31 @@ function ToolCard({
     toolState.launcherFound === false;
 
   return (
-    <article className={`tool-card ${selected ? "selected" : ""} status-${toolState.status}`}>
-      <button className="select-check" type="button" aria-label={`选择 ${tool.name}`} onClick={onToggle}>
+    <article
+      className={`tool-card ${selected ? "selected" : ""} status-${toolState.status}`}
+    >
+      <button
+        className="select-check"
+        type="button"
+        aria-label={`选择 ${tool.name}`}
+        onClick={onToggle}
+      >
         {selected && <Check size={15} />}
       </button>
 
       <div className="tool-card-header">
         <div className="tool-icon">
           {logoUrl && !logoFailed ? (
-            <img className="tool-logo" src={logoUrl} alt="" onError={() => setLogoFailed(true)} />
+            <img
+              className="tool-logo"
+              src={logoUrl}
+              alt=""
+              onError={() => setLogoFailed(true)}
+            />
           ) : (
-            <div className={`tool-logo-placeholder ${tool.category}`}>{getToolPlaceholder(tool)}</div>
+            <div className={`tool-logo-placeholder ${tool.category}`}>
+              {getToolPlaceholder(tool)}
+            </div>
           )}
         </div>
         <div>
@@ -2212,26 +2752,51 @@ function ToolCard({
 
       <div className="tool-footer">
         <div className="tool-meta-pills">
-          <span className={`tool-status-pill ${toolState.status}`} title={toolState.message}>
+          <span
+            className={`tool-status-pill ${toolState.status}`}
+            title={toolState.message}
+          >
             {getStatusLabel(toolState.status)}
           </span>
-          <span className={`risk-pill ${tool.risk}`}>{riskLabels[tool.risk]}</span>
+          <span className={`risk-pill ${tool.risk}`}>
+            {riskLabels[tool.risk]}
+          </span>
           {tool.requiresAdmin && <span className="admin-pill">管理员</span>}
         </div>
         <div className="tool-actions">
-          <button className="mini-action install" type="button" disabled={installDisabled} onClick={onInstall}>
+          <button
+            className="mini-action install"
+            type="button"
+            disabled={installDisabled}
+            onClick={onInstall}
+          >
             <Download size={14} />
             {getInstallButtonLabel(toolState.status)}
           </button>
-          <button className="mini-action open" type="button" disabled={openDisabled} onClick={onLaunch}>
+          <button
+            className="mini-action open"
+            type="button"
+            disabled={openDisabled}
+            onClick={onLaunch}
+          >
             <Play size={14} />
             {toolState.status === "opening" ? "打开中" : "打开"}
           </button>
-          <button className="mini-action uninstall" type="button" disabled={uninstallDisabled} onClick={onUninstall}>
+          <button
+            className="mini-action uninstall"
+            type="button"
+            disabled={uninstallDisabled}
+            onClick={onUninstall}
+          >
             <Trash2 size={14} />
             {toolState.status === "uninstalling" ? "卸载中" : "卸载"}
           </button>
-          <button className="icon-button" type="button" aria-label={`打开 ${tool.name} 来源`} onClick={onOpen}>
+          <button
+            className="icon-button"
+            type="button"
+            aria-label={`打开 ${tool.name} 来源`}
+            onClick={onOpen}
+          >
             <ExternalLink size={15} />
           </button>
         </div>

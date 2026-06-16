@@ -89,6 +89,11 @@ declare global {
         }[];
         error?: string;
       }>;
+      downloadUpdate: (request: {
+        downloadUrl: string;
+        fileName: string;
+      }) => Promise<{ filePath: string }>;
+      applyUpdate: (request: { installerPath: string }) => Promise<{ ok: boolean }>;
       getSystemInfo: () => Promise<{
         computerName: string;
         os: {

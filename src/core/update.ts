@@ -37,6 +37,10 @@ export function isUpdateAvailable(currentVersion: string, latestVersion: string)
   return compareVersions(latestVersion, currentVersion) > 0;
 }
 
+export function findSetupAsset(assets: UpdateReleaseAsset[]) {
+  return assets.find((asset) => /-Setup-.*\.exe$/i.test(asset.name));
+}
+
 function toVersionNumber(value: string) {
   const parsed = Number.parseInt(value.replace(/\D.*/, ""), 10);
   return Number.isFinite(parsed) ? parsed : 0;
