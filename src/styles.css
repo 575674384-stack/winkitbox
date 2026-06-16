@@ -28,8 +28,8 @@
     radial-gradient(ellipse at 50% 50%, rgba(148, 163, 184, 0.08) 0%, transparent 60%), #f0f4f8;
   --panel-base: 255, 255, 255;
   --panel-bg: rgba(var(--panel-base), var(--glass-opacity));
-  --card-bg: rgba(255, 255, 255, 0.94);
-  --card-bg-soft: rgba(248, 250, 252, 0.9);
+  --card-bg: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.65 + 0.30));
+  --card-bg-soft: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.55 + 0.25));
   --border-color: rgba(148, 163, 184, 0.32);
   --border-strong: rgba(148, 163, 184, 0.5);
   --text-strong: var(--neutral-900);
@@ -212,8 +212,8 @@ button {
     radial-gradient(ellipse at 100% 100%, rgba(59, 130, 246, 0.12) 0%, transparent 45%),
     radial-gradient(ellipse at 50% 50%, rgba(148, 163, 184, 0.08) 0%, transparent 60%), #f0f4f8;
   --panel-base: 255, 255, 255;
-  --card-bg: rgba(255, 255, 255, 0.94);
-  --card-bg-soft: rgba(248, 250, 252, 0.9);
+  --card-bg: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.65 + 0.30));
+  --card-bg-soft: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.55 + 0.25));
   --border-color: rgba(148, 163, 184, 0.35);
   --text-strong: #0f172a;
   --text-main: #334155;
@@ -231,8 +231,8 @@ button {
     radial-gradient(ellipse at 100% 100%, rgba(59, 130, 246, 0.14) 0%, transparent 45%),
     radial-gradient(ellipse at 50% 50%, rgba(30, 41, 59, 0.6) 0%, transparent 60%), #0f172a;
   --panel-base: 30, 41, 59;
-  --card-bg: rgba(30, 41, 59, 0.86);
-  --card-bg-soft: rgba(15, 23, 42, 0.8);
+  --card-bg: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.65 + 0.30));
+  --card-bg-soft: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.55 + 0.25));
   --border-color: rgba(148, 163, 184, 0.18);
   --text-strong: #f8fafc;
   --text-main: #e2e8f0;
@@ -251,8 +251,8 @@ button {
     radial-gradient(ellipse at 100% 100%, rgba(100, 116, 139, 0.14) 0%, transparent 45%),
     radial-gradient(ellipse at 50% 50%, rgba(148, 163, 184, 0.1) 0%, transparent 60%), #e2e8f0;
   --panel-base: 255, 255, 255;
-  --card-bg: rgba(255, 255, 255, 0.94);
-  --card-bg-soft: rgba(248, 250, 252, 0.9);
+  --card-bg: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.65 + 0.30));
+  --card-bg-soft: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.55 + 0.25));
   --border-color: rgba(148, 163, 184, 0.35);
   --accent: #3b82f6;
   --accent-soft: #dbeafe;
@@ -268,7 +268,7 @@ button {
     radial-gradient(ellipse at 50% 50%, rgba(153, 246, 228, 0.14) 0%, transparent 60%), #f0fdfa;
   --panel-base: 255, 255, 255;
   --card-bg: rgba(255, 255, 255, 0.94);
-  --card-bg-soft: rgba(240, 253, 250, 0.9);
+  --card-bg-soft: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.55 + 0.25));
   --border-color: rgba(13, 148, 136, 0.2);
   --accent: #0d9488;
   --accent-soft: #ccfbf1;
@@ -284,7 +284,7 @@ button {
     radial-gradient(ellipse at 50% 50%, rgba(254, 205, 211, 0.16) 0%, transparent 60%), #fff1f2;
   --panel-base: 255, 255, 255;
   --card-bg: rgba(255, 255, 255, 0.94);
-  --card-bg-soft: rgba(255, 241, 242, 0.9);
+  --card-bg-soft: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.55 + 0.25));
   --border-color: rgba(225, 29, 72, 0.16);
   --accent: #e11d48;
   --accent-soft: #ffe4e6;
@@ -492,6 +492,8 @@ button {
   min-width: 0;
   padding: 28px 30px 24px;
   overflow: auto;
+  background: var(--panel-bg);
+  backdrop-filter: blur(var(--glass-blur, 32px)) saturate(180%);
 }
 
 .page-topbar {
