@@ -32,6 +32,9 @@ function createWindow() {
     height: 840,
     minWidth: 1040,
     minHeight: 700,
+    resizable: true,
+    minimizable: true,
+    maximizable: true,
     title: "WinKitBox",
     icon: path.join(appRoot, "assets", "icon", "winkitbox-icon.png"),
     backgroundColor: "#f5f7f9",
@@ -42,6 +45,8 @@ function createWindow() {
       nodeIntegration: false
     }
   });
+
+  mainWindow.setMinimumSize(1040, 700);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -967,7 +972,9 @@ function writeSettings(settings) {
         aiApiKey: normalized.aiApiKey,
         aiModel: normalized.aiModel,
         themeId: normalized.themeId,
-        themeBackgrounds: normalized.themeBackgrounds
+        themeBackgrounds: normalized.themeBackgrounds,
+        glassOpacity: normalized.glassOpacity,
+        glassBlur: normalized.glassBlur
       },
       null,
       2

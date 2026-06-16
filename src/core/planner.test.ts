@@ -52,7 +52,7 @@ describe("planner", () => {
     expect(command.command).toContain("https://api.github.com/repos/ZyperWave/ZyperWinOptimize/releases/latest");
     expect(command.command).toContain("^ZyperWin\\+\\+.*\\.zip$");
     expect(command.command).toContain("$targetDir = Join-Path $toolRoot 'zyperwin'");
-    expect(command.command).toContain("ZyperWin++.exe");
+    expect(command.command).toContain("Release\\ZyperWin++.exe");
     expect(command.manualUrl).toBeUndefined();
   });
 

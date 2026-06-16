@@ -428,19 +428,25 @@ const baseTools: Tool[] = [
     name: "Portals",
     category: "desktop",
     summary: "桌面文件夹收纳区域",
-    description: "在桌面创建文件夹内容门户，用区域方式整理桌面。",
-    source: "winget",
+    description: "在桌面创建文件夹内容门户，用区域方式整理桌面。官方安装包直链，Inno Setup 静默安装。",
+    source: "github",
     license: "Freeware",
     stars: 1200,
     homepage: "https://portals-app.com/",
     repoUrl: "https://github.com/Ross-Patterson/Portals-Desktop-Organization",
-    wingetId: "RossPatterson.Portals",
+    installer: {
+      downloadUrl: "https://downloads.portals-app.com/installers%2F3.4.0.0%2Fportals_installer_v3-4-0-0.exe?alt=media",
+      targetDirName: "portals",
+      fileName: "PortalsSetup.exe",
+      args: ["/SILENT"]
+    },
     launch: {
       startMenuNames: ["Portals"],
       commands: ["Portals.exe"]
     },
     tags: ["桌面整理", "收纳", "文件夹"],
     defaultSelected: true,
+    requiresAdmin: true,
     risk: "low"
   },
   {
@@ -901,7 +907,7 @@ const additionalTools: Tool[] = [
       assetPattern: "^ZyperWin\\+\\+.*\\.zip$",
       targetDirName: "zyperwin",
       archive: "zip",
-      executable: "ZyperWin++.exe"
+      executable: "Release\\ZyperWin++.exe"
     },
     launch: {
       startMenuNames: ["ZyperWin++", "ZyperWin"],
