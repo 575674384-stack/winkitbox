@@ -880,7 +880,7 @@ async function generateToolWithAi(request) {
         }
       ],
       temperature: 0.2,
-      max_tokens: 900
+      max_tokens: 2000
     })
   });
 
@@ -890,8 +890,15 @@ async function generateToolWithAi(request) {
   }
 
   const payload = await response.json();
-  const content = String(payload?.choices?.[0]?.message?.content ?? "");
-  const candidate = parseJsonFromAi(content);
+  const content = extractAiMessageContent(payload);
+  let candidate;
+  try {
+    candidate = parseJsonFromAi(content);
+  } catch (error) {
+    throw new Error(
+      `${error.message}（原始响应：${content.replace(/\s+/g, " ").slice(0, 200)}）`
+    );
+  }
 
   return {
     candidate,
@@ -938,7 +945,7 @@ async function fixToolWithAi(request) {
         }
       ],
       temperature: 0.2,
-      max_tokens: 900
+      max_tokens: 2000
     })
   });
 
@@ -948,8 +955,15 @@ async function fixToolWithAi(request) {
   }
 
   const payload = await response.json();
-  const content = String(payload?.choices?.[0]?.message?.content ?? "");
-  const candidate = parseJsonFromAi(content);
+  const content = extractAiMessageContent(payload);
+  let candidate;
+  try {
+    candidate = parseJsonFromAi(content);
+  } catch (error) {
+    throw new Error(
+      `${error.message}（原始响应：${content.replace(/\s+/g, " ").slice(0, 200)}）`
+    );
+  }
 
   return { candidate };
 }
@@ -1226,12 +1240,88 @@ Rules:
 - Return JSON only.`;
 }
 
-function parseJsonFromAi(content) {
-  const trimmed = content.trim();
-  const jsonText = trimmed.startsWith("{")
-    ? trimmed
-    : trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? trimmed.match(/\{[\s\S]*\}/)?.[0];
+function extractAiMessageContent(payload) {
+  const message = payload?.choices?.[0]?.message;
+  if (!message) {
+    return "";
+  }
 
+  if (message.content) {
+    return String(message.content);
+  }
+
+  if (message.reasoning_content) {
+    return String(message.reasoning_content);
+  }
+
+  return "";
+}
+
+function stripAiReasoning(content) {
+  return String(content)
+    .replace(/<think[\s\S]*?<\/think>/gi, "")
+    .replace(/<thinking[\s\S]*?<\/thinking>/gi, "")
+    .replace(/<reason[\s\S]*?<\/reason>/gi, "")
+    .replace(/\u0000/g, "")
+    .trim();
+}
+
+function extractFirstJsonObject(text) {
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+    if (char === "\\") {
+      escapeNext = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    if (char === "{") {
+      if (depth === 0) {
+        start = i;
+      }
+      depth++;
+    } else if (char === "}") {
+      if (depth > 0) {
+        depth--;
+        if (depth === 0 && start !== -1) {
+          return text.slice(start, i + 1);
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function parseJsonFromAi(content) {
+  let cleaned = stripAiReasoning(content);
+
+  const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (codeBlockMatch) {
+    cleaned = codeBlockMatch[1].trim();
+  }
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // Continue to heuristic extraction.
+  }
+
+  const jsonText = extractFirstJsonObject(cleaned);
   if (!jsonText) {
     throw new Error("AI 没有返回 JSON。");
   }
@@ -1239,7 +1329,12 @@ function parseJsonFromAi(content) {
   try {
     return JSON.parse(jsonText);
   } catch {
-    throw new Error("AI 返回的 JSON 无法解析。");
+    try {
+      // Try removing trailing commas, a common model mistake.
+      return JSON.parse(jsonText.replace(/,\s*([}\]])/g, "$1"));
+    } catch {
+      throw new Error("AI 返回的 JSON 无法解析。");
+    }
   }
 }
 

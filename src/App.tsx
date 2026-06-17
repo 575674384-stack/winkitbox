@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   Check,
+  ChevronDown,
+  ChevronUp,
   Cpu,
   Download,
   DownloadCloud,
@@ -2717,6 +2719,7 @@ function SettingsView({
     categoryId: customAddCategoryId,
   });
   const [detectedModels, setDetectedModels] = useState<string[]>([]);
+  const [showModelList, setShowModelList] = useState(false);
   const [aiBusy, setAiBusy] = useState<
     "models" | "test" | "generate" | undefined
   >();
@@ -2777,6 +2780,7 @@ function SettingsView({
         apiKey: aiDraft.aiApiKey,
       });
       setDetectedModels(result.models);
+      setShowModelList(true);
       if (!aiDraft.aiModel && result.models[0]) {
         setAiDraft((current) => ({ ...current, aiModel: result.models[0] }));
       }
@@ -3097,7 +3101,7 @@ function SettingsView({
                 type="password"
               />
             </label>
-            <label className="field-label">
+            <label className="field-label ai-model-field">
               模型名称
               <input
                 value={aiDraft.aiModel}
@@ -3108,13 +3112,40 @@ function SettingsView({
                   }))
                 }
                 placeholder="gpt-4o-mini"
-                list="ai-models"
               />
-              <datalist id="ai-models">
-                {detectedModels.map((model) => (
-                  <option key={model} value={model} />
-                ))}
-              </datalist>
+              {detectedModels.length > 0 && (
+                <div className="ai-model-panel">
+                  <div className="ai-model-panel-header">
+                    <span>检测到的模型（点击填入）</span>
+                    <button
+                      className="icon-button tiny"
+                      type="button"
+                      onClick={() => setShowModelList((current) => !current)}
+                    >
+                      {showModelList ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    </button>
+                  </div>
+                  {showModelList && (
+                    <div className="ai-model-list">
+                      {detectedModels.map((model) => (
+                        <button
+                          key={model}
+                          className={`ai-model-item ${aiDraft.aiModel === model ? "active" : ""}`}
+                          type="button"
+                          onClick={() =>
+                            setAiDraft((current) => ({
+                              ...current,
+                              aiModel: model,
+                            }))
+                          }
+                        >
+                          {model}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </label>
             <label className="field-label wide">
               工具主页 / 下载页
