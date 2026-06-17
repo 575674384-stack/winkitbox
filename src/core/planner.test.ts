@@ -12,12 +12,12 @@ import {
 } from "./planner";
 
 describe("planner", () => {
-  it("builds winget commands with exact ids, winget source, and agreement flags", () => {
+  it("builds winget commands with id, winget source, agreement and silent flags", () => {
     const powertoys = tools.find((tool) => tool.id === "powertoys");
 
     expect(powertoys).toBeDefined();
     expect(buildInstallCommand(powertoys!).command).toBe(
-      "winget install --id Microsoft.PowerToys --exact --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity"
+      "winget install --id Microsoft.PowerToys --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity --silent"
     );
   });
 
@@ -89,12 +89,12 @@ describe("planner", () => {
     }
   });
 
-  it("builds winget uninstall commands with exact ids", () => {
+  it("builds winget uninstall commands with id and silent flag", () => {
     const terminal = tools.find((tool) => tool.id === "terminal");
     const command = buildUninstallCommand(terminal!);
 
     expect(command.command).toBe(
-      "winget uninstall --id Microsoft.WindowsTerminal --exact --source winget --disable-interactivity --accept-source-agreements"
+      "winget uninstall --id Microsoft.WindowsTerminal --source winget --disable-interactivity --accept-source-agreements --silent"
     );
   });
 
@@ -155,7 +155,7 @@ describe("planner", () => {
     expect(script).toContain('WINKITBOX_EVENT {"type":"install-success","toolId":"geek","label":"Geek Uninstaller"}');
     expect(script).toContain("Write-Host '[install] PowerToys'");
     expect(script).toContain("Write-Host '[install] Geek Uninstaller'");
-    expect(script).toContain("winget install --id Microsoft.PowerToys --exact --source winget");
+    expect(script).toContain("winget install --id Microsoft.PowerToys --source winget");
     expect(script).toContain("https://geekuninstaller.com/geek.zip");
   });
 

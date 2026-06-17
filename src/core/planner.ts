@@ -56,7 +56,7 @@ export function buildInstallCommand(tool: Tool, options: InstallOptions = {}): I
   if (tool.wingetId) {
     return {
       ...base,
-      command: `winget install --id ${tool.wingetId} --exact --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity`
+      command: `winget install --id ${tool.wingetId} --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity --silent`
     };
   }
 
@@ -99,7 +99,7 @@ export function buildUninstallCommand(tool: Tool, options: InstallOptions = {}):
   if (tool.wingetId) {
     return {
       ...base,
-      command: `winget uninstall --id ${tool.wingetId} --exact --source winget --disable-interactivity --accept-source-agreements`
+      command: `winget uninstall --id ${tool.wingetId} --source winget --disable-interactivity --accept-source-agreements --silent`
     };
   }
 
