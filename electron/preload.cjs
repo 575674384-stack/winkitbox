@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("winKitBox", {
   listAiModels: (request) => ipcRenderer.invoke("ai-list-models", request),
   testAiConnection: (request) => ipcRenderer.invoke("ai-test-connection", request),
   generateAiTool: (request) => ipcRenderer.invoke("ai-generate-tool", request),
+  fixAiTool: (request) => ipcRenderer.invoke("ai-fix-tool", request),
   runPowerShell: (script) => ipcRenderer.invoke("run-powershell", script),
   detectTools: (descriptors) => ipcRenderer.invoke("detect-tools", descriptors),
   launchTool: (descriptor) => ipcRenderer.invoke("launch-tool", descriptor),

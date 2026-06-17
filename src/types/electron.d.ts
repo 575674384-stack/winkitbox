@@ -188,6 +188,15 @@ declare global {
         candidate: import("../core/aiTool").AiToolCandidate;
         context: import("../core/aiTool").AiToolGitHubContext;
       }>;
+      fixAiTool: (request: {
+        baseUrl: string;
+        apiKey: string;
+        model: string;
+        tool: import("../core/catalog").Tool;
+        errorMessage?: string;
+      }) => Promise<{
+        candidate: import("../core/aiTool").AiToolCandidate;
+      }>;
       runPowerShell: (script: string) => Promise<{ code: number | null }>;
       detectTools: (descriptors: {
         toolId: string;

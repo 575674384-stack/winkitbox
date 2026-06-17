@@ -55,11 +55,6 @@ function createWindow() {
     mainWindow.loadFile(path.join(appRoot, "dist", "index.html"));
   }
 
-  mainWindow.on("minimize", (event) => {
-    event.preventDefault();
-    hideMainWindowToTray();
-  });
-
   mainWindow.on("close", (event) => {
     if (!isQuitting) {
       event.preventDefault();
@@ -246,6 +241,10 @@ ipcMain.handle("ai-test-connection", async (_event, request) => {
 
 ipcMain.handle("ai-generate-tool", async (_event, request) => {
   return generateToolWithAi(request);
+});
+
+ipcMain.handle("ai-fix-tool", async (_event, request) => {
+  return fixToolWithAi(request);
 });
 
 ipcMain.handle("github-fetch", async (_event, request) => {
@@ -517,7 +516,7 @@ $results = foreach ($server in @($servers)) {
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $job = Start-Job -ScriptBlock {
       param($dnsServer)
-      Resolve-DnsName -Name 'www.microsoft.com' -Server $dnsServer -DnsOnly -Type A -ErrorAction Stop | Select-Object -First 1
+      Resolve-DnsName -Name 'example.com' -Server $dnsServer -DnsOnly -Type A -ErrorAction Stop | Select-Object -First 1
     } -ArgumentList $server
     if (Wait-Job $job -Timeout 3) {
       Receive-Job $job -ErrorAction Stop | Out-Null
@@ -907,6 +906,97 @@ async function generateToolWithAi(request) {
   };
 }
 
+async function fixToolWithAi(request) {
+  const baseUrl = String(request?.baseUrl ?? "").trim();
+  const apiKey = String(request?.apiKey ?? "").trim();
+  const model = String(request?.model ?? "").trim();
+  const tool = request?.tool;
+  const errorMessage = String(request?.errorMessage ?? "").trim();
+
+  if (!baseUrl || !apiKey || !model) {
+    throw new Error("请先填写 AI 接口 URL、API Key 和模型名称。");
+  }
+
+  if (!tool || typeof tool !== "object") {
+    throw new Error("工具定义无效。");
+  }
+
+  const response = await net.fetch(buildAiEndpoint(baseUrl, "chat/completions"), {
+    method: "POST",
+    headers: buildAiHeaders(apiKey),
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You fix WinKitBox Windows software install configurations. Return JSON only. Never return markdown."
+        },
+        {
+          role: "user",
+          content: buildAiToolFixPrompt(tool, errorMessage)
+        }
+      ],
+      temperature: 0.2,
+      max_tokens: 900
+    })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`AI 修复工具失败：${response.status} ${text.slice(0, 160)}`);
+  }
+
+  const payload = await response.json();
+  const content = String(payload?.choices?.[0]?.message?.content ?? "");
+  const candidate = parseJsonFromAi(content);
+
+  return { candidate };
+}
+
+function buildAiToolFixPrompt(tool, errorMessage) {
+  return `Analyze this WinKitBox tool definition and its installation failure, then return a corrected install configuration.
+
+Tool definition:
+${JSON.stringify(tool, null, 2)}
+
+Installation error message:
+${errorMessage || "No specific error message provided."}
+
+Return exactly one JSON object with this shape:
+{
+  "name": "keep or improve display name",
+  "summary": "short Chinese summary, <= 30 chars",
+  "description": "Chinese description, <= 90 chars",
+  "license": "license id or Unknown",
+  "tags": ["Chinese tag"],
+  "risk": "low|medium|high",
+  "install": {
+    "type": "winget|installer|portable",
+    "wingetId": "only when type is winget",
+    "assetPattern": "regex matching a Windows release asset, only when type is installer or portable",
+    "downloadUrl": "direct official Windows download URL, only when not using assetPattern",
+    "archive": "zip|7z, only when portable",
+    "executable": "relative exe path inside extracted archive, only when portable",
+    "fileName": "installer file name, only when installer"
+  },
+  "launch": {
+    "startMenuNames": ["possible Start Menu names"],
+    "commands": ["possible executable command names"]
+  }
+}
+
+Rules:
+- Keep the same general purpose of the tool.
+- Prefer a direct Windows installer asset (.exe or .msi) from the official source.
+- Use portable only for .zip or .7z assets when the executable name is obvious.
+- Use winget only if you are confident about the winget package id.
+- Fix the install route based on the error message (e.g. wrong asset pattern, missing executable, outdated winget id).
+- Do not invent unsupported install types.
+- Do not return arbitrary PowerShell, shell scripts, browser-only instructions, or unsupported install types.
+- Return JSON only.`;
+}
+
 function buildAiEndpoint(baseUrl, route) {
   const normalized = String(baseUrl || "").trim().replace(/\/+$/g, "");
 
@@ -1187,6 +1277,7 @@ function writeSettings(settings) {
         glassBlur: normalized.glassBlur,
         customTools: normalized.customTools,
         customCategories: normalized.customCategories,
+        toolCategoryOverrides: normalized.toolCategoryOverrides,
         previousCodePages: normalized.previousCodePages
       },
       null,
@@ -1212,6 +1303,7 @@ function normalizeSettings(settings) {
     glassBlur: normalizeGlassBlur(settings?.glassBlur),
     customTools: normalizeCustomTools(settings?.customTools),
     customCategories: normalizeCustomCategories(settings?.customCategories),
+    toolCategoryOverrides: normalizeToolCategoryOverrides(settings?.toolCategoryOverrides),
     previousCodePages: normalizePreviousCodePages(settings?.previousCodePages)
   };
 }
@@ -1266,6 +1358,20 @@ function normalizeCustomCategories(value) {
   }
 
   return Array.from(nextById.values());
+}
+
+function normalizeToolCategoryOverrides(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const result = {};
+  for (const [key, val] of Object.entries(value)) {
+    if (typeof val === "string" && val.trim()) {
+      result[key] = val.trim();
+    }
+  }
+  return result;
 }
 
 function sanitizeCategoryId(value) {

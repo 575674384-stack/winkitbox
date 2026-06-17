@@ -18,6 +18,7 @@ import {
   MonitorOff,
   Network,
   PackageOpen,
+  Pencil,
   Play,
   Plus,
   RotateCcw,
@@ -31,12 +32,10 @@ import {
   Trash2,
   Upload,
   WifiOff,
+  X,
 } from "lucide-react";
 import { DiscoverView } from "./DiscoverView";
 import winkitboxIconUrl from "../assets/icon/winkitbox-icon.png";
-import azureRooftopBackgroundUrl from "../assets/backgrounds/azure-rooftop.png";
-import neonTerminalBackgroundUrl from "../assets/backgrounds/neon-terminal.png";
-import sakuraWorkbenchBackgroundUrl from "../assets/backgrounds/sakura-workbench.png";
 import {
   customAddCategoryId,
   createUserCategory,
@@ -89,12 +88,13 @@ import {
   type ToolRuntimeStates,
 } from "./core/toolStatus";
 import {
-  builtinThemeBackgrounds,
-  createBuiltinThemeBackgroundValue,
-  getBuiltinThemeBackgroundId,
   getThemeDefinition,
+  getThemeImageBackgroundUrl,
+  imageThemeIds,
+  isImageThemeId,
+  isSolidThemeId,
+  solidThemeIds,
   themeDefinitions,
-  type BuiltinThemeBackgroundId,
   type ThemeId,
 } from "./core/themes";
 import { findSetupAsset, type UpdateInfo } from "./core/update";
@@ -121,6 +121,7 @@ type ToolPathSettings = {
   glassBlur: number;
   customTools: Tool[];
   customCategories: CategoryDefinition[];
+  toolCategoryOverrides: Record<string, string>;
 };
 
 type SystemAdapter = {
@@ -223,25 +224,12 @@ const fallbackSettings: ToolPathSettings = {
   glassBlur: 28,
   customTools: [],
   customCategories: getDefaultCategoryDefinitions(),
+  toolCategoryOverrides: {},
 };
 const releasePageUrl = "https://github.com/575674384-stack/winkitbox/releases";
-const builtinThemeBackgroundUrls: Record<BuiltinThemeBackgroundId, string> = {
-  "sakura-workbench": sakuraWorkbenchBackgroundUrl,
-  "neon-terminal": neonTerminalBackgroundUrl,
-  "azure-rooftop": azureRooftopBackgroundUrl,
-};
 
 function getCategoryLabel(category: CategoryFilter, categories: CategoryDefinition[]) {
   return category === "all" ? "全部工具" : getCategoryName(category, categories);
-}
-
-function resolveThemeBackgroundUrl(background?: string) {
-  const builtinBackgroundId = getBuiltinThemeBackgroundId(background);
-  if (builtinBackgroundId) {
-    return builtinThemeBackgroundUrls[builtinBackgroundId];
-  }
-
-  return background;
 }
 
 function toCssUrl(url: string) {
@@ -268,6 +256,31 @@ function loadCustomTools(): Tool[] {
     return Array.isArray(parsed) ? parsed.filter(isStoredTool) : [];
   } catch {
     return [];
+  }
+}
+
+function parseGitHubRepoFromUrl(url?: string) {
+  if (!url) {
+    return undefined;
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "github.com") {
+      return undefined;
+    }
+
+    const [owner, repo] = parsed.pathname.split("/").filter(Boolean);
+    if (!owner || !repo) {
+      return undefined;
+    }
+
+    return {
+      owner,
+      repo: repo.replace(/\.git$/i, ""),
+    };
+  } catch {
+    return undefined;
   }
 }
 
@@ -332,11 +345,24 @@ export function App() {
   );
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo>();
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState("");
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [newCategoryInput, setNewCategoryInput] = useState("");
 
-  const allTools = useMemo(
-    () => [...catalogTools, ...customTools],
-    [customTools],
-  );
+  const allTools = useMemo(() => {
+    const applyCategoryOverrides = (tools: Tool[]) =>
+      tools.map((tool) => {
+        const override = settings.toolCategoryOverrides[tool.id];
+        return override && override !== tool.category
+          ? { ...tool, category: override }
+          : tool;
+      });
+    return [
+      ...applyCategoryOverrides(catalogTools),
+      ...applyCategoryOverrides(customTools),
+    ];
+  }, [customTools, settings.toolCategoryOverrides]);
   const activeCategoryDefinitions = useMemo(
     () => getActiveCategoryDefinitions(settings.customCategories),
     [settings.customCategories],
@@ -424,10 +450,7 @@ export function App() {
     () => getThemeDefinition(settings.themeId),
     [settings.themeId],
   );
-  const currentThemeBackgroundValue = settings.themeBackgrounds[settings.themeId];
-  const currentThemeBackground = resolveThemeBackgroundUrl(
-    currentThemeBackgroundValue,
-  );
+  const currentThemeBackground = getThemeImageBackgroundUrl(settings.themeId);
   const themeStyle = useMemo(
     () =>
       ({
@@ -810,6 +833,30 @@ export function App() {
     }
   }
 
+  async function saveToolCategory(toolId: string, categoryId: string) {
+    try {
+      const originalTool =
+        catalogTools.find((tool) => tool.id === toolId) ??
+        customTools.find((tool) => tool.id === toolId);
+      const nextOverrides = { ...settings.toolCategoryOverrides };
+      if (originalTool && categoryId === originalTool.category) {
+        delete nextOverrides[toolId];
+      } else {
+        nextOverrides[toolId] = categoryId;
+      }
+      await persistSettings({
+        ...settings,
+        toolCategoryOverrides: nextOverrides,
+      });
+      appendLog("success", "已修改工具分类。");
+    } catch (error) {
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "修改工具分类失败。",
+      );
+    }
+  }
+
   async function addCustomCategory(name: string) {
     try {
       const category = createUserCategory(name, settings.customCategories);
@@ -896,6 +943,7 @@ export function App() {
       themeId,
       glassOpacity: getThemeDefinition(themeId).defaultGlassOpacity,
       glassBlur: getThemeDefinition(themeId).defaultGlassBlur,
+      themeBackgrounds: {},
     };
     try {
       await persistSettings(nextSettings);
@@ -929,99 +977,6 @@ export function App() {
     }
   }
 
-  async function saveBuiltinThemeBackground(
-    themeId: ThemeId,
-    backgroundId: BuiltinThemeBackgroundId,
-  ) {
-    const background = builtinThemeBackgrounds.find(
-      (item) => item.id === backgroundId,
-    );
-
-    try {
-      await persistSettings({
-        ...settings,
-        themeId,
-        themeBackgrounds: {
-          ...settings.themeBackgrounds,
-          [themeId]: createBuiltinThemeBackgroundValue(backgroundId),
-        },
-      });
-      appendLog(
-        "success",
-        `已套用内置背景：${background?.name ?? backgroundId}。`,
-      );
-    } catch (error) {
-      appendLog(
-        "error",
-        error instanceof Error ? error.message : "保存内置背景失败。",
-      );
-    }
-  }
-
-  async function chooseThemeBackground(themeId: ThemeId) {
-    if (!window.winKitBox) {
-      appendLog(
-        "warning",
-        "浏览器预览模式不能选择本地主题图片，请用桌面版打开。",
-      );
-      return;
-    }
-
-    try {
-      const result = await window.winKitBox.selectThemeBackground({ themeId });
-      if (result.canceled || !result.backgroundUrl) {
-        return;
-      }
-
-      await persistSettings({
-        ...settings,
-        themeId,
-        themeBackgrounds: {
-          ...settings.themeBackgrounds,
-          [themeId]: result.backgroundUrl,
-        },
-      });
-      appendLog("success", "主题背景图已保存到本机配置目录。");
-    } catch (error) {
-      appendLog(
-        "error",
-        error instanceof Error ? error.message : "选择主题背景图失败。",
-      );
-    }
-  }
-
-  async function clearThemeBackground(themeId: ThemeId) {
-    const currentBackground = settings.themeBackgrounds[themeId];
-    const isBuiltinBackground = Boolean(
-      getBuiltinThemeBackgroundId(currentBackground),
-    );
-
-    if (!window.winKitBox && !isBuiltinBackground) {
-      appendLog(
-        "warning",
-        "浏览器预览模式不能清除本地主题图片，请用桌面版打开。",
-      );
-      return;
-    }
-
-    try {
-      if (window.winKitBox && !isBuiltinBackground) {
-        await window.winKitBox.clearThemeBackground({ themeId });
-      }
-      const nextBackgrounds = { ...settings.themeBackgrounds };
-      delete nextBackgrounds[themeId];
-      await persistSettings({
-        ...settings,
-        themeBackgrounds: nextBackgrounds,
-      });
-      appendLog("success", "已清除当前主题背景。");
-    } catch (error) {
-      appendLog(
-        "error",
-        error instanceof Error ? error.message : "清除主题背景图失败。",
-      );
-    }
-  }
 
   async function checkForUpdates(silent = false) {
     if (!window.winKitBox) {
@@ -1229,6 +1184,69 @@ export function App() {
     });
     await persistSettings({ ...settings, customTools: nextCustomTools });
     appendLog("success", `已移除自定义工具：${tool?.name ?? toolId}。`);
+  }
+
+  async function fixToolWithAi(tool: Tool) {
+    if (!window.winKitBox) {
+      appendLog("warning", "浏览器预览模式不能调用 AI 修复工具。");
+      return;
+    }
+
+    if (!settings.aiBaseUrl || !settings.aiApiKey || !settings.aiModel) {
+      appendLog("warning", "请先在设置里保存 AI 接口 URL、API Key 和模型名称。");
+      setActiveView("settings");
+      return;
+    }
+
+    const toolState = toolStates[tool.id] ?? { status: "unknown" };
+    const isBuiltinTool = !customTools.some((item) => item.id === tool.id);
+    appendLog("info", `正在用 AI 分析 ${tool.name} 的安装失败原因...`);
+
+    try {
+      const result = await window.winKitBox.fixAiTool({
+        baseUrl: settings.aiBaseUrl,
+        apiKey: settings.aiApiKey,
+        model: settings.aiModel,
+        tool,
+        errorMessage: toolState.message ?? "安装失败",
+      });
+
+      const repoRef = parseGitHubRepoFromUrl(tool.repoUrl);
+      const fixedTool = createAiGeneratedTool(
+        result.candidate as AiToolCandidate,
+        {
+          owner: repoRef?.owner,
+          repo: repoRef?.repo,
+          htmlUrl: tool.homepage,
+          releaseApiUrl: repoRef
+            ? `https://api.github.com/repos/${repoRef.owner}/${repoRef.repo}/releases/latest`
+            : "",
+          stars: tool.stars,
+          license: tool.license,
+        },
+        new Set(allTools.filter((item) => item.id !== tool.id).map((item) => item.id)),
+        tool.id,
+      );
+
+      const nextCustomTools = customTools.some((item) => item.id === tool.id)
+        ? customTools.map((item) => (item.id === tool.id ? fixedTool : item))
+        : [...customTools, fixedTool];
+
+      setCustomTools(nextCustomTools);
+      await persistSettings({ ...settings, customTools: nextCustomTools });
+      appendLog(
+        "success",
+        isBuiltinTool
+          ? `AI 已修复 ${tool.name} 的安装配置，已保存为自定义覆盖版本，后续安装将使用修复后的配置。`
+          : `AI 已修复 ${tool.name} 的安装配置，请重新尝试安装。`,
+      );
+      await refreshToolStates([fixedTool]);
+    } catch (error) {
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "AI 修复工具失败。",
+      );
+    }
   }
 
   async function addDiscoverRepoWithAi(repoUrl: string, categoryId: string) {
@@ -1517,29 +1535,182 @@ export function App() {
                   category === "all"
                     ? ListChecks
                     : categoryIcons[category] ?? Tags;
+                const categoryDef = settings.customCategories.find(
+                  (item) => item.id === category,
+                );
+                const editable =
+                  category !== "all" && category !== customAddCategoryId && !categoryDef?.protected;
+                const isEditing = editingCategoryId === category;
 
                 return (
-                  <button
-                    className={`category-button ${
+                  <div
+                    className={`category-row ${
                       activeView === "catalog" && activeCategory === category
                         ? "active"
                         : ""
                     }`}
                     key={category}
-                    type="button"
-                    onClick={() => {
-                      setActiveView("catalog");
-                      setActiveCategory(category);
-                    }}
                   >
-                    <span>
-                      <Icon size={16} />
-                      {getCategoryLabel(category, settings.customCategories)}
-                    </span>
-                    <strong>{count}</strong>
-                  </button>
+                    <button
+                      className="category-button"
+                      type="button"
+                      onClick={() => {
+                        setActiveView("catalog");
+                        setActiveCategory(category);
+                      }}
+                    >
+                      <span>
+                        <Icon size={16} />
+                        {isEditing ? (
+                          <input
+                            className="category-edit-input"
+                            value={editingCategoryName}
+                            onChange={(event) =>
+                              setEditingCategoryName(event.target.value)
+                            }
+                            onClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                void renameCategory(category, editingCategoryName);
+                                setEditingCategoryId(null);
+                              } else if (event.key === "Escape") {
+                                setEditingCategoryId(null);
+                              }
+                            }}
+                            autoFocus
+                          />
+                        ) : (
+                          getCategoryLabel(category, settings.customCategories)
+                        )}
+                      </span>
+                      <strong>{count}</strong>
+                    </button>
+                    {editable && !isEditing && (
+                      <div className="category-actions">
+                        <button
+                          className="category-action"
+                          type="button"
+                          title="重命名"
+                          onClick={() => {
+                            setEditingCategoryId(category);
+                            setEditingCategoryName(
+                              getCategoryLabel(category, settings.customCategories),
+                            );
+                          }}
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          className="category-action danger"
+                          type="button"
+                          title="删除"
+                          onClick={() => {
+                            const categoryDef = settings.customCategories.find(
+                              (item) => item.id === category,
+                            );
+                            if (
+                              window.confirm(
+                                `确定要删除分类“${categoryDef?.name ?? category}”吗？该分类下的工具将移至未分类。`,
+                              )
+                            ) {
+                              void removeCategory(category);
+                            }
+                          }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    )}
+                    {isEditing && (
+                      <div className="category-actions">
+                        <button
+                          className="category-action"
+                          type="button"
+                          title="确认"
+                          onClick={() => {
+                            void renameCategory(category, editingCategoryName);
+                            setEditingCategoryId(null);
+                          }}
+                        >
+                          <Check size={12} />
+                        </button>
+                        <button
+                          className="category-action danger"
+                          type="button"
+                          title="取消"
+                          onClick={() => setEditingCategoryId(null)}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
+              {isAddingCategory ? (
+                <div className="category-row adding">
+                  <div className="category-button">
+                    <span>
+                      <Plus size={16} />
+                      <input
+                        className="category-edit-input"
+                        value={newCategoryInput}
+                        onChange={(event) =>
+                          setNewCategoryInput(event.target.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            void addCustomCategory(newCategoryInput);
+                            setNewCategoryInput("");
+                            setIsAddingCategory(false);
+                          } else if (event.key === "Escape") {
+                            setIsAddingCategory(false);
+                            setNewCategoryInput("");
+                          }
+                        }}
+                        placeholder="新分类名称"
+                        autoFocus
+                      />
+                    </span>
+                  </div>
+                  <div className="category-actions">
+                    <button
+                      className="category-action"
+                      type="button"
+                      title="确认"
+                      onClick={() => {
+                        void addCustomCategory(newCategoryInput);
+                        setNewCategoryInput("");
+                        setIsAddingCategory(false);
+                      }}
+                    >
+                      <Check size={12} />
+                    </button>
+                    <button
+                      className="category-action danger"
+                      type="button"
+                      title="取消"
+                      onClick={() => {
+                        setIsAddingCategory(false);
+                        setNewCategoryInput("");
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="category-button add-category"
+                  type="button"
+                  onClick={() => setIsAddingCategory(true)}
+                >
+                  <span>
+                    <Plus size={16} />
+                    添加分类
+                  </span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1609,19 +1780,12 @@ export function App() {
             saveUpdateOnStartup={saveUpdateOnStartup}
             saveAiSettings={saveAiSettings}
             saveTheme={saveTheme}
-            saveBuiltinThemeBackground={saveBuiltinThemeBackground}
-            chooseThemeBackground={chooseThemeBackground}
-            clearThemeBackground={clearThemeBackground}
             saveGlassSettings={saveGlassSettings}
             onLog={appendLog}
             logs={logs}
             customTools={customTools}
             categories={activeCategoryDefinitions}
             allCategories={settings.customCategories}
-            onAddCategory={addCustomCategory}
-            onRenameCategory={renameCategory}
-            onRemoveCategory={removeCategory}
-            onRestoreCategory={restoreCategory}
             onAddAiTool={addAiGeneratedTool}
             onRemoveCustomTool={removeCustomTool}
             onExportConfig={exportConfig}
@@ -1730,11 +1894,16 @@ export function App() {
                   tool={tool}
                   toolState={toolStates[tool.id] ?? { status: "unknown" }}
                   selected={selectedIds.has(tool.id)}
+                  categories={activeCategoryDefinitions}
                   onToggle={() => toggleTool(tool.id)}
                   onInstall={() => installTool(tool)}
                   onUninstall={() => uninstallTool(tool)}
                   onLaunch={() => launchTool(tool)}
                   onOpen={() => openUrl(tool.repoUrl ?? tool.homepage)}
+                  onAiFix={() => fixToolWithAi(tool)}
+                  onSetCategory={(categoryId) =>
+                    saveToolCategory(tool.id, categoryId)
+                  }
                 />
               ))}
             </div>
@@ -2494,19 +2663,12 @@ function SettingsView({
   saveUpdateOnStartup,
   saveAiSettings,
   saveTheme,
-  saveBuiltinThemeBackground,
   saveGlassSettings,
-  chooseThemeBackground,
-  clearThemeBackground,
   onLog,
   logs,
   customTools,
   categories,
   allCategories,
-  onAddCategory,
-  onRenameCategory,
-  onRemoveCategory,
-  onRestoreCategory,
   onAddAiTool,
   onRemoveCustomTool,
   onExportConfig,
@@ -2529,12 +2691,6 @@ function SettingsView({
     aiModel: string;
   }) => Promise<void>;
   saveTheme: (themeId: ThemeId) => Promise<void>;
-  saveBuiltinThemeBackground: (
-    themeId: ThemeId,
-    backgroundId: BuiltinThemeBackgroundId,
-  ) => Promise<void>;
-  chooseThemeBackground: (themeId: ThemeId) => Promise<void>;
-  clearThemeBackground: (themeId: ThemeId) => Promise<void>;
   saveGlassSettings: (glass: {
     glassOpacity: number;
     glassBlur: number;
@@ -2544,10 +2700,6 @@ function SettingsView({
   customTools: Tool[];
   categories: CategoryDefinition[];
   allCategories: CategoryDefinition[];
-  onAddCategory: (name: string) => Promise<void>;
-  onRenameCategory: (categoryId: string, name: string) => Promise<void>;
-  onRemoveCategory: (categoryId: string) => Promise<void>;
-  onRestoreCategory: (categoryId: string) => Promise<void>;
   onAddAiTool: (
     candidate: AiToolCandidate,
     context: AiToolGitHubContext,
@@ -2564,15 +2716,11 @@ function SettingsView({
     toolUrl: "",
     categoryId: customAddCategoryId,
   });
-  const [newCategoryName, setNewCategoryName] = useState("");
   const [detectedModels, setDetectedModels] = useState<string[]>([]);
   const [aiBusy, setAiBusy] = useState<
     "models" | "test" | "generate" | undefined
   >();
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
-  const activeBuiltinBackgroundId = getBuiltinThemeBackgroundId(
-    settings.themeBackgrounds[settings.themeId],
-  );
 
   useEffect(() => {
     setAiDraft((current) => ({
@@ -2719,12 +2867,11 @@ function SettingsView({
             <Sparkles size={15} />
             主题与背景
           </div>
+
+          <div className="section-title compact-title">颜色主题</div>
           <div className="theme-grid">
-            {themeDefinitions.map((theme) => {
+            {themeDefinitions.filter((theme) => isSolidThemeId(theme.id)).map((theme) => {
               const active = settings.themeId === theme.id;
-              const hasBackground = Boolean(
-                settings.themeBackgrounds[theme.id],
-              );
 
               return (
                 <button
@@ -2742,43 +2889,36 @@ function SettingsView({
                   />
                   <strong>{theme.name}</strong>
                   <small>{theme.description}</small>
-                  {hasBackground && <em>已设置背景</em>}
                 </button>
               );
             })}
           </div>
 
-          <div className="background-picker">
-            <div className="section-title compact-title">内置背景</div>
-            <div className="background-grid">
-              {builtinThemeBackgrounds.map((background) => {
-                const active = activeBuiltinBackgroundId === background.id;
+          <div className="section-title compact-title">图片背景主题</div>
+          <div className="background-grid">
+            {themeDefinitions.filter((theme) => isImageThemeId(theme.id)).map((theme) => {
+              const active = settings.themeId === theme.id;
 
-                return (
-                  <button
-                    aria-pressed={active}
-                    className={`background-card ${active ? "active" : ""}`}
-                    key={background.id}
-                    type="button"
-                    onClick={() =>
-                      saveBuiltinThemeBackground(settings.themeId, background.id)
-                    }
-                  >
-                    <span
-                      className="background-thumb"
-                      style={{
-                        backgroundImage: toCssUrl(
-                          builtinThemeBackgroundUrls[background.id],
-                        ),
-                        borderColor: background.accent,
-                      }}
-                    />
-                    <strong>{background.name}</strong>
-                    <small>{background.description}</small>
-                  </button>
-                );
-              })}
-            </div>
+              return (
+                <button
+                  aria-pressed={active}
+                  className={`background-card ${active ? "active" : ""}`}
+                  key={theme.id}
+                  type="button"
+                  onClick={() => saveTheme(theme.id)}
+                >
+                  <span
+                    className="background-thumb"
+                    style={{
+                      backgroundImage: toCssUrl(theme.imageBackground ?? ""),
+                      borderColor: theme.accent,
+                    }}
+                  />
+                  <strong>{theme.name}</strong>
+                  <small>{theme.description}</small>
+                </button>
+              );
+            })}
           </div>
 
           <div className="glass-controls">
@@ -2789,7 +2929,7 @@ function SettingsView({
               </div>
               <input
                 type="range"
-                min={30}
+                min={10}
                 max={95}
                 value={Math.round(settings.glassOpacity * 100)}
                 onChange={(event) =>
@@ -2807,7 +2947,7 @@ function SettingsView({
               </div>
               <input
                 type="range"
-                min={8}
+                min={4}
                 max={48}
                 value={settings.glassBlur}
                 onChange={(event) =>
@@ -2818,29 +2958,6 @@ function SettingsView({
                 }
               />
             </div>
-          </div>
-
-          <div className="settings-actions">
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => chooseThemeBackground(settings.themeId)}
-            >
-              <Upload size={15} />
-              选择本地背景图
-            </button>
-            <button
-              className="secondary-button danger"
-              type="button"
-              disabled={!settings.themeBackgrounds[settings.themeId]}
-              onClick={() => clearThemeBackground(settings.themeId)}
-            >
-              <Trash2 size={15} />
-              清除当前背景
-            </button>
-            <span>
-              内置背景会随应用打包；本地背景只保存在本机，不会写进配置导出。
-            </span>
           </div>
         </section>
 
@@ -2945,84 +3062,6 @@ function SettingsView({
           {updateInfo?.error && (
             <p className="settings-error">{updateInfo.error}</p>
           )}
-        </section>
-
-        <section className="settings-card full-span">
-          <div className="section-title">
-            <Tags size={15} />
-            分类管理
-          </div>
-          <div className="category-editor-head">
-            <label className="field-label">
-              新分类名称
-              <input
-                value={newCategoryName}
-                onChange={(event) => setNewCategoryName(event.target.value)}
-                placeholder="例如：影音工具"
-              />
-            </label>
-            <button
-              className="primary-button"
-              type="button"
-              onClick={async () => {
-                await onAddCategory(newCategoryName);
-                setNewCategoryName("");
-              }}
-            >
-              <Plus size={15} />
-              添加分类
-            </button>
-          </div>
-          <div className="category-editor-list">
-            {allCategories.map((category) => (
-              <div
-                className={`category-editor-row ${category.hidden ? "hidden" : ""}`}
-                key={category.id}
-              >
-                <label className="field-label">
-                  分类名称
-                  <input
-                    defaultValue={category.name}
-                    disabled={category.protected}
-                    onBlur={(event) => {
-                      if (event.target.value !== category.name) {
-                        void onRenameCategory(category.id, event.target.value);
-                      }
-                    }}
-                  />
-                </label>
-                <span>
-                  {category.protected
-                    ? "系统保留"
-                    : category.builtin
-                      ? category.hidden
-                        ? "已隐藏"
-                        : "内置分类"
-                      : "用户分类"}
-                </span>
-                {category.hidden ? (
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => onRestoreCategory(category.id)}
-                  >
-                    <RotateCcw size={14} />
-                    恢复
-                  </button>
-                ) : (
-                  <button
-                    className="secondary-button danger"
-                    type="button"
-                    disabled={category.protected}
-                    onClick={() => onRemoveCategory(category.id)}
-                  >
-                    <Trash2 size={14} />
-                    删除
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
         </section>
 
         <section className="settings-card full-span">
@@ -3242,20 +3281,26 @@ function ToolCard({
   tool,
   toolState,
   selected,
+  categories,
   onToggle,
   onInstall,
   onUninstall,
   onLaunch,
   onOpen,
+  onAiFix,
+  onSetCategory,
 }: {
   tool: Tool;
   toolState: ToolRuntimeState;
   selected: boolean;
+  categories: CategoryDefinition[];
   onToggle: () => void;
   onInstall: () => void;
   onUninstall: () => void;
   onLaunch: () => void;
   onOpen: () => void;
+  onAiFix: () => void;
+  onSetCategory: (categoryId: string) => void;
 }) {
   const Icon = categoryIcons[tool.category];
   const [logoFailed, setLogoFailed] = useState(false);
@@ -3316,6 +3361,19 @@ function ToolCard({
       </div>
 
       <div className="tool-footer">
+        <select
+          className="tool-category-select"
+          value={tool.category}
+          onChange={(event) => onSetCategory(event.target.value)}
+          title="修改分类"
+        >
+          <option value={uncategorizedCategoryId}>未分类</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
         <div className="tool-meta-pills">
           <span
             className={`tool-status-pill ${toolState.status}`}
@@ -3338,6 +3396,16 @@ function ToolCard({
             <Download size={14} />
             {getInstallButtonLabel(toolState.status)}
           </button>
+          {toolState.status === "failed" && (
+            <button
+              className="mini-action ai-fix"
+              type="button"
+              onClick={onAiFix}
+            >
+              <Sparkles size={14} />
+              AI修复
+            </button>
+          )}
           <button
             className="mini-action open"
             type="button"

@@ -43,7 +43,8 @@ export type AiToolGitHubContext = {
 export function createAiGeneratedTool(
   candidate: AiToolCandidate,
   context: AiToolGitHubContext,
-  existingIds: Set<string>
+  existingIds: Set<string>,
+  preferredId?: string
 ): Tool {
   const name = String(candidate.name || context.repo).trim();
   if (!name) {
@@ -52,7 +53,11 @@ export function createAiGeneratedTool(
 
   const installType = candidate.install?.type;
   const fallbackSlug = context.repo ? slugify(context.repo) : slugify(new URL(context.htmlUrl).hostname);
-  const id = uniqueId(`ai-${slugify(name) || fallbackSlug || "tool"}`, existingIds);
+  const baseId = preferredId ? preferredId : `ai-${slugify(name) || fallbackSlug || "tool"}`;
+  const id = uniqueId(
+    baseId,
+    preferredId ? new Set([...existingIds].filter((item) => item !== preferredId)) : existingIds,
+  );
   const targetDirName = id.replace(/^ai-/, "");
   const category = normalizeCategory(candidate.category);
   const launchCommands = candidate.launch?.commands?.map(String).filter(Boolean) ?? [];
