@@ -11,7 +11,7 @@ WinKitBox is a Windows desktop toolbox for rebuilding a familiar PC environment 
 - detect installed tools and launch them from the app;
 - manage portable tools under a configurable WinKitBox tool directory;
 - show local system/network/DNS information and apply IP or DNS changes through elevated PowerShell;
-- recommend public DNS providers and test DNS latency;
+- recommend public DNS providers and test DNS latency against preset or custom domains;
 - browse Windows-focused GitHub weekly/monthly rankings with proxy support and Chinese translation;
 - add custom GitHub tools through an OpenAI-compatible AI workflow;
 - export/import lightweight user configuration for syncing selected tools, settings, and AI-added tools;
@@ -55,7 +55,7 @@ $env:Path='C:\Program Files\nodejs;'+$env:Path; npm test
 - `src/core/catalog.ts`: tool catalog data. Prefer official, open-source, or stable direct download sources.
 - `src/core/aiTool.ts`: validates AI-generated tool metadata and converts it into catalog entries.
 - `src/core/config.ts`: lightweight export/import config and custom tool helpers.
-- `src/core/network.ts`: public DNS recommendations and DNS latency ranking helpers.
+- `src/core/network.ts`: public DNS recommendations, DNS latency ranking helpers, and DNS test domain presets.
 - `src/core/planner.ts`: install/uninstall command generation and PowerShell script rendering.
 - `src/core/launcher.ts`: launcher descriptors and logo URL fallback logic.
 - `src/core/toolStatus.ts`: runtime install/open/checking states and progress snapshots.
@@ -111,7 +111,7 @@ Implementation notes:
 The local system page reads adapter/IP/DNS information through PowerShell and applies IP/DNS changes with elevation.
 
 - Keep network changes explicit and user-confirmed.
-- DNS latency testing should remain user-triggered.
+- DNS latency testing should remain user-triggered and supports preset or user-supplied domains.
 - Prefer small structured IPC payloads instead of passing raw scripts from the renderer.
 
 ## Verification Checklist
@@ -142,6 +142,13 @@ Then smoke-test the portable build in `release/`:
 - GitHub update check can read the latest public release.
 
 ## Release Notes
+
+### v0.2.19
+
+- DNS latency testing now supports multiple preset domains and a user-defined custom domain.
+- Result headers and log messages show the tested domain.
+
+### Earlier releases
 
 Release artifacts are generated under `release/` and ignored by Git. Upload only the final setup and portable `.exe` files to GitHub Releases.
 
