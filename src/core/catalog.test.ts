@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { categoryLabels, tools } from "./catalog";
+import {
+  categoryLabels,
+  createUserCategory,
+  customAddCategoryId,
+  getActiveCategoryDefinitions,
+  getDefaultCategoryDefinitions,
+  normalizeCategoryDefinitions,
+  resolveToolCategory,
+  tools,
+  uncategorizedCategoryId
+} from "./catalog";
 
 describe("tool catalog", () => {
   it("removes tools that should no longer appear in the toolbox", () => {
@@ -21,5 +31,35 @@ describe("tool catalog", () => {
   it("adds requested maintenance and system enhancement tools", () => {
     expect(tools.some((tool) => tool.id === "wise-registry-cleaner")).toBe(true);
     expect(tools.some((tool) => tool.id === "zyperwin")).toBe(true);
+  });
+
+  it("uses the current Czkawka GUI winget package id", () => {
+    const czkawka = tools.find((tool) => tool.id === "czkawka");
+
+    expect(czkawka?.wingetId).toBe("qarmin.czkawka.gui");
+  });
+
+  it("keeps custom add protected while allowing other categories to be hidden", () => {
+    const categories = normalizeCategoryDefinitions([
+      { id: customAddCategoryId, name: "改名无效", hidden: true },
+      { id: "cleanup", name: "清理工具", hidden: true }
+    ]);
+
+    expect(categories.find((category) => category.id === customAddCategoryId)).toMatchObject({
+      name: "自定义添加"
+    });
+    expect(categories.find((category) => category.id === customAddCategoryId)?.hidden).not.toBe(true);
+    expect(getActiveCategoryDefinitions(categories).some((category) => category.id === "cleanup")).toBe(false);
+    expect(resolveToolCategory({ category: "cleanup" }, categories)).toBe(uncategorizedCategoryId);
+  });
+
+  it("creates stable user category ids", () => {
+    const category = createUserCategory("我的工具", getDefaultCategoryDefinitions());
+
+    expect(category).toMatchObject({
+      id: "user-我的工具",
+      name: "我的工具",
+      builtin: false
+    });
   });
 });

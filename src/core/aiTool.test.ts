@@ -45,4 +45,46 @@ describe("aiTool", () => {
       )
     ).toThrow("资产匹配规则");
   });
+
+  it("creates a non-GitHub direct installer tool from AI output", () => {
+    const tool = createAiGeneratedTool(
+      {
+        name: "Website App",
+        category: "custom-add",
+        install: {
+          type: "installer",
+          downloadUrl: "https://example.com/app-setup.exe",
+          fileName: "WebsiteAppSetup.exe"
+        }
+      },
+      {
+        htmlUrl: "https://example.com/download",
+        releaseApiUrl: "",
+        license: "Freeware"
+      },
+      new Set()
+    );
+
+    expect(tool.category).toBe("custom-add");
+    expect(tool.source).toBe("website");
+    expect(tool.installer?.downloadUrl).toBe("https://example.com/app-setup.exe");
+    expect(tool.repoUrl).toBeUndefined();
+  });
+
+  it("keeps user-defined categories on generated tools", () => {
+    const tool = createAiGeneratedTool(
+      {
+        name: "Category App",
+        category: "user-tools",
+        install: {
+          type: "winget",
+          wingetId: "Example.CategoryApp"
+        }
+      },
+      context,
+      new Set()
+    );
+
+    expect(tool.category).toBe("user-tools");
+  });
 });

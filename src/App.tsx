@@ -26,6 +26,7 @@ import {
   Settings,
   ShieldAlert,
   Sparkles,
+  Tags,
   Terminal,
   Trash2,
   Upload,
@@ -37,10 +38,18 @@ import azureRooftopBackgroundUrl from "../assets/backgrounds/azure-rooftop.png";
 import neonTerminalBackgroundUrl from "../assets/backgrounds/neon-terminal.png";
 import sakuraWorkbenchBackgroundUrl from "../assets/backgrounds/sakura-workbench.png";
 import {
-  categoryLabels,
+  customAddCategoryId,
+  createUserCategory,
+  getActiveCategoryDefinitions,
+  getCategoryName,
+  getDefaultCategoryDefinitions,
+  normalizeCategoryDefinitions,
+  resolveToolCategory,
   tools as catalogTools,
+  type CategoryDefinition,
   type Tool,
   type ToolCategory,
+  uncategorizedCategoryId,
 } from "./core/catalog";
 import {
   createAiGeneratedTool,
@@ -110,6 +119,8 @@ type ToolPathSettings = {
   themeBackgrounds: Partial<Record<ThemeId, string>>;
   glassOpacity: number;
   glassBlur: number;
+  customTools: Tool[];
+  customCategories: CategoryDefinition[];
 };
 
 type SystemAdapter = {
@@ -136,6 +147,25 @@ type SystemInfo = {
   };
   cpu: string;
   memoryGb: number;
+  disks: {
+    name: string;
+    volumeName: string;
+    fileSystem: string;
+    sizeGb: number;
+    freeGb: number;
+  }[];
+  physicalDisks: {
+    model: string;
+    interfaceType: string;
+    mediaType: string;
+    sizeGb: number;
+  }[];
+  gpus: {
+    name: string;
+    adapterRamGb?: number;
+    driverVersion: string;
+  }[];
+  utf8BetaEnabled: boolean;
   adapters: SystemAdapter[];
 };
 
@@ -145,20 +175,6 @@ type NetworkForm = {
   gateway: string;
   dnsServers: string;
 };
-
-const categoryOrder: CategoryFilter[] = [
-  "all",
-  "starter",
-  "ai",
-  "ime",
-  "system",
-  "files",
-  "capture",
-  "cleanup",
-  "desktop",
-  "network",
-  "rescue",
-];
 
 const sourceLabels: Record<Tool["source"], string> = {
   winget: "winget",
@@ -176,7 +192,9 @@ const riskLabels: Record<Tool["risk"], string> = {
   high: "谨慎",
 };
 
-const categoryIcons: Record<ToolCategory, typeof Download> = {
+const categoryIcons: Record<string, typeof Download> = {
+  [customAddCategoryId]: Plus,
+  [uncategorizedCategoryId]: Inbox,
   starter: Sparkles,
   ai: Cpu,
   ime: Keyboard,
@@ -203,6 +221,8 @@ const fallbackSettings: ToolPathSettings = {
   themeBackgrounds: {},
   glassOpacity: 0.72,
   glassBlur: 28,
+  customTools: [],
+  customCategories: getDefaultCategoryDefinitions(),
 };
 const releasePageUrl = "https://github.com/575674384-stack/winkitbox/releases";
 const builtinThemeBackgroundUrls: Record<BuiltinThemeBackgroundId, string> = {
@@ -211,8 +231,8 @@ const builtinThemeBackgroundUrls: Record<BuiltinThemeBackgroundId, string> = {
   "azure-rooftop": azureRooftopBackgroundUrl,
 };
 
-function getCategoryLabel(category: CategoryFilter) {
-  return category === "all" ? "全部工具" : categoryLabels[category];
+function getCategoryLabel(category: CategoryFilter, categories: CategoryDefinition[]) {
+  return category === "all" ? "全部工具" : getCategoryName(category, categories);
 }
 
 function resolveThemeBackgroundUrl(background?: string) {
@@ -317,6 +337,26 @@ export function App() {
     () => [...catalogTools, ...customTools],
     [customTools],
   );
+  const activeCategoryDefinitions = useMemo(
+    () => getActiveCategoryDefinitions(settings.customCategories),
+    [settings.customCategories],
+  );
+  const categoryNavigation = useMemo(() => {
+    const activeCategories = activeCategoryDefinitions.map(
+      (category) => category.id,
+    );
+    const hasUncategorizedTools = allTools.some(
+      (tool) =>
+        resolveToolCategory(tool, settings.customCategories) ===
+        uncategorizedCategoryId,
+    );
+
+    return [
+      "all",
+      ...activeCategories,
+      ...(hasUncategorizedTools ? [uncategorizedCategoryId] : []),
+    ] as CategoryFilter[];
+  }, [activeCategoryDefinitions, allTools, settings.customCategories]);
   const plannerOptions = useMemo(
     () => ({ managedRootPath: settings.toolRootPath }),
     [settings.toolRootPath],
@@ -373,9 +413,13 @@ export function App() {
     const categoryFiltered =
       activeCategory === "all"
         ? allTools
-        : allTools.filter((tool) => tool.category === activeCategory);
+        : allTools.filter(
+            (tool) =>
+              resolveToolCategory(tool, settings.customCategories) ===
+              activeCategory,
+          );
     return searchTools(categoryFiltered, query);
-  }, [allTools, activeCategory, query]);
+  }, [allTools, activeCategory, query, settings.customCategories]);
   const currentTheme = useMemo(
     () => getThemeDefinition(settings.themeId),
     [settings.themeId],
@@ -411,16 +455,30 @@ export function App() {
 
       try {
         const nextSettings = await window.winKitBox.getSettings();
+        const storedCustomTools =
+          Array.isArray(nextSettings.customTools) &&
+          nextSettings.customTools.length > 0
+            ? nextSettings.customTools
+            : loadCustomTools();
         const normalizedSettings = {
           ...fallbackSettings,
           ...nextSettings,
           updateOnStartup: nextSettings.updateOnStartup !== false,
+          customTools: storedCustomTools,
+          customCategories: normalizeCategoryDefinitions(
+            nextSettings.customCategories,
+          ),
         };
+        setCustomTools(storedCustomTools);
         setSettings(normalizedSettings);
         setToolRootDraft(normalizedSettings.toolRootPath);
-        await refreshToolStates(allTools, {
+        await refreshToolStates([...catalogTools, ...storedCustomTools], {
           managedRootPath: normalizedSettings.toolRootPath,
         });
+
+        if (storedCustomTools.length > 0 && nextSettings.customTools.length === 0) {
+          await window.winKitBox.setSettings(normalizedSettings);
+        }
 
         if (normalizedSettings.updateOnStartup) {
           await checkForUpdates(true);
@@ -465,6 +523,12 @@ export function App() {
   useEffect(() => {
     localStorage.setItem(customToolsStorageKey, JSON.stringify(customTools));
   }, [customTools]);
+
+  useEffect(() => {
+    if (!categoryNavigation.includes(activeCategory)) {
+      setActiveCategory("all");
+    }
+  }, [activeCategory, categoryNavigation]);
 
   useEffect(() => {
     const knownIds = new Set(allTools.map((tool) => tool.id));
@@ -639,12 +703,18 @@ export function App() {
       themeBackgrounds: nextSettings.themeBackgrounds,
       glassOpacity: nextSettings.glassOpacity,
       glassBlur: nextSettings.glassBlur,
+      customTools: nextSettings.customTools,
+      customCategories: nextSettings.customCategories,
     });
     const normalizedSettings = {
       ...fallbackSettings,
       ...savedSettings,
       updateOnStartup: savedSettings.updateOnStartup !== false,
+      customCategories: normalizeCategoryDefinitions(
+        savedSettings.customCategories,
+      ),
     };
+    setCustomTools(normalizedSettings.customTools);
     setSettings(normalizedSettings);
     setToolRootDraft(normalizedSettings.toolRootPath);
     return normalizedSettings;
@@ -724,6 +794,100 @@ export function App() {
         error instanceof Error ? error.message : "保存 AI 配置失败。",
       );
     }
+  }
+
+  async function saveCustomCategories(nextCategories: CategoryDefinition[]) {
+    try {
+      await persistSettings({
+        ...settings,
+        customCategories: normalizeCategoryDefinitions(nextCategories),
+      });
+    } catch (error) {
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "保存分类失败。",
+      );
+    }
+  }
+
+  async function addCustomCategory(name: string) {
+    try {
+      const category = createUserCategory(name, settings.customCategories);
+      await saveCustomCategories([...settings.customCategories, category]);
+      appendLog("success", `已添加分类：${category.name}。`);
+    } catch (error) {
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "添加分类失败。",
+      );
+    }
+  }
+
+  async function renameCategory(categoryId: string, name: string) {
+    const trimmed = name.trim();
+    const category = settings.customCategories.find(
+      (item) => item.id === categoryId,
+    );
+
+    if (!category || category.protected) {
+      appendLog("warning", "这个分类不能改名。");
+      return;
+    }
+
+    if (!trimmed) {
+      appendLog("warning", "分类名称不能为空。");
+      return;
+    }
+
+    await saveCustomCategories(
+      settings.customCategories.map((item) =>
+        item.id === categoryId ? { ...item, name: trimmed.slice(0, 20) } : item,
+      ),
+    );
+    appendLog("success", `分类已改名为：${trimmed.slice(0, 20)}。`);
+  }
+
+  async function removeCategory(categoryId: string) {
+    const category = settings.customCategories.find(
+      (item) => item.id === categoryId,
+    );
+
+    if (!category || category.protected) {
+      appendLog("warning", "这个分类不能删除。");
+      return;
+    }
+
+    const nextCategories = category.builtin
+      ? settings.customCategories.map((item) =>
+          item.id === categoryId ? { ...item, hidden: true } : item,
+        )
+      : settings.customCategories.filter((item) => item.id !== categoryId);
+
+    await saveCustomCategories(nextCategories);
+    if (activeCategory === categoryId) {
+      setActiveCategory("all");
+    }
+    appendLog(
+      "success",
+      `已删除分类：${category.name}。原有工具会显示在“未分类”。`,
+    );
+  }
+
+  async function restoreCategory(categoryId: string) {
+    const category = settings.customCategories.find(
+      (item) => item.id === categoryId,
+    );
+
+    if (!category?.builtin) {
+      return;
+    }
+
+    await saveCustomCategories(
+      settings.customCategories.map((item) =>
+        item.id === categoryId ? { ...item, hidden: undefined } : item,
+      ),
+    );
+    appendLog("success", `已恢复分类：${category.name}。`);
   }
 
   async function saveTheme(themeId: ThemeId) {
@@ -919,6 +1083,7 @@ export function App() {
         },
         selectedToolIds: Array.from(selectedIds),
         customTools,
+        customCategories: settings.customCategories,
       });
 
       if (window.winKitBox) {
@@ -959,6 +1124,9 @@ export function App() {
 
       const imported = parseImportedConfig(opened.content);
       const nextCustomTools = imported.customTools;
+      const nextCustomCategories = normalizeCategoryDefinitions(
+        imported.customCategories,
+      );
       const knownIds = new Set(
         [...catalogTools, ...nextCustomTools].map((tool) => tool.id),
       );
@@ -970,6 +1138,8 @@ export function App() {
         toolRootPath: imported.settings.toolRootPath || settings.toolRootPath,
         updateOnStartup: imported.settings.updateOnStartup,
         themeId: imported.settings.themeId ?? settings.themeId,
+        customTools: nextCustomTools,
+        customCategories: nextCustomCategories,
       };
 
       setCustomTools(nextCustomTools);
@@ -1020,19 +1190,26 @@ export function App() {
     });
   }
 
-  function addAiGeneratedTool(
+  async function addAiGeneratedTool(
     candidate: AiToolCandidate,
     context: AiToolGitHubContext,
+    categoryId = customAddCategoryId,
   ) {
     try {
       const customTool = createAiGeneratedTool(
-        candidate,
+        {
+          ...candidate,
+          category: categoryId,
+        },
         context,
         new Set(allTools.map((tool) => tool.id)),
       );
-      setCustomTools((current) => [...current, customTool]);
+      const nextCustomTools = [...customTools, customTool];
+      setCustomTools(nextCustomTools);
+      await persistSettings({ ...settings, customTools: nextCustomTools });
       appendLog("success", `AI 已添加工具：${customTool.name}。`);
       setSelectedIds((current) => new Set([...current, customTool.id]));
+      await refreshToolStates([customTool]);
     } catch (error) {
       appendLog(
         "error",
@@ -1041,15 +1218,39 @@ export function App() {
     }
   }
 
-  function removeCustomTool(toolId: string) {
+  async function removeCustomTool(toolId: string) {
     const tool = customTools.find((item) => item.id === toolId);
-    setCustomTools((current) => current.filter((item) => item.id !== toolId));
+    const nextCustomTools = customTools.filter((item) => item.id !== toolId);
+    setCustomTools(nextCustomTools);
     setSelectedIds((current) => {
       const next = new Set(current);
       next.delete(toolId);
       return next;
     });
+    await persistSettings({ ...settings, customTools: nextCustomTools });
     appendLog("success", `已移除自定义工具：${tool?.name ?? toolId}。`);
+  }
+
+  async function addDiscoverRepoWithAi(repoUrl: string, categoryId: string) {
+    if (!window.winKitBox) {
+      appendLog("warning", "浏览器预览模式不能调用 AI 添加工具。");
+      return;
+    }
+
+    if (!settings.aiBaseUrl || !settings.aiApiKey || !settings.aiModel) {
+      appendLog("warning", "请先在设置里保存 AI 接口 URL、API Key 和模型名称。");
+      setActiveView("settings");
+      return;
+    }
+
+    const result = await window.winKitBox.generateAiTool({
+      baseUrl: settings.aiBaseUrl,
+      apiKey: settings.aiApiKey,
+      model: settings.aiModel,
+      toolUrl: repoUrl,
+      categoryId,
+    });
+    await addAiGeneratedTool(result.candidate, result.context, categoryId);
   }
 
   async function runInstallPlan() {
@@ -1303,14 +1504,19 @@ export function App() {
               分类
             </div>
             <div className="category-list">
-              {categoryOrder.map((category) => {
+              {categoryNavigation.map((category) => {
                 const count =
                   category === "all"
                     ? allTools.length
-                    : allTools.filter((tool) => tool.category === category)
-                        .length;
+                    : allTools.filter(
+                        (tool) =>
+                          resolveToolCategory(tool, settings.customCategories) ===
+                          category,
+                      ).length;
                 const Icon =
-                  category === "all" ? ListChecks : categoryIcons[category];
+                  category === "all"
+                    ? ListChecks
+                    : categoryIcons[category] ?? Tags;
 
                 return (
                   <button
@@ -1328,7 +1534,7 @@ export function App() {
                   >
                     <span>
                       <Icon size={16} />
-                      {getCategoryLabel(category)}
+                      {getCategoryLabel(category, settings.customCategories)}
                     </span>
                     <strong>{count}</strong>
                   </button>
@@ -1372,7 +1578,12 @@ export function App() {
 
       {activeView === "discover" && (
         <section className="workspace">
-          <DiscoverView onOpenUrl={openUrl} />
+          <DiscoverView
+            categories={activeCategoryDefinitions}
+            defaultCategoryId={customAddCategoryId}
+            onAddRepoWithAi={addDiscoverRepoWithAi}
+            onOpenUrl={openUrl}
+          />
         </section>
       )}
 
@@ -1405,6 +1616,12 @@ export function App() {
             onLog={appendLog}
             logs={logs}
             customTools={customTools}
+            categories={activeCategoryDefinitions}
+            allCategories={settings.customCategories}
+            onAddCategory={addCustomCategory}
+            onRenameCategory={renameCategory}
+            onRemoveCategory={removeCategory}
+            onRestoreCategory={restoreCategory}
             onAddAiTool={addAiGeneratedTool}
             onRemoveCustomTool={removeCustomTool}
             onExportConfig={exportConfig}
@@ -1745,6 +1962,7 @@ function SystemView({
   const [isLoading, setIsLoading] = useState(false);
   const [isTestingDns, setIsTestingDns] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
+  const [isSettingUtf8, setIsSettingUtf8] = useState(false);
   const dnsCandidates = useMemo(
     () => flattenDnsServers(publicDnsProviders),
     [],
@@ -1887,6 +2105,46 @@ function SystemView({
     }
   }
 
+  async function setUtf8Beta(enabled: boolean) {
+    if (!window.winKitBox) {
+      onLog("warning", "浏览器预览模式不能修改系统区域设置。");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      enabled
+        ? "将开启 Windows 的“使用 Unicode UTF-8 提供全球语言支持”，需要管理员确认并重启系统后生效。是否继续？"
+        : "将关闭 Windows UTF-8 beta 开关并尽量恢复之前的代码页，需要管理员确认并重启系统后生效。是否继续？",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsSettingUtf8(true);
+    try {
+      const result = await window.winKitBox.setSystemUtf8Beta({ enabled });
+      if (result.code === 0) {
+        onLog(
+          "success",
+          enabled
+            ? "UTF-8 beta 开关已开启，重启系统后生效。"
+            : "UTF-8 beta 开关已关闭，重启系统后生效。",
+        );
+      } else {
+        onLog("warning", `UTF-8 设置命令结束，退出码 ${result.code ?? "未知"}。`);
+      }
+      await refreshSystemInfo();
+    } catch (error) {
+      onLog(
+        "error",
+        error instanceof Error ? error.message : "修改 UTF-8 设置失败。",
+      );
+    } finally {
+      setIsSettingUtf8(false);
+    }
+  }
+
   return (
     <div className="system-page">
       <header className="command-bar page-topbar">
@@ -1928,6 +2186,91 @@ function SystemView({
           <span>内存</span>
           <strong>{info?.memoryGb ? `${info.memoryGb} GB` : "未读取"}</strong>
         </div>
+      </div>
+
+      <div className="hardware-grid">
+        <section className="settings-card hardware-card">
+          <div className="section-title">
+            <HardDriveDownload size={15} />
+            硬盘
+          </div>
+          <div className="hardware-list">
+            {(info?.disks ?? []).map((disk) => (
+              <div className="hardware-row" key={disk.name}>
+                <div>
+                  <strong>
+                    {disk.name} {disk.volumeName ? `· ${disk.volumeName}` : ""}
+                  </strong>
+                  <span>{disk.fileSystem || "未知文件系统"}</span>
+                </div>
+                <em>
+                  {disk.freeGb} GB 可用 / {disk.sizeGb} GB
+                </em>
+              </div>
+            ))}
+            {(info?.physicalDisks ?? []).map((disk, index) => (
+              <div className="hardware-row subtle" key={`${disk.model}-${index}`}>
+                <div>
+                  <strong>{disk.model || "未知磁盘"}</strong>
+                  <span>
+                    {disk.interfaceType || "未知接口"} ·{" "}
+                    {disk.mediaType || "未知介质"}
+                  </span>
+                </div>
+                <em>{disk.sizeGb ? `${disk.sizeGb} GB` : "容量未知"}</em>
+              </div>
+            ))}
+            {!info?.disks?.length && !info?.physicalDisks?.length && (
+              <p className="empty-text">还没有读取到硬盘信息。</p>
+            )}
+          </div>
+        </section>
+
+        <section className="settings-card hardware-card">
+          <div className="section-title">
+            <Cpu size={15} />
+            显卡与编码
+          </div>
+          <div className="hardware-list">
+            {(info?.gpus ?? []).map((gpu) => (
+              <div className="hardware-row" key={`${gpu.name}-${gpu.driverVersion}`}>
+                <div>
+                  <strong>{gpu.name || "未知显卡"}</strong>
+                  <span>驱动 {gpu.driverVersion || "未知"}</span>
+                </div>
+                <em>
+                  {gpu.adapterRamGb ? `${gpu.adapterRamGb} GB` : "显存未知"}
+                </em>
+              </div>
+            ))}
+            {!info?.gpus?.length && (
+              <p className="empty-text">还没有读取到显卡信息。</p>
+            )}
+          </div>
+          <div className="utf8-panel">
+            <div>
+              <strong>UTF-8 beta</strong>
+              <span>
+                {info?.utf8BetaEnabled
+                  ? "当前已开启，重启后状态以系统为准。"
+                  : "当前未开启，可用于部分跨语言软件的乱码场景。"}
+              </span>
+            </div>
+            <button
+              className={info?.utf8BetaEnabled ? "secondary-button danger" : "primary-button"}
+              type="button"
+              disabled={isSettingUtf8 || !info}
+              onClick={() => setUtf8Beta(!info?.utf8BetaEnabled)}
+            >
+              <Keyboard size={15} />
+              {isSettingUtf8
+                ? "设置中"
+                : info?.utf8BetaEnabled
+                  ? "关闭 UTF-8"
+                  : "开启 UTF-8"}
+            </button>
+          </div>
+        </section>
       </div>
 
       <div className="system-layout">
@@ -2158,6 +2501,12 @@ function SettingsView({
   onLog,
   logs,
   customTools,
+  categories,
+  allCategories,
+  onAddCategory,
+  onRenameCategory,
+  onRemoveCategory,
+  onRestoreCategory,
   onAddAiTool,
   onRemoveCustomTool,
   onExportConfig,
@@ -2193,11 +2542,18 @@ function SettingsView({
   onLog: (level: LogEntry["level"], message: string) => void;
   logs: LogEntry[];
   customTools: Tool[];
+  categories: CategoryDefinition[];
+  allCategories: CategoryDefinition[];
+  onAddCategory: (name: string) => Promise<void>;
+  onRenameCategory: (categoryId: string, name: string) => Promise<void>;
+  onRemoveCategory: (categoryId: string) => Promise<void>;
+  onRestoreCategory: (categoryId: string) => Promise<void>;
   onAddAiTool: (
     candidate: AiToolCandidate,
     context: AiToolGitHubContext,
-  ) => void;
-  onRemoveCustomTool: (toolId: string) => void;
+    categoryId?: string,
+  ) => Promise<void>;
+  onRemoveCustomTool: (toolId: string) => Promise<void>;
   onExportConfig: () => Promise<void>;
   onImportConfig: () => Promise<void>;
 }) {
@@ -2205,8 +2561,10 @@ function SettingsView({
     aiBaseUrl: settings.aiBaseUrl,
     aiApiKey: settings.aiApiKey,
     aiModel: settings.aiModel,
-    githubUrl: "",
+    toolUrl: "",
+    categoryId: customAddCategoryId,
   });
+  const [newCategoryName, setNewCategoryName] = useState("");
   const [detectedModels, setDetectedModels] = useState<string[]>([]);
   const [aiBusy, setAiBusy] = useState<
     "models" | "test" | "generate" | undefined
@@ -2326,10 +2684,11 @@ function SettingsView({
         baseUrl: aiDraft.aiBaseUrl,
         apiKey: aiDraft.aiApiKey,
         model: aiDraft.aiModel,
-        githubUrl: aiDraft.githubUrl,
+        toolUrl: aiDraft.toolUrl,
+        categoryId: aiDraft.categoryId,
       });
-      onAddAiTool(result.candidate, result.context);
-      setAiDraft((current) => ({ ...current, githubUrl: "" }));
+      await onAddAiTool(result.candidate, result.context, aiDraft.categoryId);
+      setAiDraft((current) => ({ ...current, toolUrl: "" }));
     } catch (error) {
       onLog(
         "error",
@@ -2590,6 +2949,84 @@ function SettingsView({
 
         <section className="settings-card full-span">
           <div className="section-title">
+            <Tags size={15} />
+            分类管理
+          </div>
+          <div className="category-editor-head">
+            <label className="field-label">
+              新分类名称
+              <input
+                value={newCategoryName}
+                onChange={(event) => setNewCategoryName(event.target.value)}
+                placeholder="例如：影音工具"
+              />
+            </label>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={async () => {
+                await onAddCategory(newCategoryName);
+                setNewCategoryName("");
+              }}
+            >
+              <Plus size={15} />
+              添加分类
+            </button>
+          </div>
+          <div className="category-editor-list">
+            {allCategories.map((category) => (
+              <div
+                className={`category-editor-row ${category.hidden ? "hidden" : ""}`}
+                key={category.id}
+              >
+                <label className="field-label">
+                  分类名称
+                  <input
+                    defaultValue={category.name}
+                    disabled={category.protected}
+                    onBlur={(event) => {
+                      if (event.target.value !== category.name) {
+                        void onRenameCategory(category.id, event.target.value);
+                      }
+                    }}
+                  />
+                </label>
+                <span>
+                  {category.protected
+                    ? "系统保留"
+                    : category.builtin
+                      ? category.hidden
+                        ? "已隐藏"
+                        : "内置分类"
+                      : "用户分类"}
+                </span>
+                {category.hidden ? (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => onRestoreCategory(category.id)}
+                  >
+                    <RotateCcw size={14} />
+                    恢复
+                  </button>
+                ) : (
+                  <button
+                    className="secondary-button danger"
+                    type="button"
+                    disabled={category.protected}
+                    onClick={() => onRemoveCategory(category.id)}
+                  >
+                    <Trash2 size={14} />
+                    删除
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="settings-card full-span">
+          <div className="section-title">
             <Plus size={15} />
             AI 添加工具
           </div>
@@ -2641,17 +3078,35 @@ function SettingsView({
               </datalist>
             </label>
             <label className="field-label wide">
-              GitHub 主页链接
+              工具主页 / 下载页
               <input
-                value={aiDraft.githubUrl}
+                value={aiDraft.toolUrl}
                 onChange={(event) =>
                   setAiDraft((current) => ({
                     ...current,
-                    githubUrl: event.target.value,
+                    toolUrl: event.target.value,
                   }))
                 }
-                placeholder="https://github.com/owner/repo"
+                placeholder="https://github.com/owner/repo 或 https://example.com/download"
               />
+            </label>
+            <label className="field-label">
+              添加到分类
+              <select
+                value={aiDraft.categoryId}
+                onChange={(event) =>
+                  setAiDraft((current) => ({
+                    ...current,
+                    categoryId: event.target.value,
+                  }))
+                }
+              >
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
           <div className="settings-actions">
@@ -2690,7 +3145,7 @@ function SettingsView({
                   <div>
                     <strong>{tool.name}</strong>
                     <span>
-                      {categoryLabels[tool.category]} ·{" "}
+                      {getCategoryName(tool.category, allCategories)} ·{" "}
                       {describeCustomTool(tool)}
                     </span>
                   </div>
@@ -2765,11 +3220,15 @@ function describeCustomTool(tool: Tool) {
   }
 
   if (tool.installer) {
-    return `GitHub 安装包 · ${tool.installer.assetPattern}`;
+    return tool.installer.assetPattern
+      ? `GitHub 安装包 · ${tool.installer.assetPattern}`
+      : `下载安装包 · ${tool.installer.fileName}`;
   }
 
   if (tool.portable) {
-    return `GitHub 便携包 · ${tool.portable.assetPattern}`;
+    return tool.portable.assetPattern
+      ? `GitHub 便携包 · ${tool.portable.assetPattern}`
+      : `下载便携包 · ${tool.portable.executable}`;
   }
 
   if (tool.customInstallCommand) {

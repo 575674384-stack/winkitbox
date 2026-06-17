@@ -40,6 +40,8 @@ declare global {
         themeBackgrounds: Partial<Record<import("../core/themes").ThemeId, string>>;
         glassOpacity: number;
         glassBlur: number;
+        customTools: import("../core/catalog").Tool[];
+        customCategories: import("../core/catalog").CategoryDefinition[];
       }>;
       setSettings: (settings: {
         toolRootPath: string;
@@ -51,6 +53,8 @@ declare global {
         themeBackgrounds?: Partial<Record<import("../core/themes").ThemeId, string>>;
         glassOpacity?: number;
         glassBlur?: number;
+        customTools?: import("../core/catalog").Tool[];
+        customCategories?: import("../core/catalog").CategoryDefinition[];
       }) => Promise<{
         toolRootPath: string;
         defaultToolRootPath: string;
@@ -62,6 +66,8 @@ declare global {
         themeBackgrounds: Partial<Record<import("../core/themes").ThemeId, string>>;
         glassOpacity: number;
         glassBlur: number;
+        customTools: import("../core/catalog").Tool[];
+        customCategories: import("../core/catalog").CategoryDefinition[];
       }>;
       selectToolRoot: (currentPath?: string) => Promise<string | undefined>;
       selectLocalLauncher: (currentPath?: string) => Promise<string | undefined>;
@@ -103,6 +109,25 @@ declare global {
         };
         cpu: string;
         memoryGb: number;
+        disks: {
+          name: string;
+          volumeName: string;
+          fileSystem: string;
+          sizeGb: number;
+          freeGb: number;
+        }[];
+        physicalDisks: {
+          model: string;
+          interfaceType: string;
+          mediaType: string;
+          sizeGb: number;
+        }[];
+        gpus: {
+          name: string;
+          adapterRamGb?: number;
+          driverVersion: string;
+        }[];
+        utf8BetaEnabled: boolean;
         adapters: {
           id: string;
           name: string;
@@ -132,6 +157,9 @@ declare global {
         gateway?: string;
         dnsServers: string[];
       }) => Promise<{ code: number | null }>;
+      setSystemUtf8Beta: (request: {
+        enabled: boolean;
+      }) => Promise<{ code: number | null }>;
       saveConfigFile: (request: { content: string }) => Promise<{
         canceled: boolean;
         filePath?: string;
@@ -154,7 +182,8 @@ declare global {
         baseUrl: string;
         apiKey: string;
         model: string;
-        githubUrl: string;
+        toolUrl: string;
+        categoryId?: string;
       }) => Promise<{
         candidate: import("../core/aiTool").AiToolCandidate;
         context: import("../core/aiTool").AiToolGitHubContext;

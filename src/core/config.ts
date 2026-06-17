@@ -1,4 +1,5 @@
-import type { Tool, ToolCategory } from "./catalog";
+import type { CategoryDefinition, Tool, ToolCategory } from "./catalog";
+import { normalizeCategoryDefinitions } from "./catalog";
 import { isThemeId, type ThemeId } from "./themes";
 
 export type WinKitBoxExportConfig = {
@@ -11,6 +12,7 @@ export type WinKitBoxExportConfig = {
   };
   selectedToolIds: string[];
   customTools: Tool[];
+  customCategories?: CategoryDefinition[];
 };
 
 export type CustomToolInput = {
@@ -155,7 +157,8 @@ export function parseImportedConfig(text: string): WinKitBoxExportConfig {
       themeId: isThemeId(String(parsed.settings.themeId || "")) ? parsed.settings.themeId : undefined
     },
     selectedToolIds: Array.isArray(parsed.selectedToolIds) ? parsed.selectedToolIds.map(String) : [],
-    customTools: parsed.customTools.slice(0, 200).filter(isLikelyTool)
+    customTools: parsed.customTools.slice(0, 200).filter(isLikelyTool),
+    customCategories: normalizeCategoryDefinitions((parsed as { customCategories?: unknown }).customCategories)
   };
 }
 

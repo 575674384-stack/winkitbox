@@ -60,4 +60,27 @@ describe("config helpers", () => {
 
     expect(imported.settings.themeId).toBeUndefined();
   });
+
+  it("keeps custom categories in portable config while preserving protected categories", () => {
+    const imported = parseImportedConfig(
+      JSON.stringify({
+        version: 1,
+        exportedAt: "2026-06-16T00:00:00.000Z",
+        settings: {
+          toolRootPath: "%LOCALAPPDATA%\\WinKitBox",
+          updateOnStartup: true
+        },
+        selectedToolIds: [],
+        customTools: [],
+        customCategories: [
+          { id: "custom-add", name: "不要改", hidden: true },
+          { id: "user-tools", name: "我的工具" }
+        ]
+      })
+    );
+
+    expect(imported.customCategories?.find((category) => category.id === "custom-add")?.name).toBe("自定义添加");
+    expect(imported.customCategories?.find((category) => category.id === "custom-add")?.hidden).not.toBe(true);
+    expect(imported.customCategories?.find((category) => category.id === "user-tools")?.name).toBe("我的工具");
+  });
 });

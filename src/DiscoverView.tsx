@@ -7,6 +7,7 @@ import {
   Globe2,
   Inbox,
   Languages,
+  Plus,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -25,9 +26,17 @@ import {
   type GitHubRepo,
   type ProxySettings
 } from "./core/github";
+import {
+  customAddCategoryId,
+  getCategoryName,
+  type CategoryDefinition
+} from "./core/catalog";
 import { buildTranslateUrl, parseGoogleTranslatePayload, shouldTranslate } from "./core/translation";
 
 type DiscoverViewProps = {
+  categories: CategoryDefinition[];
+  defaultCategoryId: string;
+  onAddRepoWithAi: (repoUrl: string, categoryId: string) => Promise<void>;
   onOpenUrl: (url: string) => Promise<void>;
 };
 
@@ -36,7 +45,12 @@ type FetchState = "idle" | "loading" | "ready" | "cached" | "error";
 const settingsKey = "winkitbox:github-settings:v1";
 const translatePreferenceKey = "winkitbox:github-translate:v1";
 
-export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
+export function DiscoverView({
+  categories,
+  defaultCategoryId,
+  onAddRepoWithAi,
+  onOpenUrl
+}: DiscoverViewProps) {
   const [range, setRange] = useState<GitHubRange>("weekly");
   const [language, setLanguage] = useState("");
   const [query, setQuery] = useState("");
@@ -46,6 +60,8 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
   const [fetchedAt, setFetchedAt] = useState<string>("");
   const [settings, setSettings] = useState<ProxySettings>(() => loadSettings());
   const [translateDescriptions, setTranslateDescriptions] = useState(() => loadTranslatePreference());
+  const [addCategoryId, setAddCategoryId] = useState(defaultCategoryId);
+  const [addingRepo, setAddingRepo] = useState<string>();
 
   const filteredRepos = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -80,6 +96,12 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
   useEffect(() => {
     void refreshTrending();
   }, [range, language]);
+
+  useEffect(() => {
+    if (!categories.some((category) => category.id === addCategoryId)) {
+      setAddCategoryId(defaultCategoryId || customAddCategoryId);
+    }
+  }, [addCategoryId, categories, defaultCategoryId]);
 
   async function refreshTrending() {
     setStatus("loading");
@@ -161,6 +183,22 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
   async function copyCloneCommand(repo: GitHubRepo) {
     await navigator.clipboard.writeText(`git clone ${repo.url}.git`);
     setMessage(`已复制 ${repo.fullName} 的 clone 命令。`);
+  }
+
+  async function addRepoWithAi(repo: GitHubRepo) {
+    setAddingRepo(repo.fullName);
+    setMessage(`正在让 AI 分析 ${repo.fullName}。`);
+
+    try {
+      await onAddRepoWithAi(repo.url, addCategoryId);
+      setStatus("ready");
+      setMessage(`${repo.fullName} 已添加到 ${getCategoryName(addCategoryId, categories)}。`);
+    } catch (error) {
+      setStatus("error");
+      setMessage(error instanceof Error ? error.message : "AI 添加工具失败。");
+    } finally {
+      setAddingRepo(undefined);
+    }
   }
 
   return (
@@ -295,6 +333,15 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
                       <ShieldCheck size={14} />
                       候选
                     </button>
+                    <button
+                      className="mini-action install"
+                      type="button"
+                      disabled={addingRepo === repo.fullName}
+                      onClick={() => addRepoWithAi(repo)}
+                    >
+                      <Plus size={14} />
+                      {addingRepo === repo.fullName ? "添加中" : "AI 添加"}
+                    </button>
                     <button className="icon-button" type="button" aria-label="复制 clone 命令" onClick={() => copyCloneCommand(repo)}>
                       <Copy size={15} />
                     </button>
@@ -351,6 +398,19 @@ export function DiscoverView({ onOpenUrl }: DiscoverViewProps) {
                 <Languages size={16} />
                 自动翻译成中文
               </span>
+            </label>
+            <label className="field-label">
+              默认添加分类
+              <select
+                value={addCategoryId}
+                onChange={(event) => setAddCategoryId(event.target.value)}
+              >
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
             </label>
             <button className="secondary-button full-width" type="button" onClick={testGitHubConnection}>
               <Globe2 size={16} />

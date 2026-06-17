@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("winKitBox", {
   getSystemInfo: () => ipcRenderer.invoke("system-info"),
   testDnsServers: (servers) => ipcRenderer.invoke("test-dns-servers", servers),
   applyNetworkConfig: (request) => ipcRenderer.invoke("apply-network-config", request),
+  setSystemUtf8Beta: (request) => ipcRenderer.invoke("system-utf8-set", request),
   saveConfigFile: (request) => ipcRenderer.invoke("save-config-file", request),
   openConfigFile: () => ipcRenderer.invoke("open-config-file"),
   listAiModels: (request) => ipcRenderer.invoke("ai-list-models", request),

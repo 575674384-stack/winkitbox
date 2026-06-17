@@ -1,4 +1,4 @@
-export type ToolCategory =
+export type BuiltInToolCategory =
   | "starter"
   | "system"
   | "files"
@@ -9,6 +9,8 @@ export type ToolCategory =
   | "rescue"
   | "ai"
   | "ime";
+
+export type ToolCategory = string;
 
 export type ToolSource = "winget" | "scoop" | "github" | "store" | "website" | "builtin" | "custom";
 
@@ -66,7 +68,45 @@ export type Preset = {
   toolIds: string[];
 };
 
-export const categoryLabels: Record<ToolCategory, string> = {
+export type CategoryDefinition = {
+  id: ToolCategory;
+  name: string;
+  builtin: boolean;
+  protected?: boolean;
+  hidden?: boolean;
+};
+
+export const customAddCategoryId = "custom-add";
+export const uncategorizedCategoryId = "uncategorized";
+
+export const builtInCategoryOrder: BuiltInToolCategory[] = [
+  "starter",
+  "ai",
+  "ime",
+  "system",
+  "files",
+  "capture",
+  "cleanup",
+  "desktop",
+  "network",
+  "rescue"
+];
+
+export const defaultCategoryDefinitions: CategoryDefinition[] = [
+  { id: customAddCategoryId, name: "自定义添加", builtin: true, protected: true },
+  { id: "starter", name: "一键装机", builtin: true },
+  { id: "ai", name: "AI 应用", builtin: true },
+  { id: "ime", name: "输入法", builtin: true },
+  { id: "system", name: "系统增强", builtin: true },
+  { id: "files", name: "文件体验", builtin: true },
+  { id: "capture", name: "截图剪贴", builtin: true },
+  { id: "cleanup", name: "卸载清理", builtin: true },
+  { id: "desktop", name: "桌面整理", builtin: true },
+  { id: "network", name: "网络同步", builtin: true },
+  { id: "rescue", name: "维护急救", builtin: true }
+];
+
+export const categoryLabels: Record<string, string> = {
   starter: "一键装机",
   system: "系统增强",
   files: "文件体验",
@@ -76,8 +116,101 @@ export const categoryLabels: Record<ToolCategory, string> = {
   network: "网络同步",
   rescue: "维护急救",
   ai: "AI 应用",
-  ime: "输入法"
+  ime: "输入法",
+  [customAddCategoryId]: "自定义添加",
+  [uncategorizedCategoryId]: "未分类"
 };
+
+export function getDefaultCategoryDefinitions() {
+  return defaultCategoryDefinitions.map((category) => ({ ...category }));
+}
+
+export function normalizeCategoryDefinitions(input: unknown): CategoryDefinition[] {
+  const defaults = getDefaultCategoryDefinitions();
+  const defaultById = new Map(defaults.map((category) => [category.id, category]));
+  const nextById = new Map(defaults.map((category) => [category.id, category]));
+
+  if (Array.isArray(input)) {
+    for (const rawCategory of input) {
+      if (!rawCategory || typeof rawCategory !== "object") {
+        continue;
+      }
+
+      const id = sanitizeCategoryId(String((rawCategory as CategoryDefinition).id ?? ""));
+      const name = String((rawCategory as CategoryDefinition).name ?? "").trim();
+      if (!id || id === "all" || id === uncategorizedCategoryId || !name) {
+        continue;
+      }
+
+      const defaultCategory = defaultById.get(id);
+      if (defaultCategory?.protected) {
+        nextById.set(id, defaultCategory);
+        continue;
+      }
+
+      nextById.set(id, {
+        id,
+        name: name.slice(0, 20),
+        builtin: Boolean(defaultCategory?.builtin),
+        protected: Boolean(defaultCategory?.protected) || undefined,
+        hidden: Boolean((rawCategory as CategoryDefinition).hidden) || undefined
+      });
+    }
+  }
+
+  return Array.from(nextById.values());
+}
+
+export function getActiveCategoryDefinitions(categories: CategoryDefinition[]) {
+  return categories.filter((category) => !category.hidden);
+}
+
+export function getCategoryName(categoryId: string, categories: CategoryDefinition[]) {
+  if (categoryId === "all") {
+    return "全部工具";
+  }
+
+  const category = categories.find((item) => item.id === categoryId && !item.hidden);
+  return category?.name ?? categoryLabels[categoryId] ?? categoryLabels[uncategorizedCategoryId];
+}
+
+export function resolveToolCategory(tool: Pick<Tool, "category">, categories: CategoryDefinition[]) {
+  return getActiveCategoryDefinitions(categories).some((category) => category.id === tool.category)
+    ? tool.category
+    : uncategorizedCategoryId;
+}
+
+export function createUserCategory(name: string, existingCategories: CategoryDefinition[]): CategoryDefinition {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw new Error("分类名称不能为空。");
+  }
+
+  const existingIds = new Set(existingCategories.map((category) => category.id));
+  const baseId = `user-${sanitizeCategoryId(trimmed) || "category"}`;
+  let id = baseId;
+  let suffix = 2;
+
+  while (existingIds.has(id)) {
+    id = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  return {
+    id,
+    name: trimmed.slice(0, 20),
+    builtin: false
+  };
+}
+
+function sanitizeCategoryId(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
 
 const baseTools: Tool[] = [
   {
@@ -396,7 +529,7 @@ const baseTools: Tool[] = [
     stars: 25000,
     homepage: "https://github.com/qarmin/czkawka",
     repoUrl: "https://github.com/qarmin/czkawka",
-    wingetId: "qarmin.czkawka",
+    wingetId: "qarmin.czkawka.gui",
     launch: {
       startMenuNames: ["Czkawka"],
       commands: ["czkawka_gui.exe", "czkawka.exe"]

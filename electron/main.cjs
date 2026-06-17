@@ -224,6 +224,10 @@ ipcMain.handle("apply-network-config", async (_event, request) => {
   return applyNetworkConfig(request);
 });
 
+ipcMain.handle("system-utf8-set", async (_event, request) => {
+  return setSystemUtf8Beta(request);
+});
+
 ipcMain.handle("save-config-file", async (_event, request) => {
   return saveConfigFile(request);
 });
@@ -422,6 +426,34 @@ $ErrorActionPreference = 'Stop'
 $os = Get-CimInstance Win32_OperatingSystem
 $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
 $memory = Get-CimInstance Win32_ComputerSystem
+$disks = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |
+  ForEach-Object {
+    [PSCustomObject]@{
+      name = [string]$_.DeviceID
+      volumeName = [string]$_.VolumeName
+      fileSystem = [string]$_.FileSystem
+      sizeGb = [math]::Round(([double]$_.Size / 1GB), 1)
+      freeGb = [math]::Round(([double]$_.FreeSpace / 1GB), 1)
+    }
+  }
+$physicalDisks = Get-CimInstance Win32_DiskDrive |
+  ForEach-Object {
+    [PSCustomObject]@{
+      model = [string]$_.Model
+      interfaceType = [string]$_.InterfaceType
+      mediaType = [string]$_.MediaType
+      sizeGb = [math]::Round(([double]$_.Size / 1GB), 1)
+    }
+  }
+$gpus = Get-CimInstance Win32_VideoController |
+  ForEach-Object {
+    [PSCustomObject]@{
+      name = [string]$_.Name
+      adapterRamGb = if ($_.AdapterRAM) { [math]::Round(([double]$_.AdapterRAM / 1GB), 1) } else { $null }
+      driverVersion = [string]$_.DriverVersion
+    }
+  }
+$codePage = Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage'
 $adapters = Get-NetIPConfiguration |
   Where-Object { $_.NetAdapter.Status -ne 'Disabled' } |
   ForEach-Object {
@@ -452,6 +484,10 @@ $adapters = Get-NetIPConfiguration |
   }
   cpu = [string]$cpu.Name
   memoryGb = [math]::Round(([double]$memory.TotalPhysicalMemory / 1GB), 1)
+  disks = @($disks)
+  physicalDisks = @($physicalDisks)
+  gpus = @($gpus)
+  utf8BetaEnabled = [bool]($codePage.ACP -eq '65001')
   adapters = @($adapters)
 } | ConvertTo-Json -Depth 8 -Compress
 `;
@@ -559,6 +595,77 @@ if ($data.mode -eq 'dhcp') {
   const scriptPath = path.join(app.getPath("userData"), "apply-network-config.ps1");
   fs.writeFileSync(scriptPath, script, "utf8");
 
+  return new Promise((resolve) => {
+    const child = spawn("powershell.exe", [
+      "-NoLogo",
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      `Start-Process -FilePath powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File "${scriptPath.replace(/"/g, '\\"')}"'`
+    ]);
+
+    child.on("close", (code) => {
+      resolve({ code });
+    });
+  });
+}
+
+async function setSystemUtf8Beta(request) {
+  const enabled = Boolean(request?.enabled);
+  const settings = readSettings();
+  const currentCodePages = await getCurrentCodePages();
+
+  if (enabled && currentCodePages.acp !== "65001") {
+    settings.previousCodePages = currentCodePages;
+    writeSettings(settings);
+  }
+
+  const targetCodePages = enabled
+    ? { acp: "65001", oemcp: "65001", maccp: "65001" }
+    : settings.previousCodePages || { acp: "936", oemcp: "936", maccp: "10000" };
+  const payload = Buffer.from(JSON.stringify(targetCodePages), "utf8").toString("base64");
+  const script = `
+$ErrorActionPreference = 'Stop'
+$data = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json
+$path = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage'
+Set-ItemProperty -Path $path -Name ACP -Value ([string]$data.acp)
+Set-ItemProperty -Path $path -Name OEMCP -Value ([string]$data.oemcp)
+Set-ItemProperty -Path $path -Name MACCP -Value ([string]$data.maccp)
+`;
+  const scriptPath = path.join(app.getPath("userData"), "set-system-utf8.ps1");
+  fs.writeFileSync(scriptPath, script, "utf8");
+
+  return runElevatedPowerShellFile(scriptPath);
+}
+
+async function getCurrentCodePages() {
+  const script = `
+$ErrorActionPreference = 'Stop'
+$codePage = Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage'
+[PSCustomObject]@{
+  acp = [string]$codePage.ACP
+  oemcp = [string]$codePage.OEMCP
+  maccp = [string]$codePage.MACCP
+} | ConvertTo-Json -Compress
+`;
+  const result = await runPowerShellCapture(script);
+  if (result.code !== 0) {
+    return { acp: "936", oemcp: "936", maccp: "10000" };
+  }
+
+  try {
+    return normalizePreviousCodePages(JSON.parse(result.stdout.trim() || "{}")) || {
+      acp: "936",
+      oemcp: "936",
+      maccp: "10000"
+    };
+  } catch {
+    return { acp: "936", oemcp: "936", maccp: "10000" };
+  }
+}
+
+function runElevatedPowerShellFile(scriptPath) {
   return new Promise((resolve) => {
     const child = spawn("powershell.exe", [
       "-NoLogo",
@@ -742,18 +849,21 @@ async function generateToolWithAi(request) {
   const baseUrl = String(request?.baseUrl ?? "").trim();
   const apiKey = String(request?.apiKey ?? "").trim();
   const model = String(request?.model ?? "").trim();
-  const githubUrl = String(request?.githubUrl ?? "").trim();
+  const toolUrl = String(request?.toolUrl ?? request?.githubUrl ?? "").trim();
+  const categoryId = String(request?.categoryId ?? "custom-add").trim() || "custom-add";
 
   if (!baseUrl || !apiKey || !model) {
     throw new Error("请先填写 AI 接口 URL、API Key 和模型名称。");
   }
 
-  const repoRef = parseGitHubRepoUrl(githubUrl);
-  if (!repoRef) {
-    throw new Error("请填写有效的 GitHub 仓库主页链接。");
+  if (!/^https?:\/\//i.test(toolUrl)) {
+    throw new Error("请填写有效的工具主页或下载页链接。");
   }
 
-  const context = await fetchGitHubToolContext(repoRef.owner, repoRef.repo);
+  const repoRef = parseGitHubRepoUrl(toolUrl);
+  const context = repoRef
+    ? await fetchGitHubToolContext(repoRef.owner, repoRef.repo)
+    : await fetchGenericToolContext(toolUrl);
   const response = await net.fetch(buildAiEndpoint(baseUrl, "chat/completions"), {
     method: "POST",
     headers: buildAiHeaders(apiKey),
@@ -767,7 +877,7 @@ async function generateToolWithAi(request) {
         },
         {
           role: "user",
-          content: buildAiToolPrompt(context)
+          content: buildAiToolPrompt(context, categoryId)
         }
       ],
       temperature: 0.2,
@@ -897,16 +1007,104 @@ async function fetchGitHubToolContext(owner, repo) {
   };
 }
 
-function buildAiToolPrompt(context) {
-  return `Analyze this GitHub repository and create one Windows installable WinKitBox tool entry.
+async function fetchGenericToolContext(toolUrl) {
+  const targetUrl = new URL(toolUrl);
+  if (!["http:", "https:"].includes(targetUrl.protocol)) {
+    throw new Error("只支持 http 或 https 链接。");
+  }
 
-Repository:
+  let pageTitle = "";
+  let pageDescription = "";
+  let pageText = "";
+
+  try {
+    const response = await net.fetch(targetUrl.toString(), {
+      headers: {
+        "User-Agent": "WinKitBox/0.1",
+        Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8"
+      }
+    });
+
+    if (response.ok) {
+      const html = (await response.text()).slice(0, 60000);
+      pageTitle = extractHtmlTitle(html);
+      pageDescription = extractHtmlDescription(html);
+      pageText = stripHtmlText(html).slice(0, 6000);
+    }
+  } catch {
+    pageText = "";
+  }
+
+  return {
+    htmlUrl: targetUrl.toString(),
+    description: pageDescription,
+    language: "",
+    topics: [],
+    stars: undefined,
+    license: "",
+    releaseApiUrl: "",
+    pageTitle,
+    pageDescription,
+    pageText,
+    assets: []
+  };
+}
+
+function extractHtmlTitle(html) {
+  return decodeHtmlEntities(String(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? ""))
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+}
+
+function extractHtmlDescription(html) {
+  return decodeHtmlEntities(
+    String(
+      html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["'][^>]*>/i)?.[1] ??
+        html.match(/<meta[^>]+content=["']([^"']*)["'][^>]+name=["']description["'][^>]*>/i)?.[1] ??
+        ""
+    )
+  )
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 280);
+}
+
+function stripHtmlText(html) {
+  return decodeHtmlEntities(
+    String(html)
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function decodeHtmlEntities(value) {
+  return String(value)
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function buildAiToolPrompt(context, preferredCategory) {
+  const sourceLabel = context.owner && context.repo ? "GitHub repository" : "software website/download page";
+
+  return `Analyze this ${sourceLabel} and create one Windows installable WinKitBox tool entry.
+
+Preferred category id: ${preferredCategory || "custom-add"}
+
+Source context:
 ${JSON.stringify(context, null, 2)}
 
 Return exactly one JSON object with this shape:
 {
   "name": "display name",
-  "category": "starter|system|files|capture|cleanup|desktop|network|rescue|ai|ime",
+  "category": "${preferredCategory || "custom-add"}",
   "summary": "short Chinese summary, <= 30 chars",
   "description": "Chinese description, <= 90 chars",
   "license": "license id or Unknown",
@@ -916,6 +1114,7 @@ Return exactly one JSON object with this shape:
     "type": "winget|installer|portable",
     "wingetId": "only when type is winget",
     "assetPattern": "regex matching a Windows release asset, only when type is installer or portable",
+    "downloadUrl": "direct official Windows download URL, only when not using assetPattern",
     "archive": "zip|7z, only when portable",
     "executable": "relative exe path inside extracted archive, only when portable",
     "fileName": "installer file name, only when installer"
@@ -927,11 +1126,13 @@ Return exactly one JSON object with this shape:
 }
 
 Rules:
-- Prefer a direct Windows installer asset (.exe or .msi) from latest release.
-- Use portable only for .zip or .7z release assets when the executable name is obvious.
+- Use the preferred category id unless the source clearly fits a better built-in category.
+- Prefer a direct Windows installer asset (.exe or .msi) from latest release or official download page.
+- Use portable only for .zip or .7z assets when the executable name is obvious.
 - Use winget only if you are confident about the winget package id.
 - Do not invent unsupported install types.
-- If no direct Windows install route exists, still choose the closest direct Windows route from the assets if possible.
+- Do not return arbitrary PowerShell, shell scripts, browser-only instructions, or unsupported install types.
+- If no direct Windows install route exists, choose the closest direct Windows route from the assets/page if possible.
 - Return JSON only.`;
 }
 
@@ -983,7 +1184,10 @@ function writeSettings(settings) {
         themeId: normalized.themeId,
         themeBackgrounds: normalized.themeBackgrounds,
         glassOpacity: normalized.glassOpacity,
-        glassBlur: normalized.glassBlur
+        glassBlur: normalized.glassBlur,
+        customTools: normalized.customTools,
+        customCategories: normalized.customCategories,
+        previousCodePages: normalized.previousCodePages
       },
       null,
       2
@@ -1005,8 +1209,103 @@ function normalizeSettings(settings) {
     themeId: normalizeThemeId(String(settings?.themeId ?? "light")),
     themeBackgrounds: normalizeThemeBackgrounds(settings?.themeBackgrounds),
     glassOpacity: normalizeGlassOpacity(settings?.glassOpacity),
-    glassBlur: normalizeGlassBlur(settings?.glassBlur)
+    glassBlur: normalizeGlassBlur(settings?.glassBlur),
+    customTools: normalizeCustomTools(settings?.customTools),
+    customCategories: normalizeCustomCategories(settings?.customCategories),
+    previousCodePages: normalizePreviousCodePages(settings?.previousCodePages)
   };
+}
+
+const defaultCustomCategories = [
+  { id: "custom-add", name: "自定义添加", builtin: true, protected: true },
+  { id: "starter", name: "一键装机", builtin: true },
+  { id: "ai", name: "AI 应用", builtin: true },
+  { id: "ime", name: "输入法", builtin: true },
+  { id: "system", name: "系统增强", builtin: true },
+  { id: "files", name: "文件体验", builtin: true },
+  { id: "capture", name: "截图剪贴", builtin: true },
+  { id: "cleanup", name: "卸载清理", builtin: true },
+  { id: "desktop", name: "桌面整理", builtin: true },
+  { id: "network", name: "网络同步", builtin: true },
+  { id: "rescue", name: "维护急救", builtin: true }
+];
+
+function normalizeCustomCategories(value) {
+  const defaults = defaultCustomCategories.map((category) => ({ ...category }));
+  const defaultById = new Map(defaults.map((category) => [category.id, category]));
+  const nextById = new Map(defaults.map((category) => [category.id, category]));
+
+  if (!Array.isArray(value)) {
+    return Array.from(nextById.values());
+  }
+
+  for (const rawCategory of value) {
+    if (!rawCategory || typeof rawCategory !== "object") {
+      continue;
+    }
+
+    const id = sanitizeCategoryId(String(rawCategory.id ?? ""));
+    const name = String(rawCategory.name ?? "").trim();
+    if (!id || id === "all" || id === "uncategorized" || !name) {
+      continue;
+    }
+
+    const defaultCategory = defaultById.get(id);
+    if (defaultCategory?.protected) {
+      nextById.set(id, defaultCategory);
+      continue;
+    }
+
+    nextById.set(id, {
+      id,
+      name: name.slice(0, 20),
+      builtin: Boolean(defaultCategory?.builtin),
+      protected: Boolean(defaultCategory?.protected) || undefined,
+      hidden: Boolean(rawCategory.hidden) || undefined
+    });
+  }
+
+  return Array.from(nextById.values());
+}
+
+function sanitizeCategoryId(value) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+function normalizeCustomTools(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((tool) =>
+      tool &&
+      typeof tool === "object" &&
+      typeof tool.id === "string" &&
+      typeof tool.name === "string" &&
+      typeof tool.category === "string"
+    )
+    .slice(0, 200);
+}
+
+function normalizePreviousCodePages(value) {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const acp = String(value.acp ?? "").trim();
+  const oemcp = String(value.oemcp ?? "").trim();
+  const maccp = String(value.maccp ?? "").trim();
+  if (!acp && !oemcp && !maccp) {
+    return undefined;
+  }
+
+  return { acp, oemcp, maccp };
 }
 
 function normalizeThemeId(value) {
