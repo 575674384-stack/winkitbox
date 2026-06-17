@@ -1684,63 +1684,66 @@ async function downloadUpdatePackage(request, sender) {
   fs.mkdirSync(tempDir, { recursive: true });
   const filePath = path.join(tempDir, fileName);
 
-  const url = new URL(downloadUrl);
-  const client = url.protocol === "https:" ? require("https") : require("http");
-
-  return new Promise((resolve, reject) => {
-    const request = client.get(
-      downloadUrl,
-      {
-        headers: {
-          "User-Agent": `WinKitBox/${app.getVersion()}`,
-          Accept: "application/octet-stream"
-        }
+  try {
+    const response = await fetch(downloadUrl, {
+      headers: {
+        "User-Agent": `WinKitBox/${app.getVersion()}`,
+        Accept: "application/octet-stream"
       },
-      (response) => {
-        if (response.statusCode !== 200) {
-          reject(new Error(`下载更新包失败：${response.statusCode}`));
-          return;
-        }
+      redirect: "follow"
+    });
 
-        const total = Number(response.headers["content-length"]) || 0;
-        let downloaded = 0;
-        const fileStream = fs.createWriteStream(filePath);
+    if (!response.ok) {
+      throw new Error(`下载更新包失败：${response.status}`);
+    }
 
-        response.on("data", (chunk) => {
-          downloaded += chunk.length;
-          if (total > 0 && sender && !sender.isDestroyed()) {
-            sender.send("download-update-progress", {
-              downloaded,
-              total,
-              percent: Math.round((downloaded / total) * 100)
-            });
-          }
-        });
+    const total = Number(response.headers.get("content-length")) || 0;
+    let downloaded = 0;
+    const fileStream = fs.createWriteStream(filePath);
+    const reader = response.body.getReader();
 
-        response.pipe(fileStream);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
 
-        fileStream.on("finish", () => {
-          fileStream.close();
-          resolve({ filePath });
-        });
+      const chunk = Buffer.from(value);
+      fileStream.write(chunk);
+      downloaded += chunk.length;
 
-        fileStream.on("error", (error) => {
-          fs.rmSync(filePath, { force: true });
-          reject(error);
-        });
-
-        response.on("error", (error) => {
-          fs.rmSync(filePath, { force: true });
-          reject(error);
+      if (total > 0 && sender && !sender.isDestroyed()) {
+        sender.send("download-update-progress", {
+          downloaded,
+          total,
+          percent: Math.round((downloaded / total) * 100)
         });
       }
-    );
+    }
 
-    request.on("error", (error) => {
-      fs.rmSync(filePath, { force: true });
-      reject(error);
+    return new Promise((resolve, reject) => {
+      fileStream.end(() => {
+        fileStream.close((error) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve({ filePath });
+          }
+        });
+      });
+
+      fileStream.on("error", (error) => {
+        reject(error);
+      });
     });
-  });
+  } catch (error) {
+    try {
+      fs.rmSync(filePath, { force: true });
+    } catch {
+      // Ignore cleanup errors.
+    }
+    throw error;
+  }
 }
 
 function applyUpdatePackage(request) {
