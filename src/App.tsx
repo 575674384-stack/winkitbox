@@ -39,6 +39,7 @@ import {
 import { DiscoverView } from "./DiscoverView";
 import winkitboxIconUrl from "../assets/icon/winkitbox-icon.png";
 import {
+  categoryLabels,
   customAddCategoryId,
   createUserCategory,
   getActiveCategoryDefinitions,
@@ -869,7 +870,9 @@ export function App() {
         ...settings,
         toolCategoryOverrides: nextOverrides,
       });
-      appendLog("success", "已修改工具分类。");
+      const toolName = originalTool?.name ?? toolId;
+      const categoryName = getCategoryName(categoryId, settings.customCategories);
+      appendLog("success", `已将 ${toolName} 移动到 ${categoryName}。`);
     } catch (error) {
       appendLog(
         "error",
@@ -3464,6 +3467,12 @@ function ToolCard({
           title="修改分类"
         >
           <option value={uncategorizedCategoryId}>未分类</option>
+          {tool.category !== uncategorizedCategoryId &&
+            !categories.some((category) => category.id === tool.category) && (
+              <option value={tool.category} disabled>
+                {categoryLabels[tool.category] ?? tool.category}
+              </option>
+            )}
           {categories.map((category) => (
             <option key={category.id} value={category.id}>
               {category.name}
