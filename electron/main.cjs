@@ -870,7 +870,8 @@ async function generateToolWithAi(request) {
       model,
       messages: buildAiToolMessages(context, categoryId),
       temperature: 0.2,
-      max_tokens: 2000
+      max_tokens: 2000,
+      response_format: { type: "json_object" }
     })
   });
 
@@ -925,7 +926,8 @@ async function fixToolWithAi(request) {
       model,
       messages: buildAiFixMessages(tool, errorMessage),
       temperature: 0.2,
-      max_tokens: 2000
+      max_tokens: 2000,
+      response_format: { type: "json_object" }
     })
   });
 
@@ -996,7 +998,7 @@ function buildAiFixMessages(tool, errorMessage) {
     {
       role: "system",
       content:
-        "You fix WinKitBox Windows software install configurations. Output exactly one valid JSON object and nothing else. No markdown, no explanations, no reasoning, no trailing commas."
+        "You fix WinKitBox Windows software install configurations. CRITICAL: your entire response must be one valid JSON object, starting with { and ending with }. Do not write any introduction, explanation, reasoning, or conclusion. Do not wrap in markdown. Do not add trailing commas. Any non-JSON output will be rejected."
     },
     {
       role: "user",
@@ -1249,7 +1251,7 @@ function buildAiToolMessages(context, categoryId) {
     {
       role: "system",
       content:
-        "You generate WinKitBox Windows software catalog entries. Output exactly one valid JSON object and nothing else. No markdown, no explanations, no reasoning, no trailing commas."
+        "You generate WinKitBox Windows software catalog entries. CRITICAL: your entire response must be one valid JSON object, starting with { and ending with }. Do not write any introduction, explanation, reasoning, or conclusion. Do not wrap in markdown. Do not add trailing commas. Any non-JSON output will be rejected."
     },
     {
       role: "user",
