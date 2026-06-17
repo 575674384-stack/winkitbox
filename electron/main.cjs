@@ -1,6 +1,8 @@
 const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, net, session, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
+const http = require("node:http");
+const https = require("node:https");
 const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -1685,6 +1687,252 @@ async function checkForUpdates() {
   }
 }
 
+const MAX_DOWNLOAD_REDIRECTS = 5;
+const DOWNLOAD_PART_COUNT = 4;
+const DOWNLOAD_PROGRESS_THROTTLE_MS = 200;
+const MULTIPART_DOWNLOAD_THRESHOLD = 5 * 1024 * 1024; // 5 MB
+
+function requestWithRedirects(url, options, callback) {
+  let redirectCount = 0;
+
+  function makeRequest(currentUrl, currentOptions) {
+    const parsed = new URL(currentUrl);
+    const client = parsed.protocol === "https:" ? https : http;
+    const requestOptions = {
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname + parsed.search,
+      method: currentOptions.method || "GET",
+      headers: currentOptions.headers || {},
+      timeout: currentOptions.timeout || 60000
+    };
+
+    const request = client.request(requestOptions, (response) => {
+      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        redirectCount++;
+        if (redirectCount > MAX_DOWNLOAD_REDIRECTS) {
+          callback(new Error("下载重定向次数过多。"));
+          return;
+        }
+        const nextUrl = new URL(response.headers.location, currentUrl).toString();
+        makeRequest(nextUrl, currentOptions);
+        return;
+      }
+      callback(null, response);
+    });
+
+    request.on("error", (error) => callback(error));
+    request.on("timeout", () => callback(new Error("下载请求超时。")));
+    request.end();
+  }
+
+  makeRequest(url, options);
+}
+
+function fetchContentLength(url) {
+  return new Promise((resolve, reject) => {
+    requestWithRedirects(
+      url,
+      {
+        method: "HEAD",
+        headers: { "User-Agent": `WinKitBox/${app.getVersion()}` }
+      },
+      (error, response) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        if (!response.statusCode || response.statusCode >= 400) {
+          reject(new Error(`HEAD 请求失败：${response.statusCode}`));
+          return;
+        }
+        resolve(Number(response.headers["content-length"]) || 0);
+      }
+    );
+  });
+}
+
+function downloadSingleStream(url, filePath, sender) {
+  return new Promise((resolve, reject) => {
+    const fileStream = fs.createWriteStream(filePath);
+    let downloaded = 0;
+    let total = 0;
+    let lastProgressTime = 0;
+
+    requestWithRedirects(
+      url,
+      {
+        method: "GET",
+        headers: {
+          "User-Agent": `WinKitBox/${app.getVersion()}`,
+          Accept: "application/octet-stream"
+        }
+      },
+      (error, response) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        if (!response.statusCode || response.statusCode >= 400) {
+          reject(new Error(`下载更新包失败：${response.statusCode}`));
+          return;
+        }
+
+        total = Number(response.headers["content-length"]) || 0;
+
+        response.on("data", (chunk) => {
+          downloaded += chunk.length;
+          const now = Date.now();
+          if (total > 0 && sender && !sender.isDestroyed() && now - lastProgressTime >= DOWNLOAD_PROGRESS_THROTTLE_MS) {
+            lastProgressTime = now;
+            sender.send("download-update-progress", {
+              downloaded,
+              total,
+              percent: Math.round((downloaded / total) * 100)
+            });
+          }
+        });
+
+        response.pipe(fileStream);
+
+        fileStream.on("finish", () => {
+          fileStream.close(() => resolve({ filePath }));
+        });
+        fileStream.on("error", reject);
+        response.on("error", reject);
+      }
+    );
+  });
+}
+
+function downloadChunk(url, start, end, partPath, onChunk) {
+  return new Promise((resolve, reject) => {
+    const partStream = fs.createWriteStream(partPath);
+    let received = 0;
+
+    requestWithRedirects(
+      url,
+      {
+        method: "GET",
+        headers: {
+          "User-Agent": `WinKitBox/${app.getVersion()}`,
+          Accept: "application/octet-stream",
+          Range: `bytes=${start}-${end}`
+        }
+      },
+      (error, response) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        if (response.statusCode !== 206 && response.statusCode !== 200) {
+          reject(new Error(`分片下载失败：${response.statusCode}`));
+          return;
+        }
+
+        response.on("data", (chunk) => {
+          received += chunk.length;
+          onChunk(chunk.length);
+        });
+        response.pipe(partStream);
+
+        partStream.on("finish", () => {
+          partStream.close(() => resolve(received));
+        });
+        partStream.on("error", reject);
+        response.on("error", reject);
+      }
+    );
+  });
+}
+
+async function downloadMultipart(url, filePath, total, sender) {
+  const chunkSize = Math.ceil(total / DOWNLOAD_PART_COUNT);
+  const chunks = [];
+  const tempDir = path.dirname(filePath);
+
+  for (let i = 0; i < DOWNLOAD_PART_COUNT; i++) {
+    const start = i * chunkSize;
+    const end = Math.min(start + chunkSize - 1, total - 1);
+    chunks.push({
+      start,
+      end,
+      partPath: path.join(tempDir, `${path.basename(filePath)}.part-${i}`)
+    });
+  }
+
+  let downloaded = 0;
+  let lastProgressTime = 0;
+
+  function sendProgress(force = false) {
+    const now = Date.now();
+    if (!force && now - lastProgressTime < DOWNLOAD_PROGRESS_THROTTLE_MS) return;
+    lastProgressTime = now;
+    if (sender && !sender.isDestroyed()) {
+      sender.send("download-update-progress", {
+        downloaded,
+        total,
+        percent: Math.round((downloaded / total) * 100)
+      });
+    }
+  }
+
+  try {
+    await Promise.all(
+      chunks.map(async ({ start, end, partPath }) => {
+        let attempts = 0;
+        const maxAttempts = 3;
+        while (attempts < maxAttempts) {
+          attempts++;
+          try {
+            await downloadChunk(url, start, end, partPath, (chunkLength) => {
+              downloaded += chunkLength;
+              sendProgress();
+            });
+            return;
+          } catch (error) {
+            if (attempts >= maxAttempts) {
+              throw new Error(`分片 ${start}-${end} 下载失败：${error.message}`);
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
+          }
+        }
+      })
+    );
+
+    sendProgress(true);
+
+    const finalFd = fs.openSync(filePath, "w");
+    try {
+      for (const { partPath } of chunks) {
+        const buffer = fs.readFileSync(partPath);
+        fs.writeSync(finalFd, buffer);
+      }
+    } finally {
+      fs.closeSync(finalFd);
+    }
+
+    for (const { partPath } of chunks) {
+      try {
+        fs.rmSync(partPath, { force: true });
+      } catch {
+        // Ignore cleanup errors.
+      }
+    }
+
+    return { filePath };
+  } catch (error) {
+    for (const { partPath } of chunks) {
+      try {
+        fs.rmSync(partPath, { force: true });
+      } catch {
+        // Ignore cleanup errors.
+      }
+    }
+    throw error;
+  }
+}
+
 async function downloadUpdatePackage(request, sender) {
   const downloadUrl = String(request?.downloadUrl ?? "").trim();
   const fileName = String(request?.fileName ?? "").trim() || "WinKitBox-Setup.exe";
@@ -1698,57 +1946,35 @@ async function downloadUpdatePackage(request, sender) {
   const filePath = path.join(tempDir, fileName);
 
   try {
-    const response = await fetch(downloadUrl, {
-      headers: {
-        "User-Agent": `WinKitBox/${app.getVersion()}`,
-        Accept: "application/octet-stream"
-      },
-      redirect: "follow"
-    });
-
-    if (!response.ok) {
-      throw new Error(`下载更新包失败：${response.status}`);
+    let total = 0;
+    try {
+      total = await fetchContentLength(downloadUrl);
+    } catch {
+      total = 0;
     }
 
-    const total = Number(response.headers.get("content-length")) || 0;
-    let downloaded = 0;
-    const fileStream = fs.createWriteStream(filePath);
-    const reader = response.body.getReader();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-
-      const chunk = Buffer.from(value);
-      fileStream.write(chunk);
-      downloaded += chunk.length;
-
-      if (total > 0 && sender && !sender.isDestroyed()) {
-        sender.send("download-update-progress", {
-          downloaded,
-          total,
-          percent: Math.round((downloaded / total) * 100)
-        });
-      }
-    }
-
-    return new Promise((resolve, reject) => {
-      fileStream.end(() => {
-        fileStream.close((error) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve({ filePath });
+    if (total > MULTIPART_DOWNLOAD_THRESHOLD) {
+      try {
+        return await downloadMultipart(downloadUrl, filePath, total, sender);
+      } catch (multipartError) {
+        // If multipart fails (e.g. server does not support Range), fall back
+        // to a single-stream download before giving up.
+        if (String(multipartError.message).includes("分片")) {
+          // Clean up any partial part files before fallback.
+          for (let i = 0; i < DOWNLOAD_PART_COUNT; i++) {
+            try {
+              fs.rmSync(path.join(tempDir, `${fileName}.part-${i}`), { force: true });
+            } catch {
+              // Ignore cleanup errors.
+            }
           }
-        });
-      });
+        } else {
+          throw multipartError;
+        }
+      }
+    }
 
-      fileStream.on("error", (error) => {
-        reject(error);
-      });
-    });
+    return await downloadSingleStream(downloadUrl, filePath, sender);
   } catch (error) {
     try {
       fs.rmSync(filePath, { force: true });
