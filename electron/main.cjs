@@ -1008,7 +1008,7 @@ Rules:
 - Fix the install route based on the error message (e.g. wrong asset pattern, missing executable, outdated winget id).
 - Do not invent unsupported install types.
 - Do not return arbitrary PowerShell, shell scripts, browser-only instructions, or unsupported install types.
-- Return JSON only.`;
+- Return JSON only. No markdown, no explanations, no trailing commas.`;
 }
 
 function buildAiEndpoint(baseUrl, route) {
@@ -1237,7 +1237,7 @@ Rules:
 - Do not invent unsupported install types.
 - Do not return arbitrary PowerShell, shell scripts, browser-only instructions, or unsupported install types.
 - If no direct Windows install route exists, choose the closest direct Windows route from the assets/page if possible.
-- Return JSON only.`;
+- Return JSON only. No markdown, no explanations, no trailing commas.`;
 }
 
 function extractAiMessageContent(payload) {
