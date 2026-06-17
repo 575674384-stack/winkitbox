@@ -223,6 +223,11 @@ declare global {
         homepage: string;
       }) => Promise<{ code: number | null }>;
       onRunOutput: (callback: (value: string) => void) => () => void;
+      onDownloadUpdateProgress: (callback: (value: {
+        downloaded: number;
+        total: number;
+        percent: number;
+      }) => void) => () => void;
     };
   }
 }

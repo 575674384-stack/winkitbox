@@ -250,6 +250,18 @@ function formatStars(stars?: number) {
   return `${stars}`;
 }
 
+function formatBytes(bytes: number) {
+  if (bytes === 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.floor(Math.log(bytes) / Math.log(1024));
+  const unit = units[Math.min(index, units.length - 1)];
+  const value = bytes / 1024 ** Math.min(index, units.length - 1);
+  return `${value.toFixed(1)} ${unit}`;
+}
+
 function loadCustomTools(): Tool[] {
   try {
     const parsed = JSON.parse(
@@ -328,6 +340,7 @@ export function App() {
   });
   const [activeView, setActiveView] = useState<ActiveView>("catalog");
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>("all");
+  const [installedOnly, setInstalledOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([
     {
@@ -446,8 +459,13 @@ export function App() {
               resolveToolCategory(tool, settings.customCategories) ===
               activeCategory,
           );
-    return searchTools(categoryFiltered, query);
-  }, [allTools, activeCategory, query, settings.customCategories]);
+    const statusFiltered = installedOnly
+      ? categoryFiltered.filter(
+          (tool) => toolStates[tool.id]?.status === "installed",
+        )
+      : categoryFiltered;
+    return searchTools(statusFiltered, query);
+  }, [allTools, activeCategory, query, settings.customCategories, installedOnly, toolStates]);
   const currentTheme = useMemo(
     () => getThemeDefinition(settings.themeId),
     [settings.themeId],
@@ -552,6 +570,7 @@ export function App() {
   useEffect(() => {
     if (!categoryNavigation.includes(activeCategory)) {
       setActiveCategory("all");
+      setInstalledOnly(false);
     }
   }, [activeCategory, categoryNavigation]);
 
@@ -915,6 +934,7 @@ export function App() {
     await saveCustomCategories(nextCategories);
     if (activeCategory === categoryId) {
       setActiveCategory("all");
+      setInstalledOnly(false);
     }
     appendLog(
       "success",
@@ -1559,6 +1579,7 @@ export function App() {
                       onClick={() => {
                         setActiveView("catalog");
                         setActiveCategory(category);
+                        setInstalledOnly(false);
                       }}
                     >
                       <span>
@@ -1840,26 +1861,30 @@ export function App() {
               value={dashboardStats.installedCount}
               tone="green"
               icon={Check}
-            />
-            <Metric
-              label="可自动安装"
-              value={dashboardStats.readyCount}
-              tone="teal"
-              icon={Download}
-            />
-            <Metric
-              label="手动来源"
-              value={dashboardStats.manualCount}
-              tone="amber"
-              icon={ExternalLink}
-            />
-            <Metric
-              label="需管理员"
-              value={dashboardStats.adminCount}
-              tone="red"
-              icon={ShieldAlert}
+              onClick={() => {
+                setActiveView("catalog");
+                setActiveCategory("all");
+                setInstalledOnly(true);
+                setQuery("");
+              }}
             />
           </div>
+
+          {installedOnly && (
+            <div className="active-filter-bar">
+              <span className="active-filter-chip">
+                仅显示已安装工具
+                <button
+                  className="icon-button tiny"
+                  type="button"
+                  onClick={() => setInstalledOnly(false)}
+                  aria-label="清除已安装筛选"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            </div>
+          )}
 
           <div className="search-row search-row-prominent">
             <Search size={18} />
@@ -2074,14 +2099,27 @@ function Metric({
   value,
   tone,
   icon: Icon,
+  onClick,
 }: {
   label: string;
   value: number;
   tone: "blue" | "green" | "teal" | "amber" | "red";
   icon?: typeof Download;
+  onClick?: () => void;
 }) {
   return (
-    <div className={`metric ${tone}`}>
+    <div
+      className={`metric ${tone} ${onClick ? "clickable" : ""}`}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (onClick && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+    >
       <div className="metric-header">
         <span>{label}</span>
         {Icon && <Icon size={16} />}
@@ -2724,6 +2762,9 @@ function SettingsView({
     "models" | "test" | "generate" | undefined
   >();
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<
+    { downloaded: number; total: number; percent: number } | undefined
+  >();
 
   useEffect(() => {
     setAiDraft((current) => ({
@@ -2733,6 +2774,15 @@ function SettingsView({
       aiModel: settings.aiModel,
     }));
   }, [settings.aiBaseUrl, settings.aiApiKey, settings.aiModel]);
+
+  useEffect(() => {
+    if (!window.winKitBox) {
+      return;
+    }
+    return window.winKitBox.onDownloadUpdateProgress((progress) => {
+      setDownloadProgress(progress);
+    });
+  }, []);
 
   async function downloadAndInstallUpdate() {
     if (!window.winKitBox) {
@@ -2750,6 +2800,7 @@ function SettingsView({
     }
 
     setIsDownloadingUpdate(true);
+    setDownloadProgress(undefined);
 
     try {
       onLog("info", `正在下载 v${updateInfo?.latestVersion} 更新包...`);
@@ -2765,6 +2816,7 @@ function SettingsView({
         error instanceof Error ? error.message : "下载或安装更新失败。",
       );
       setIsDownloadingUpdate(false);
+      setDownloadProgress(undefined);
     }
   }
 
@@ -3063,6 +3115,19 @@ function SettingsView({
               发行页
             </button>
           </div>
+          {downloadProgress && (
+            <div className="update-progress">
+              <div className="update-progress-track">
+                <div
+                  className="update-progress-bar"
+                  style={{ width: `${downloadProgress.percent}%` }}
+                />
+              </div>
+              <span className="update-progress-text">
+                {downloadProgress.percent}% · {formatBytes(downloadProgress.downloaded)} / {formatBytes(downloadProgress.total)}
+              </span>
+            </div>
+          )}
           {updateInfo?.error && (
             <p className="settings-error">{updateInfo.error}</p>
           )}

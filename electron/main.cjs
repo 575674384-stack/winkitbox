@@ -199,8 +199,8 @@ ipcMain.handle("check-updates", async () => {
   return checkForUpdates();
 });
 
-ipcMain.handle("download-update", async (_event, request) => {
-  return downloadUpdatePackage(request);
+ipcMain.handle("download-update", async (event, request) => {
+  return downloadUpdatePackage(request, event.sender);
 });
 
 ipcMain.handle("apply-update", async (_event, request) => {
@@ -1647,7 +1647,7 @@ async function checkForUpdates() {
   }
 }
 
-async function downloadUpdatePackage(request) {
+async function downloadUpdatePackage(request, sender) {
   const downloadUrl = String(request?.downloadUrl ?? "").trim();
   const fileName = String(request?.fileName ?? "").trim() || "WinKitBox-Setup.exe";
 
@@ -1659,21 +1659,63 @@ async function downloadUpdatePackage(request) {
   fs.mkdirSync(tempDir, { recursive: true });
   const filePath = path.join(tempDir, fileName);
 
-  const response = await net.fetch(downloadUrl, {
-    headers: {
-      "User-Agent": `WinKitBox/${app.getVersion()}`,
-      Accept: "application/octet-stream"
-    }
+  const url = new URL(downloadUrl);
+  const client = url.protocol === "https:" ? require("https") : require("http");
+
+  return new Promise((resolve, reject) => {
+    const request = client.get(
+      downloadUrl,
+      {
+        headers: {
+          "User-Agent": `WinKitBox/${app.getVersion()}`,
+          Accept: "application/octet-stream"
+        }
+      },
+      (response) => {
+        if (response.statusCode !== 200) {
+          reject(new Error(`下载更新包失败：${response.statusCode}`));
+          return;
+        }
+
+        const total = Number(response.headers["content-length"]) || 0;
+        let downloaded = 0;
+        const fileStream = fs.createWriteStream(filePath);
+
+        response.on("data", (chunk) => {
+          downloaded += chunk.length;
+          if (total > 0 && sender && !sender.isDestroyed()) {
+            sender.send("download-update-progress", {
+              downloaded,
+              total,
+              percent: Math.round((downloaded / total) * 100)
+            });
+          }
+        });
+
+        response.pipe(fileStream);
+
+        fileStream.on("finish", () => {
+          fileStream.close();
+          resolve({ filePath });
+        });
+
+        fileStream.on("error", (error) => {
+          fs.rmSync(filePath, { force: true });
+          reject(error);
+        });
+
+        response.on("error", (error) => {
+          fs.rmSync(filePath, { force: true });
+          reject(error);
+        });
+      }
+    );
+
+    request.on("error", (error) => {
+      fs.rmSync(filePath, { force: true });
+      reject(error);
+    });
   });
-
-  if (!response.ok) {
-    throw new Error(`下载更新包失败：${response.status}`);
-  }
-
-  const buffer = Buffer.from(await response.arrayBuffer());
-  fs.writeFileSync(filePath, buffer);
-
-  return { filePath };
 }
 
 function applyUpdatePackage(request) {

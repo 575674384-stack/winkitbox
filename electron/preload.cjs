@@ -30,5 +30,10 @@ contextBridge.exposeInMainWorld("winKitBox", {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("run-output", listener);
     return () => ipcRenderer.removeListener("run-output", listener);
+  },
+  onDownloadUpdateProgress: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on("download-update-progress", listener);
+    return () => ipcRenderer.removeListener("download-update-progress", listener);
   }
 });
