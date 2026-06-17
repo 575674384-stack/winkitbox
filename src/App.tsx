@@ -33,6 +33,9 @@ import {
 } from "lucide-react";
 import { DiscoverView } from "./DiscoverView";
 import winkitboxIconUrl from "../assets/icon/winkitbox-icon.png";
+import azureRooftopBackgroundUrl from "../assets/backgrounds/azure-rooftop.png";
+import neonTerminalBackgroundUrl from "../assets/backgrounds/neon-terminal.png";
+import sakuraWorkbenchBackgroundUrl from "../assets/backgrounds/sakura-workbench.png";
 import {
   categoryLabels,
   tools as catalogTools,
@@ -77,8 +80,12 @@ import {
   type ToolRuntimeStates,
 } from "./core/toolStatus";
 import {
+  builtinThemeBackgrounds,
+  createBuiltinThemeBackgroundValue,
+  getBuiltinThemeBackgroundId,
   getThemeDefinition,
   themeDefinitions,
+  type BuiltinThemeBackgroundId,
   type ThemeId,
 } from "./core/themes";
 import { findSetupAsset, type UpdateInfo } from "./core/update";
@@ -198,9 +205,27 @@ const fallbackSettings: ToolPathSettings = {
   glassBlur: 28,
 };
 const releasePageUrl = "https://github.com/575674384-stack/winkitbox/releases";
+const builtinThemeBackgroundUrls: Record<BuiltinThemeBackgroundId, string> = {
+  "sakura-workbench": sakuraWorkbenchBackgroundUrl,
+  "neon-terminal": neonTerminalBackgroundUrl,
+  "azure-rooftop": azureRooftopBackgroundUrl,
+};
 
 function getCategoryLabel(category: CategoryFilter) {
   return category === "all" ? "全部工具" : categoryLabels[category];
+}
+
+function resolveThemeBackgroundUrl(background?: string) {
+  const builtinBackgroundId = getBuiltinThemeBackgroundId(background);
+  if (builtinBackgroundId) {
+    return builtinThemeBackgroundUrls[builtinBackgroundId];
+  }
+
+  return background;
+}
+
+function toCssUrl(url: string) {
+  return `url("${url.replace(/"/g, "%22")}")`;
 }
 
 function formatStars(stars?: number) {
@@ -355,12 +380,15 @@ export function App() {
     () => getThemeDefinition(settings.themeId),
     [settings.themeId],
   );
-  const currentThemeBackground = settings.themeBackgrounds[settings.themeId];
+  const currentThemeBackgroundValue = settings.themeBackgrounds[settings.themeId];
+  const currentThemeBackground = resolveThemeBackgroundUrl(
+    currentThemeBackgroundValue,
+  );
   const themeStyle = useMemo(
     () =>
       ({
         "--theme-background-image": currentThemeBackground
-          ? `url("${currentThemeBackground.replace(/"/g, "%22")}")`
+          ? toCssUrl(currentThemeBackground)
           : "none",
         "--theme-backdrop": currentTheme.background,
         "--glass-opacity": String(settings.glassOpacity),
@@ -727,12 +755,41 @@ export function App() {
       await persistSettings({ ...settings, ...glass });
       appendLog(
         "success",
-        `毛玻璃已调整为不透明度 ${Math.round(glass.glassOpacity * 100)}%、模糊 ${glass.glassBlur}px。`,
+        `面板效果已调整为不透明度 ${Math.round(glass.glassOpacity * 100)}%、背景柔化 ${glass.glassBlur}px。`,
       );
     } catch (error) {
       appendLog(
         "error",
-        error instanceof Error ? error.message : "保存毛玻璃设置失败。",
+        error instanceof Error ? error.message : "保存面板效果失败。",
+      );
+    }
+  }
+
+  async function saveBuiltinThemeBackground(
+    themeId: ThemeId,
+    backgroundId: BuiltinThemeBackgroundId,
+  ) {
+    const background = builtinThemeBackgrounds.find(
+      (item) => item.id === backgroundId,
+    );
+
+    try {
+      await persistSettings({
+        ...settings,
+        themeId,
+        themeBackgrounds: {
+          ...settings.themeBackgrounds,
+          [themeId]: createBuiltinThemeBackgroundValue(backgroundId),
+        },
+      });
+      appendLog(
+        "success",
+        `已套用内置背景：${background?.name ?? backgroundId}。`,
+      );
+    } catch (error) {
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "保存内置背景失败。",
       );
     }
   }
@@ -770,7 +827,12 @@ export function App() {
   }
 
   async function clearThemeBackground(themeId: ThemeId) {
-    if (!window.winKitBox) {
+    const currentBackground = settings.themeBackgrounds[themeId];
+    const isBuiltinBackground = Boolean(
+      getBuiltinThemeBackgroundId(currentBackground),
+    );
+
+    if (!window.winKitBox && !isBuiltinBackground) {
       appendLog(
         "warning",
         "浏览器预览模式不能清除本地主题图片，请用桌面版打开。",
@@ -779,14 +841,16 @@ export function App() {
     }
 
     try {
-      await window.winKitBox.clearThemeBackground({ themeId });
+      if (window.winKitBox && !isBuiltinBackground) {
+        await window.winKitBox.clearThemeBackground({ themeId });
+      }
       const nextBackgrounds = { ...settings.themeBackgrounds };
       delete nextBackgrounds[themeId];
       await persistSettings({
         ...settings,
         themeBackgrounds: nextBackgrounds,
       });
-      appendLog("success", "已清除当前主题的自定义背景图。");
+      appendLog("success", "已清除当前主题背景。");
     } catch (error) {
       appendLog(
         "error",
@@ -1334,6 +1398,7 @@ export function App() {
             saveUpdateOnStartup={saveUpdateOnStartup}
             saveAiSettings={saveAiSettings}
             saveTheme={saveTheme}
+            saveBuiltinThemeBackground={saveBuiltinThemeBackground}
             chooseThemeBackground={chooseThemeBackground}
             clearThemeBackground={clearThemeBackground}
             saveGlassSettings={saveGlassSettings}
@@ -2086,6 +2151,7 @@ function SettingsView({
   saveUpdateOnStartup,
   saveAiSettings,
   saveTheme,
+  saveBuiltinThemeBackground,
   saveGlassSettings,
   chooseThemeBackground,
   clearThemeBackground,
@@ -2114,6 +2180,10 @@ function SettingsView({
     aiModel: string;
   }) => Promise<void>;
   saveTheme: (themeId: ThemeId) => Promise<void>;
+  saveBuiltinThemeBackground: (
+    themeId: ThemeId,
+    backgroundId: BuiltinThemeBackgroundId,
+  ) => Promise<void>;
   chooseThemeBackground: (themeId: ThemeId) => Promise<void>;
   clearThemeBackground: (themeId: ThemeId) => Promise<void>;
   saveGlassSettings: (glass: {
@@ -2142,6 +2212,9 @@ function SettingsView({
     "models" | "test" | "generate" | undefined
   >();
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
+  const activeBuiltinBackgroundId = getBuiltinThemeBackgroundId(
+    settings.themeBackgrounds[settings.themeId],
+  );
 
   useEffect(() => {
     setAiDraft((current) => ({
@@ -2285,7 +2358,7 @@ function SettingsView({
         <section className="settings-card full-span">
           <div className="section-title">
             <Sparkles size={15} />
-            主题与毛玻璃
+            主题与背景
           </div>
           <div className="theme-grid">
             {themeDefinitions.map((theme) => {
@@ -2310,10 +2383,43 @@ function SettingsView({
                   />
                   <strong>{theme.name}</strong>
                   <small>{theme.description}</small>
-                  {hasBackground && <em>已设置本地背景</em>}
+                  {hasBackground && <em>已设置背景</em>}
                 </button>
               );
             })}
+          </div>
+
+          <div className="background-picker">
+            <div className="section-title compact-title">内置背景</div>
+            <div className="background-grid">
+              {builtinThemeBackgrounds.map((background) => {
+                const active = activeBuiltinBackgroundId === background.id;
+
+                return (
+                  <button
+                    aria-pressed={active}
+                    className={`background-card ${active ? "active" : ""}`}
+                    key={background.id}
+                    type="button"
+                    onClick={() =>
+                      saveBuiltinThemeBackground(settings.themeId, background.id)
+                    }
+                  >
+                    <span
+                      className="background-thumb"
+                      style={{
+                        backgroundImage: toCssUrl(
+                          builtinThemeBackgroundUrls[background.id],
+                        ),
+                        borderColor: background.accent,
+                      }}
+                    />
+                    <strong>{background.name}</strong>
+                    <small>{background.description}</small>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="glass-controls">
@@ -2337,7 +2443,7 @@ function SettingsView({
             </div>
             <div className="glass-slider">
               <div className="slider-label">
-                <span>毛玻璃模糊</span>
+                <span>背景柔化</span>
                 <strong>{settings.glassBlur}px</strong>
               </div>
               <input
@@ -2362,7 +2468,7 @@ function SettingsView({
               onClick={() => chooseThemeBackground(settings.themeId)}
             >
               <Upload size={15} />
-              为当前主题选择背景图
+              选择本地背景图
             </button>
             <button
               className="secondary-button danger"
@@ -2374,7 +2480,7 @@ function SettingsView({
               清除当前背景
             </button>
             <span>
-              背景图和毛玻璃参数只保存在本机，不会写进仓库或 Release。
+              内置背景会随应用打包；本地背景只保存在本机，不会写进配置导出。
             </span>
           </div>
         </section>

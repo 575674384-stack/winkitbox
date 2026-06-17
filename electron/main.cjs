@@ -1010,12 +1010,13 @@ function normalizeSettings(settings) {
 }
 
 function normalizeThemeId(value) {
-  const allowed = new Set(["light", "dark", "slate", "teal", "rose"]);
+  const allowed = new Set(["light", "slate", "teal", "rose"]);
   return allowed.has(value) ? value : "light";
 }
 
 function normalizeThemeBackgrounds(value) {
-  const allowed = new Set(["light", "dark", "slate", "teal", "rose"]);
+  const allowed = new Set(["light", "slate", "teal", "rose"]);
+  const builtinBackgrounds = new Set(["sakura-workbench", "neon-terminal", "azure-rooftop"]);
   const result = {};
 
   if (!value || typeof value !== "object") {
@@ -1023,7 +1024,15 @@ function normalizeThemeBackgrounds(value) {
   }
 
   for (const [key, rawUrl] of Object.entries(value)) {
-    if (allowed.has(key) && typeof rawUrl === "string" && rawUrl.startsWith("file:///")) {
+    const builtinId = typeof rawUrl === "string" && rawUrl.startsWith("builtin:")
+      ? rawUrl.slice("builtin:".length)
+      : "";
+
+    if (
+      allowed.has(key) &&
+      typeof rawUrl === "string" &&
+      (rawUrl.startsWith("file:///") || builtinBackgrounds.has(builtinId))
+    ) {
       result[key] = rawUrl;
     }
   }
