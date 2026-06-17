@@ -844,6 +844,55 @@ async function testAiConnection(request) {
   return { ok: true };
 }
 
+async function fetchAiContent(baseUrl, apiKey, model, messages) {
+  const endpoint = buildAiEndpoint(baseUrl, "chat/completions");
+  const headers = buildAiHeaders(apiKey);
+
+  const jsonModeResponse = await net.fetch(endpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.2,
+      max_tokens: 2000,
+      response_format: { type: "json_object" }
+    })
+  });
+
+  if (!jsonModeResponse.ok) {
+    const text = await jsonModeResponse.text();
+    throw new Error(`AI 请求失败：${jsonModeResponse.status} ${text.slice(0, 160)}`);
+  }
+
+  const jsonModePayload = await jsonModeResponse.json();
+  const jsonModeContent = extractAiMessageContent(jsonModePayload);
+  if (jsonModeContent.trim()) {
+    return jsonModeContent;
+  }
+
+  // Some models (e.g. DeepSeek-V4-Flash) return empty content when
+  // response_format is set. Retry without it and rely on prompt/extraction.
+  const plainResponse = await net.fetch(endpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.2,
+      max_tokens: 2000
+    })
+  });
+
+  if (!plainResponse.ok) {
+    const text = await plainResponse.text();
+    throw new Error(`AI 请求失败：${plainResponse.status} ${text.slice(0, 160)}`);
+  }
+
+  const plainPayload = await plainResponse.json();
+  return extractAiMessageContent(plainPayload);
+}
+
 async function generateToolWithAi(request) {
   const baseUrl = String(request?.baseUrl ?? "").trim();
   const apiKey = String(request?.apiKey ?? "").trim();
@@ -863,25 +912,12 @@ async function generateToolWithAi(request) {
   const context = repoRef
     ? await fetchGitHubToolContext(repoRef.owner, repoRef.repo)
     : await fetchGenericToolContext(toolUrl);
-  const response = await net.fetch(buildAiEndpoint(baseUrl, "chat/completions"), {
-    method: "POST",
-    headers: buildAiHeaders(apiKey),
-    body: JSON.stringify({
-      model,
-      messages: buildAiToolMessages(context, categoryId),
-      temperature: 0.2,
-      max_tokens: 2000,
-      response_format: { type: "json_object" }
-    })
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`AI 生成工具失败：${response.status} ${text.slice(0, 160)}`);
-  }
-
-  const payload = await response.json();
-  const content = extractAiMessageContent(payload);
+  const content = await fetchAiContent(
+    baseUrl,
+    apiKey,
+    model,
+    buildAiToolMessages(context, categoryId)
+  );
   let candidate;
   try {
     candidate = parseJsonFromAi(content);
@@ -919,25 +955,12 @@ async function fixToolWithAi(request) {
     throw new Error("工具定义无效。");
   }
 
-  const response = await net.fetch(buildAiEndpoint(baseUrl, "chat/completions"), {
-    method: "POST",
-    headers: buildAiHeaders(apiKey),
-    body: JSON.stringify({
-      model,
-      messages: buildAiFixMessages(tool, errorMessage),
-      temperature: 0.2,
-      max_tokens: 2000,
-      response_format: { type: "json_object" }
-    })
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`AI 修复工具失败：${response.status} ${text.slice(0, 160)}`);
-  }
-
-  const payload = await response.json();
-  const content = extractAiMessageContent(payload);
+  const content = await fetchAiContent(
+    baseUrl,
+    apiKey,
+    model,
+    buildAiFixMessages(tool, errorMessage)
+  );
   let candidate;
   try {
     candidate = parseJsonFromAi(content);
