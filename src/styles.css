@@ -2125,15 +2125,14 @@ button {
   text-align: left;
   padding: 5px 8px;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.5;
   color: var(--text-secondary);
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-all;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
