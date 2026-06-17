@@ -868,17 +868,7 @@ async function generateToolWithAi(request) {
     headers: buildAiHeaders(apiKey),
     body: JSON.stringify({
       model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You generate WinKitBox Windows software catalog entries. Return JSON only. Never return markdown."
-        },
-        {
-          role: "user",
-          content: buildAiToolPrompt(context, categoryId)
-        }
-      ],
+      messages: buildAiToolMessages(context, categoryId),
       temperature: 0.2,
       max_tokens: 2000
     })
@@ -933,17 +923,7 @@ async function fixToolWithAi(request) {
     headers: buildAiHeaders(apiKey),
     body: JSON.stringify({
       model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You fix WinKitBox Windows software install configurations. Return JSON only. Never return markdown."
-        },
-        {
-          role: "user",
-          content: buildAiToolFixPrompt(tool, errorMessage)
-        }
-      ],
+      messages: buildAiFixMessages(tool, errorMessage),
       temperature: 0.2,
       max_tokens: 2000
     })
@@ -1009,6 +989,30 @@ Rules:
 - Do not invent unsupported install types.
 - Do not return arbitrary PowerShell, shell scripts, browser-only instructions, or unsupported install types.
 - Return JSON only. No markdown, no explanations, no trailing commas.`;
+}
+
+function buildAiFixMessages(tool, errorMessage) {
+  return [
+    {
+      role: "system",
+      content:
+        "You fix WinKitBox Windows software install configurations. Output exactly one valid JSON object and nothing else. No markdown, no explanations, no reasoning, no trailing commas."
+    },
+    {
+      role: "user",
+      content:
+        'Fix this tool definition: {"name":"Example Editor","summary":"轻量文本编辑器","description":"一款简洁的 Windows 文本编辑器。","license":"MIT","tags":["文本编辑"],"risk":"low","install":{"type":"winget","wingetId":"Bad.Id"},"launch":{"startMenuNames":["Example Editor"],"commands":["example-editor"]}}. Error: winget id not found.'
+    },
+    {
+      role: "assistant",
+      content:
+        '{"name":"Example Editor","summary":"轻量文本编辑器","description":"一款简洁的 Windows 文本编辑器。","license":"MIT","tags":["文本编辑"],"risk":"low","install":{"type":"winget","wingetId":"Example.ExampleEditor"},"launch":{"startMenuNames":["Example Editor"],"commands":["example-editor"]}}'
+    },
+    {
+      role: "user",
+      content: buildAiToolFixPrompt(tool, errorMessage)
+    }
+  ];
 }
 
 function buildAiEndpoint(baseUrl, route) {
@@ -1238,6 +1242,30 @@ Rules:
 - Do not return arbitrary PowerShell, shell scripts, browser-only instructions, or unsupported install types.
 - If no direct Windows install route exists, choose the closest direct Windows route from the assets/page if possible.
 - Return JSON only. No markdown, no explanations, no trailing commas.`;
+}
+
+function buildAiToolMessages(context, categoryId) {
+  return [
+    {
+      role: "system",
+      content:
+        "You generate WinKitBox Windows software catalog entries. Output exactly one valid JSON object and nothing else. No markdown, no explanations, no reasoning, no trailing commas."
+    },
+    {
+      role: "user",
+      content:
+        'Create a WinKitBox entry for a text editor hosted at https://example.com/editor. Preferred category: "files".'
+    },
+    {
+      role: "assistant",
+      content:
+        '{"name":"Example Editor","category":"files","summary":"轻量文本编辑器","description":"一款简洁的 Windows 文本编辑器。","license":"MIT","tags":["文本编辑"],"risk":"low","install":{"type":"winget","wingetId":"Example.ExampleEditor"},"launch":{"startMenuNames":["Example Editor"],"commands":["example-editor"]}}'
+    },
+    {
+      role: "user",
+      content: buildAiToolPrompt(context, categoryId)
+    }
+  ];
 }
 
 function extractAiMessageContent(payload) {
