@@ -1,6 +1,6 @@
 {
   "name": "winkitbox",
-  "version": "0.2.16",
+  "version": "0.2.17",
   "private": true,
   "description": "WinKitBox is a Windows setup toolbox for restoring a familiar app environment on new PCs.",
   "productName": "WinKitBox",
