@@ -2485,11 +2485,51 @@ button {
 }
 
 .dns-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
   gap: 16px;
   margin-bottom: 14px;
+}
+
+.dns-head-main {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dns-domain-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-end;
+}
+
+.dns-domain-controls .field-label {
+  margin: 0;
+  min-width: 220px;
+  flex: 1;
+}
+
+.dns-domain-select,
+.dns-domain-controls input {
+  width: 100%;
+}
+
+.dns-results {
+  margin-top: 14px;
+}
+
+.dns-results-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .dns-provider-grid {
@@ -2519,7 +2559,6 @@ button {
 .dns-table {
   display: grid;
   gap: 8px;
-  margin-top: 14px;
 }
 
 .dns-row {

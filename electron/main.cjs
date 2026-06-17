@@ -211,8 +211,11 @@ ipcMain.handle("system-info", async () => {
   return getSystemInfo();
 });
 
-ipcMain.handle("test-dns-servers", async (_event, servers) => {
-  return testDnsServers(Array.isArray(servers) ? servers.map(String) : []);
+ipcMain.handle("test-dns-servers", async (_event, servers, domain) => {
+  return testDnsServers(
+    Array.isArray(servers) ? servers.map(String) : [],
+    String(domain ?? "")
+  );
 });
 
 ipcMain.handle("apply-network-config", async (_event, request) => {
@@ -499,15 +502,25 @@ $adapters = Get-NetIPConfiguration |
   return JSON.parse(result.stdout.trim() || "{}");
 }
 
-async function testDnsServers(servers) {
+function normalizeDnsDomain(domain) {
+  const value = String(domain ?? "").trim().toLowerCase();
+  if (/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(value)) {
+    return value;
+  }
+  return "example.com";
+}
+
+async function testDnsServers(servers, domain) {
   const safeServers = servers
     .map((server) => String(server).trim())
     .filter((server) => /^[0-9a-fA-F:.]+$/.test(server))
     .slice(0, 20);
+  const safeDomain = normalizeDnsDomain(domain);
   const payload = Buffer.from(JSON.stringify(safeServers), "utf8").toString("base64");
   const script = `
 $ErrorActionPreference = 'SilentlyContinue'
 $servers = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json
+$domain = '${safeDomain}'
 $results = foreach ($server in @($servers)) {
   $elapsed = $null
   $ok = $false
@@ -515,9 +528,9 @@ $results = foreach ($server in @($servers)) {
   try {
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $job = Start-Job -ScriptBlock {
-      param($dnsServer)
-      Resolve-DnsName -Name 'example.com' -Server $dnsServer -DnsOnly -Type A -ErrorAction Stop | Select-Object -First 1
-    } -ArgumentList $server
+      param($dnsServer, $dnsName)
+      Resolve-DnsName -Name $dnsName -Server $dnsServer -DnsOnly -Type A -ErrorAction Stop | Select-Object -First 1
+    } -ArgumentList $server, $domain
     if (Wait-Job $job -Timeout 3) {
       Receive-Job $job -ErrorAction Stop | Out-Null
       $watch.Stop()

@@ -13,6 +13,12 @@ export type DnsLatencyResult = {
   error?: string;
 };
 
+export type DnsTestDomain = {
+  id: string;
+  label: string;
+  domain: string;
+};
+
 export const publicDnsProviders: DnsProvider[] = [
   {
     id: "alidns",
@@ -46,6 +52,16 @@ export const publicDnsProviders: DnsProvider[] = [
   }
 ];
 
+export const dnsTestDomains: DnsTestDomain[] = [
+  { id: "example", label: "example.com（国际默认）", domain: "example.com" },
+  { id: "baidu", label: "baidu.com（国内）", domain: "baidu.com" },
+  { id: "bilibili", label: "bilibili.com（国内视频）", domain: "bilibili.com" },
+  { id: "google", label: "google.com（国际）", domain: "google.com" },
+  { id: "github", label: "github.com（开发）", domain: "github.com" },
+];
+
+export const customDnsDomainId = "custom";
+
 export function flattenDnsServers(providers = publicDnsProviders) {
   return providers.flatMap((provider) =>
     provider.servers.map((server) => ({
@@ -67,4 +83,15 @@ export function rankDnsResults(results: DnsLatencyResult[]) {
 
 export function formatDnsServers(servers: string[]) {
   return servers.map((server) => server.trim()).filter(Boolean).join(", ");
+}
+
+const domainRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+
+export function isValidDomain(value: string) {
+  return domainRegex.test(value.trim());
+}
+
+export function getDnsTestDomainLabel(domain: string) {
+  const preset = dnsTestDomains.find((item) => item.domain === domain);
+  return preset ? preset.label : domain;
 }

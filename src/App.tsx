@@ -62,8 +62,12 @@ import { buildExportConfig, parseImportedConfig } from "./core/config";
 import { createDashboardStats } from "./core/dashboardStats";
 import { createLaunchDescriptor, getToolLogoUrl } from "./core/launcher";
 import {
+  customDnsDomainId,
+  dnsTestDomains,
   flattenDnsServers,
   formatDnsServers,
+  getDnsTestDomainLabel,
+  isValidDomain,
   publicDnsProviders,
   rankDnsResults,
   type DnsLatencyResult,
@@ -2175,6 +2179,15 @@ function SystemView({
   const [isTestingDns, setIsTestingDns] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [isSettingUtf8, setIsSettingUtf8] = useState(false);
+  const [dnsTestDomain, setDnsTestDomain] = useState(dnsTestDomains[0].domain);
+  const [customDnsDomain, setCustomDnsDomain] = useState("");
+  const effectiveDnsDomain = useMemo(() => {
+    if (dnsTestDomain === customDnsDomainId) {
+      const value = customDnsDomain.trim();
+      return isValidDomain(value) ? value : dnsTestDomains[0].domain;
+    }
+    return dnsTestDomain;
+  }, [dnsTestDomain, customDnsDomain]);
   const dnsCandidates = useMemo(
     () => flattenDnsServers(publicDnsProviders),
     [],
@@ -2236,6 +2249,11 @@ function SystemView({
       return;
     }
 
+    if (dnsTestDomain === customDnsDomainId && !isValidDomain(customDnsDomain)) {
+      onLog("warning", "请输入有效的自定义域名。");
+      return;
+    }
+
     setIsTestingDns(true);
     try {
       const providerByServer = new Map(
@@ -2246,6 +2264,7 @@ function SystemView({
       );
       const results = await window.winKitBox.testDnsServers(
         dnsCandidates.map((candidate) => candidate.server),
+        effectiveDnsDomain,
       );
       const ranked = rankDnsResults(
         results.map((result) => ({
@@ -2258,10 +2277,13 @@ function SystemView({
       if (fastest) {
         onLog(
           "success",
-          `DNS 延迟检测完成，最快的是 ${fastest.server}（${fastest.latencyMs}ms）。`,
+          `DNS 延迟检测完成，目标域名 ${effectiveDnsDomain}，最快的是 ${fastest.server}（${fastest.latencyMs}ms）。`,
         );
       } else {
-        onLog("warning", "DNS 延迟检测完成，但没有可用结果。");
+        onLog(
+          "warning",
+          `DNS 延迟检测完成，目标域名 ${effectiveDnsDomain}，没有可用结果。`,
+        );
       }
     } catch (error) {
       onLog(
@@ -2615,7 +2637,7 @@ function SystemView({
 
       <section className="settings-card dns-card">
         <div className="dns-head">
-          <div>
+          <div className="dns-head-main">
             <div className="section-title">
               <HardDriveDownload size={15} />
               公共 DNS 推荐
@@ -2623,6 +2645,33 @@ function SystemView({
             <p>
               先测延迟，再点“使用”填入上方 DNS。实际快慢也会受运营商和地区影响。
             </p>
+            <div className="dns-domain-controls">
+              <label className="field-label">
+                测试域名
+                <select
+                  className="dns-domain-select"
+                  value={dnsTestDomain}
+                  onChange={(event) => setDnsTestDomain(event.target.value)}
+                >
+                  {dnsTestDomains.map((item) => (
+                    <option key={item.id} value={item.domain}>
+                      {item.label}
+                    </option>
+                  ))}
+                  <option value={customDnsDomainId}>自定义...</option>
+                </select>
+              </label>
+              {dnsTestDomain === customDnsDomainId && (
+                <label className="field-label">
+                  自定义域名
+                  <input
+                    value={customDnsDomain}
+                    onChange={(event) => setCustomDnsDomain(event.target.value)}
+                    placeholder="例如 mysite.example.com"
+                  />
+                </label>
+              )}
+            </div>
           </div>
           <button
             className="secondary-button"
@@ -2660,8 +2709,12 @@ function SystemView({
         </div>
 
         {dnsResults.length > 0 && (
-          <div className="dns-table">
-            {dnsResults.map((result) => (
+          <div className="dns-results">
+            <div className="dns-results-header">
+              <span>{getDnsTestDomainLabel(effectiveDnsDomain)} 的解析延迟</span>
+            </div>
+            <div className="dns-table">
+              {dnsResults.map((result) => (
               <div
                 className={`dns-row ${result.ok ? "ok" : "failed"}`}
                 key={result.server}
@@ -2686,6 +2739,7 @@ function SystemView({
               </div>
             ))}
           </div>
+        </div>
         )}
       </section>
     </div>

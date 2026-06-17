@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld("winKitBox", {
   downloadUpdate: (request) => ipcRenderer.invoke("download-update", request),
   applyUpdate: (request) => ipcRenderer.invoke("apply-update", request),
   getSystemInfo: () => ipcRenderer.invoke("system-info"),
-  testDnsServers: (servers) => ipcRenderer.invoke("test-dns-servers", servers),
+  testDnsServers: (servers, domain) => ipcRenderer.invoke("test-dns-servers", servers, domain),
   applyNetworkConfig: (request) => ipcRenderer.invoke("apply-network-config", request),
   setSystemUtf8Beta: (request) => ipcRenderer.invoke("system-utf8-set", request),
   saveConfigFile: (request) => ipcRenderer.invoke("save-config-file", request),

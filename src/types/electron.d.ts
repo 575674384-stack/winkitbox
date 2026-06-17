@@ -143,7 +143,10 @@ declare global {
           dnsServers: string[];
         }[];
       }>;
-      testDnsServers: (servers: string[]) => Promise<{
+      testDnsServers: (
+        servers: string[],
+        domain?: string,
+      ) => Promise<{
         server: string;
         latencyMs?: number;
         ok: boolean;
