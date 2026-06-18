@@ -1388,6 +1388,29 @@ export function App() {
     await addAiGeneratedTool(result.candidate, result.context, categoryId);
   }
 
+  async function recommendDiscoverReposWithAi(prompt: string) {
+    if (!window.winKitBox) {
+      appendLog("warning", "浏览器预览模式不能调用 AI 推荐。");
+      throw new Error("浏览器预览模式不能调用 AI 推荐。");
+    }
+
+    if (!settings.aiBaseUrl || !settings.aiApiKey || !settings.aiModel) {
+      appendLog("warning", "请先在设置里保存 AI 接口 URL、API Key 和模型名称。");
+      setActiveView("settings");
+      throw new Error("请先在设置里保存 AI 接口 URL、API Key 和模型名称。");
+    }
+
+    appendLog("info", "正在用 AI 推荐 GitHub 开源项目...");
+    const result = await window.winKitBox.recommendAiRepos({
+      baseUrl: settings.aiBaseUrl,
+      apiKey: settings.aiApiKey,
+      model: settings.aiModel,
+      prompt,
+    });
+    appendLog("success", "AI 已返回 GitHub 项目推荐。");
+    return result;
+  }
+
   async function runInstallPlan() {
     if (!window.winKitBox) {
       appendLog("warning", "当前在浏览器预览模式，不能直接执行 PowerShell。");
@@ -1873,6 +1896,7 @@ export function App() {
             proxyMode={settings.proxyMode}
             proxyManual={settings.proxyManual}
             onAddRepoWithAi={addDiscoverRepoWithAi}
+            onRecommendReposWithAi={recommendDiscoverReposWithAi}
             onOpenUrl={openUrl}
           />
         </section>

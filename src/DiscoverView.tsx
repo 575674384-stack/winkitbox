@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Bot,
   CalendarDays,
   Copy,
   ExternalLink,
@@ -10,7 +11,8 @@ import {
   Plus,
   RefreshCw,
   Search,
-  ShieldCheck,
+  Send,
+  Sparkles,
   Star,
   WifiOff,
   Zap
@@ -21,6 +23,8 @@ import {
   discoverLanguages,
   filterWindowsRepos,
   mapSearchApiItems,
+  normalizeAiRepoRecommendations,
+  type AiRepoRecommendation,
   parseTrendingHtml,
   type GitHubRange,
   type GitHubRepo,
@@ -40,6 +44,7 @@ type DiscoverViewProps = {
   proxyMode: ProxyMode;
   proxyManual: string;
   onAddRepoWithAi: (repoUrl: string, categoryId: string) => Promise<void>;
+  onRecommendReposWithAi: (prompt: string) => Promise<unknown>;
   onOpenUrl: (url: string) => Promise<void>;
 };
 
@@ -54,6 +59,7 @@ export function DiscoverView({
   proxyMode,
   proxyManual,
   onAddRepoWithAi,
+  onRecommendReposWithAi,
   onOpenUrl
 }: DiscoverViewProps) {
   const [range, setRange] = useState<GitHubRange>("weekly");
@@ -67,6 +73,10 @@ export function DiscoverView({
   const [translateDescriptions, setTranslateDescriptions] = useState(() => loadTranslatePreference());
   const [addCategoryId, setAddCategoryId] = useState(defaultCategoryId);
   const [addingRepo, setAddingRepo] = useState<string>();
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMessage, setAiMessage] = useState("等待需求输入。");
+  const [aiRecommendations, setAiRecommendations] = useState<AiRepoRecommendation[]>([]);
 
   const filteredRepos = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -186,17 +196,40 @@ export function DiscoverView({
     setMessage("项目简介已自动翻译为中文。");
   }
 
-  function addCandidate(repo: GitHubRepo) {
-    const key = "winkitbox:github-candidates:v1";
-    const current = JSON.parse(localStorage.getItem(key) ?? "[]") as GitHubRepo[];
-    const next = [repo, ...current.filter((item) => item.fullName !== repo.fullName)].slice(0, 80);
-    localStorage.setItem(key, JSON.stringify(next));
-    setMessage(`${repo.fullName} 已加入候选清单。`);
-  }
-
   async function copyCloneCommand(repo: GitHubRepo) {
     await navigator.clipboard.writeText(`git clone ${repo.url}.git`);
     setMessage(`已复制 ${repo.fullName} 的 clone 命令。`);
+  }
+
+  async function copyRepoUrl(repo: GitHubRepo) {
+    await navigator.clipboard.writeText(repo.url);
+    setAiMessage(`已复制 ${repo.fullName} 的 GitHub 链接。`);
+  }
+
+  async function recommendReposWithAi() {
+    const prompt = aiPrompt.trim();
+    if (!prompt) {
+      setAiMessage("先写一下你想找的软件功能。");
+      return;
+    }
+
+    setAiBusy(true);
+    setAiMessage("正在让 AI 查找合适的 GitHub 项目。");
+
+    try {
+      const payload = await onRecommendReposWithAi(prompt);
+      const recommendations = normalizeAiRepoRecommendations(payload);
+      setAiRecommendations(recommendations);
+      setAiMessage(
+        recommendations.length > 0
+          ? `找到 ${recommendations.length} 个推荐项目，可以选择加入 ${getCategoryName(addCategoryId, categories)}。`
+          : "AI 没有返回可用的 GitHub 项目，换个描述再试一次。"
+      );
+    } catch (error) {
+      setAiMessage(error instanceof Error ? error.message : "AI 推荐失败。");
+    } finally {
+      setAiBusy(false);
+    }
   }
 
   async function addRepoWithAi(repo: GitHubRepo) {
@@ -279,6 +312,75 @@ export function DiscoverView({
             {fetchedAt && <strong>{fetchedAt}</strong>}
           </div>
 
+          <section className="discover-ai-card">
+            <div className="discover-ai-head">
+              <div>
+                <div className="section-title">
+                  <Bot size={16} />
+                  AI 助手
+                </div>
+                <p>{aiMessage}</p>
+              </div>
+              <Sparkles size={20} />
+            </div>
+            <div className="ai-request-row">
+              <textarea
+                value={aiPrompt}
+                onChange={(event) => setAiPrompt(event.target.value)}
+                placeholder="比如：找一个能批量重命名、清理重复文件、管理输入法或同步文件的 Windows 开源软件"
+                rows={3}
+              />
+              <button
+                className="primary-button"
+                type="button"
+                disabled={aiBusy}
+                onClick={recommendReposWithAi}
+              >
+                <Send size={15} className={aiBusy ? "spin" : ""} />
+                {aiBusy ? "推荐中" : "推荐项目"}
+              </button>
+            </div>
+            {aiRecommendations.length > 0 && (
+              <div className="ai-recommendation-grid">
+                {aiRecommendations.map((repo) => (
+                  <article className="ai-recommendation-card" key={repo.fullName}>
+                    <div className="ai-recommendation-title">
+                      <strong>{repo.fullName}</strong>
+                      <span>{repo.language ?? "GitHub"}</span>
+                    </div>
+                    <p>{repo.description}</p>
+                    <small>{repo.reason}</small>
+                    {repo.topics.length > 0 && (
+                      <div className="topic-row compact">
+                        {repo.topics.map((topic) => (
+                          <span key={topic}>{topic}</span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="repo-actions">
+                      <button className="mini-action open" type="button" onClick={() => onOpenUrl(repo.url)}>
+                        <ExternalLink size={14} />
+                        GitHub
+                      </button>
+                      <button
+                        className="mini-action install"
+                        type="button"
+                        disabled={addingRepo === repo.fullName}
+                        onClick={() => addRepoWithAi(repo)}
+                      >
+                        <Plus size={14} />
+                        {addingRepo === repo.fullName ? "添加中" : "AI 添加"}
+                      </button>
+                      <button className="icon-button" type="button" aria-label="复制 GitHub 链接" onClick={() => copyRepoUrl(repo)}>
+                        <Copy size={15} />
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
           {filteredRepos.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">
@@ -342,10 +444,6 @@ export function DiscoverView({
                     <button className="mini-action open" type="button" onClick={() => onOpenUrl(repo.url)}>
                       <ExternalLink size={14} />
                       GitHub
-                    </button>
-                    <button className="mini-action" type="button" onClick={() => addCandidate(repo)}>
-                      <ShieldCheck size={14} />
-                      候选
                     </button>
                     <button
                       className="mini-action install"

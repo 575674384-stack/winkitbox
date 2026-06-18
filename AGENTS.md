@@ -143,6 +143,14 @@ Then smoke-test the portable build in `release/`:
 
 ## Release Notes
 
+### v0.3.2
+
+- Added an AI Assistant section under the GitHub ranking view.
+- The assistant reuses the saved AI API URL, key, and model to recommend multiple Windows-friendly GitHub open-source projects from a user request.
+- AI recommendations can be opened on GitHub, copied, or added to the toolbox through the existing AI add-tool workflow and selected category.
+- Removed the unused "候选" button from GitHub ranking project cards.
+- Replaced the app icon with a generated anime-style toolbox mascot icon.
+
 ### v0.3.1
 
 - Added two built-in anime-style image themes: mint (浅绿工位) and amber (暖黄工坊), alongside the existing azure theme.

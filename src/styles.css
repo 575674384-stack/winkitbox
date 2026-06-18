@@ -2690,6 +2690,122 @@ button {
   background: var(--warning-soft);
 }
 
+.discover-ai-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  margin-bottom: 18px;
+  color: var(--text-main);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.discover-ai-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.discover-ai-head p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.discover-ai-head > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.ai-request-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.ai-request-row textarea {
+  width: 100%;
+  min-height: 82px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  resize: vertical;
+  color: var(--text-strong);
+  background: var(--card-bg-soft);
+  outline: none;
+  font: inherit;
+  line-height: 1.5;
+  box-shadow: var(--shadow-xs);
+}
+
+.ai-request-row textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.ai-request-row .primary-button {
+  align-self: stretch;
+  min-width: 122px;
+}
+
+.ai-recommendation-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.ai-recommendation-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  background: var(--card-bg-soft);
+}
+
+.ai-recommendation-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ai-recommendation-title strong {
+  color: var(--text-strong);
+  font-size: 14px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.ai-recommendation-title span {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ai-recommendation-card p,
+.ai-recommendation-card small {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.topic-row.compact span {
+  min-height: 23px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
 .repo-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -2986,6 +3102,22 @@ button {
 
   .command-bar-title {
     width: 100%;
+  }
+
+  .discover-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-request-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-request-row .primary-button {
+    min-height: 42px;
+  }
+
+  .network-card {
+    position: static;
   }
 
   .top-actions {

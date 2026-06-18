@@ -25,6 +25,10 @@ export type GitHubRepo = {
   topics: string[];
 };
 
+export type AiRepoRecommendation = GitHubRepo & {
+  reason: string;
+};
+
 export const discoverLanguages = [
   { label: "All", value: "" },
   { label: "TypeScript", value: "typescript" },
@@ -142,6 +146,50 @@ export function mapSearchApiItems(payload: unknown): GitHubRepo[] {
   });
 }
 
+export function normalizeAiRepoRecommendations(payload: unknown, limit = 8): AiRepoRecommendation[] {
+  const items = Array.isArray(payload)
+    ? payload
+    : isRecord(payload) && Array.isArray(payload.recommendations)
+      ? payload.recommendations
+      : [];
+  const seen = new Set<string>();
+
+  return items
+    .map((item): AiRepoRecommendation | undefined => {
+      const record = isRecord(item) ? item : {};
+      const repoUrl = String(record.repoUrl ?? record.url ?? record.githubUrl ?? "").trim();
+      const repoRef = parseGitHubRepoUrl(repoUrl);
+      if (!repoRef) {
+        return undefined;
+      }
+
+      const fullName = `${repoRef.owner}/${repoRef.repo}`;
+      const key = fullName.toLowerCase();
+      if (seen.has(key)) {
+        return undefined;
+      }
+      seen.add(key);
+
+      return {
+        id: fullName,
+        owner: repoRef.owner,
+        name: repoRef.repo,
+        fullName,
+        url: `https://github.com/${fullName}`,
+        description: cleanPlainText(record.summary ?? record.description ?? "AI 推荐的 Windows 开源项目。", 180),
+        reason: cleanPlainText(record.reason ?? record.fit ?? "符合你的软件需求。", 220),
+        language: optionalString(record.language),
+        stars: toFiniteNumber(record.stars),
+        license: optionalString(record.license),
+        topics: Array.isArray(record.tags)
+          ? record.tags.map((tag) => cleanPlainText(tag, 28)).filter(Boolean).slice(0, 3)
+          : []
+      };
+    })
+    .filter((repo): repo is AiRepoRecommendation => Boolean(repo))
+    .slice(0, limit);
+}
+
 function extractDescription(article: string) {
   const match = article.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
   return match ? cleanText(match[1]) : "";
@@ -176,6 +224,44 @@ function decodeHtml(value: string) {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
+}
+
+function parseGitHubRepoUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.hostname !== "github.com") {
+      return undefined;
+    }
+
+    const [owner, repo] = url.pathname.split("/").filter(Boolean);
+    if (!owner || !repo) {
+      return undefined;
+    }
+
+    return {
+      owner,
+      repo: repo.replace(/\.git$/i, "")
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function cleanPlainText(value: unknown, maxLength: number) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function optionalString(value: unknown) {
+  const text = cleanPlainText(value, 80);
+  return text || undefined;
+}
+
+function toFiniteNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.round(number) : 0;
 }
 
 function toNumber(value: string) {

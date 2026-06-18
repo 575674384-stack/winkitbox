@@ -200,6 +200,12 @@ declare global {
         candidate: import("../core/aiTool").AiToolCandidate;
         context: import("../core/aiTool").AiToolGitHubContext;
       }>;
+      recommendAiRepos: (request: {
+        baseUrl: string;
+        apiKey: string;
+        model: string;
+        prompt: string;
+      }) => Promise<unknown>;
       fixAiTool: (request: {
         baseUrl: string;
         apiKey: string;

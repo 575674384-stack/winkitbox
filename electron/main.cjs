@@ -254,6 +254,10 @@ ipcMain.handle("ai-generate-tool", async (_event, request) => {
   return generateToolWithAi(request);
 });
 
+ipcMain.handle("ai-recommend-repos", async (_event, request) => {
+  return recommendGitHubReposWithAi(request);
+});
+
 ipcMain.handle("ai-fix-tool", async (_event, request) => {
   return fixToolWithAi(request);
 });
@@ -1102,6 +1106,36 @@ async function fixToolWithAi(request) {
   return { candidate };
 }
 
+async function recommendGitHubReposWithAi(request) {
+  const baseUrl = String(request?.baseUrl ?? "").trim();
+  const apiKey = String(request?.apiKey ?? "").trim();
+  const model = String(request?.model ?? "").trim();
+  const prompt = String(request?.prompt ?? "").trim();
+
+  if (!baseUrl || !apiKey || !model) {
+    throw new Error("请先填写 AI 接口 URL、API Key 和模型名称。");
+  }
+
+  if (!prompt) {
+    throw new Error("请先描述你想找的软件功能。");
+  }
+
+  const content = await fetchAiContent(
+    baseUrl,
+    apiKey,
+    model,
+    buildAiRepoRecommendationMessages(prompt)
+  );
+
+  try {
+    return parseJsonFromAi(content);
+  } catch (error) {
+    throw new Error(
+      `${error.message}（原始响应：${content.replace(/\s+/g, " ").slice(0, 200)}）`
+    );
+  }
+}
+
 function buildAiToolFixPrompt(tool, errorMessage) {
   return `Analyze this WinKitBox tool definition and its installation failure, then return a corrected install configuration.
 
@@ -1143,6 +1177,60 @@ Rules:
 - Do not invent unsupported install types.
 - Do not return arbitrary PowerShell, shell scripts, browser-only instructions, or unsupported install types.
 - Return JSON only. No markdown, no explanations, no trailing commas.`;
+}
+
+function buildAiRepoRecommendationPrompt(prompt) {
+  return `Recommend GitHub open-source Windows software projects for this user need:
+${prompt}
+
+Return exactly one JSON object with this shape:
+{
+  "recommendations": [
+    {
+      "name": "project display name",
+      "repoUrl": "https://github.com/owner/repo",
+      "summary": "Chinese project summary, <= 70 chars",
+      "reason": "Chinese reason this fits the user's need, <= 90 chars",
+      "language": "primary language if known",
+      "stars": 0,
+      "license": "license id if known",
+      "tags": ["short Chinese or English tag"]
+    }
+  ]
+}
+
+Rules:
+- Recommend 4 to 8 projects.
+- Projects must be GitHub repositories and must work on Windows or provide a Windows desktop/CLI utility.
+- Prefer actively maintained, open-source, practical tools with a direct Windows release, installer, winget package, or portable build.
+- Include several alternatives with different tradeoffs when possible.
+- Do not recommend server-only, Android/iOS-only, macOS-only, browser-extension-only, or closed-source projects.
+- Do not invent non-GitHub links. If unsure about a repo URL, omit that item.
+- Return JSON only. No markdown, no explanations, no trailing commas.`;
+}
+
+function buildAiRepoRecommendationMessages(prompt) {
+  return [
+    {
+      role: "system",
+      content:
+        "You recommend GitHub open-source Windows software for WinKitBox. CRITICAL: your entire response must be one valid JSON object, starting with { and ending with }. Do not write any introduction, explanation, reasoning, or conclusion. Do not wrap in markdown. Do not add trailing commas. Any non-JSON output will be rejected."
+    },
+    {
+      role: "user",
+      content:
+        "I need software that can quickly search files and launch Windows apps."
+    },
+    {
+      role: "assistant",
+      content:
+        '{"recommendations":[{"name":"Flow Launcher","repoUrl":"https://github.com/Flow-Launcher/Flow.Launcher","summary":"Windows 快速启动器和搜索工具","reason":"适合快速查找应用、文件和插件工作流。","language":"C#","stars":9000,"license":"MIT","tags":["launcher","windows","search"]},{"name":"EverythingToolbar","repoUrl":"https://github.com/srwi/EverythingToolbar","summary":"把 Everything 搜索集成到任务栏","reason":"适合高频文件搜索，Windows 桌面体验很轻。","language":"C#","stars":6000,"license":"MIT","tags":["search","taskbar","windows"]}]}'
+    },
+    {
+      role: "user",
+      content: buildAiRepoRecommendationPrompt(prompt)
+    }
+  ];
 }
 
 function buildAiFixMessages(tool, errorMessage) {

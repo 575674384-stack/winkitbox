@@ -4,6 +4,7 @@ import {
   buildTrendingUrl,
   filterWindowsRepos,
   mapSearchApiItems,
+  normalizeAiRepoRecommendations,
   parseTrendingHtml
 } from "./github";
 
@@ -112,5 +113,42 @@ describe("github discovery", () => {
     ]);
 
     expect(repos.map((repo) => repo.fullName)).toEqual(["sample/win-tool"]);
+  });
+
+  it("normalizes AI GitHub recommendations and rejects non-GitHub links", () => {
+    const recommendations = normalizeAiRepoRecommendations({
+      recommendations: [
+        {
+          name: "Power Toys",
+          repoUrl: "https://github.com/microsoft/PowerToys",
+          summary: "Windows efficiency toolkit with launchers and utilities",
+          reason: "Matches the requested workflow automation need",
+          language: "C#",
+          stars: "110000",
+          tags: ["windows", "utilities", "desktop", "extra"]
+        },
+        {
+          name: "Bad Link",
+          repoUrl: "https://example.com/download",
+          summary: "Not a GitHub project"
+        }
+      ]
+    });
+
+    expect(recommendations).toEqual([
+      {
+        id: "microsoft/PowerToys",
+        owner: "microsoft",
+        name: "PowerToys",
+        fullName: "microsoft/PowerToys",
+        url: "https://github.com/microsoft/PowerToys",
+        description: "Windows efficiency toolkit with launchers and utilities",
+        reason: "Matches the requested workflow automation need",
+        language: "C#",
+        stars: 110000,
+        license: undefined,
+        topics: ["windows", "utilities", "desktop"]
+      }
+    ]);
   });
 });
