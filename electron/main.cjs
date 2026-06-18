@@ -195,6 +195,44 @@ ipcMain.handle("select-local-launcher", async (_event, currentPath) => {
   return result.filePaths[0];
 });
 
+ipcMain.handle("select-local-package", async (_event, currentPath) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "选择本地安装包或 ZIP 便携包",
+    defaultPath: String(currentPath || app.getPath("downloads")),
+    properties: ["openFile"],
+    filters: [
+      { name: "安装包 / 便携包", extensions: ["exe", "msi", "zip"] },
+      { name: "安装包", extensions: ["exe", "msi"] },
+      { name: "ZIP 便携包", extensions: ["zip"] },
+      { name: "所有文件", extensions: ["*"] }
+    ]
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return undefined;
+  }
+
+  return result.filePaths[0];
+});
+
+ipcMain.handle("select-local-file", async (_event, currentPath) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "选择要添加的本地文件",
+    defaultPath: String(currentPath || app.getPath("downloads")),
+    properties: ["openFile"],
+    filters: [
+      { name: "Windows 文件", extensions: ["exe", "msi", "zip", "lnk", "bat", "cmd", "ps1"] },
+      { name: "所有文件", extensions: ["*"] }
+    ]
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return undefined;
+  }
+
+  return result.filePaths[0];
+});
+
 ipcMain.handle("select-theme-background", async (_event, request) => {
   return selectThemeBackground(request);
 });
@@ -205,6 +243,10 @@ ipcMain.handle("clear-theme-background", async (_event, request) => {
 
 ipcMain.handle("check-updates", async () => {
   return checkForUpdates();
+});
+
+ipcMain.handle("check-tool-updates", async (_event, descriptors) => {
+  return checkToolUpdates(Array.isArray(descriptors) ? descriptors : []);
 });
 
 ipcMain.handle("download-update", async (event, request) => {
@@ -260,6 +302,10 @@ ipcMain.handle("ai-recommend-repos", async (_event, request) => {
 
 ipcMain.handle("ai-fix-tool", async (_event, request) => {
   return fixToolWithAi(request);
+});
+
+ipcMain.handle("ai-analyze-local-file", async (_event, request) => {
+  return analyzeLocalFileWithAi(request);
 });
 
 ipcMain.handle("github-fetch", async (_event, request) => {
@@ -575,6 +621,20 @@ $gpus = Get-CimInstance Win32_VideoController |
       driverVersion = [string]$_.DriverVersion
     }
   }
+$wingetCommand = Get-Command winget -ErrorAction SilentlyContinue
+$wingetVersion = if ($wingetCommand) { (& winget --version 2>$null | Select-Object -First 1) } else { '' }
+$dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
+$dotnetRuntimes = if ($dotnetCommand) { @(& dotnet --list-runtimes 2>$null | ForEach-Object { [string]$_ }) } else { @() }
+$dotnetDesktopRuntimes = @($dotnetRuntimes | Where-Object { $_ -match '^Microsoft\.WindowsDesktop\.App\s+' })
+$vcredistInstalled = [bool](
+  Get-ItemProperty @(
+    'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',
+    'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'
+  ) -ErrorAction SilentlyContinue |
+    Where-Object { [string]$_.DisplayName -match 'Microsoft Visual C\\+\\+.*(2015|2017|2019|2022).*Redistributable' } |
+    Select-Object -First 1
+)
+$fileSystem = Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem' -ErrorAction SilentlyContinue
 $codePage = Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage'
 $adapters = Get-NetIPConfiguration |
   Where-Object { $_.NetAdapter.Status -ne 'Disabled' } |
@@ -609,6 +669,16 @@ $adapters = Get-NetIPConfiguration |
   disks = @($disks)
   physicalDisks = @($physicalDisks)
   gpus = @($gpus)
+  environment = [PSCustomObject]@{
+    wingetAvailable = [bool]$wingetCommand
+    wingetVersion = [string]$wingetVersion
+    powershellVersion = [string]$PSVersionTable.PSVersion
+    dotnetRuntimes = @($dotnetRuntimes)
+    dotnetDesktopRuntimes = @($dotnetDesktopRuntimes)
+    vcredistInstalled = [bool]$vcredistInstalled
+    longPathsEnabled = [bool]($fileSystem.LongPathsEnabled -eq 1)
+    utf8BetaEnabled = [bool]($codePage.ACP -eq '65001')
+  }
   utf8BetaEnabled = [bool]($codePage.ACP -eq '65001')
   adapters = @($adapters)
 } | ConvertTo-Json -Depth 8 -Compress
@@ -1106,6 +1176,44 @@ async function fixToolWithAi(request) {
   return { candidate };
 }
 
+async function analyzeLocalFileWithAi(request) {
+  const baseUrl = String(request?.baseUrl ?? "").trim();
+  const apiKey = String(request?.apiKey ?? "").trim();
+  const model = String(request?.model ?? "").trim();
+  const filePath = String(request?.filePath ?? "").trim();
+  const toolName = String(request?.toolName ?? "").trim();
+  const categoryId = String(request?.categoryId ?? "custom-add").trim();
+  const remark = String(request?.remark ?? "").trim();
+
+  if (!baseUrl || !apiKey || !model) {
+    throw new Error("请先填写 AI 接口 URL、API Key 和模型名称。");
+  }
+
+  if (!filePath) {
+    throw new Error("请先选择要分析的本地文件。");
+  }
+
+  const fileName = path.basename(filePath);
+  const extension = path.extname(filePath).toLowerCase();
+
+  const content = await fetchAiContent(
+    baseUrl,
+    apiKey,
+    model,
+    buildAiLocalFileMessages(filePath, fileName, extension, toolName, categoryId, remark)
+  );
+  let candidate;
+  try {
+    candidate = parseJsonFromAi(content);
+  } catch (error) {
+    throw new Error(
+      `${error.message}（原始响应：${content.replace(/\s+/g, " ").slice(0, 200)}）`
+    );
+  }
+
+  return { candidate: normalizeAiLocalFileCandidate(candidate, { filePath, fileName, extension }) };
+}
+
 async function recommendGitHubReposWithAi(request) {
   const baseUrl = String(request?.baseUrl ?? "").trim();
   const apiKey = String(request?.apiKey ?? "").trim();
@@ -1231,6 +1339,120 @@ function buildAiRepoRecommendationMessages(prompt) {
       content: buildAiRepoRecommendationPrompt(prompt)
     }
   ];
+}
+
+function buildAiLocalFileMessages(filePath, fileName, extension, toolName, categoryId, remark) {
+  return [
+    {
+      role: "system",
+      content:
+        "You analyze local Windows files for WinKitBox and return exactly one valid JSON object. Do not write any introduction, explanation, reasoning, or conclusion. Do not wrap in markdown. Do not add trailing commas. Any non-JSON output will be rejected."
+    },
+    {
+      role: "user",
+      content: `Analyze this local file and decide how WinKitBox should manage it.
+
+File path: ${filePath}
+File name: ${fileName}
+Extension: ${extension}
+User-provided name: ${toolName || "(empty)"}
+User-provided remark: ${remark || "(empty)"}
+Preferred category: ${categoryId || "custom-add"}
+
+Return exactly one JSON object with this shape:
+{
+  "mode": "collect|local-installer|local-archive|command",
+  "name": "suggested display name (do not include extension)",
+  "summary": "short Chinese summary, <= 30 chars",
+  "description": "Chinese description, <= 90 chars",
+  "homepage": "homepage or source URL, or empty string",
+  "launchCommand": "optional relative launch path or command, or empty string",
+  "uninstallCommand": "optional uninstall command, or empty string",
+  "archiveExecutable": "if zip, the main exe inside the archive relative to archive root, or empty string",
+  "explanation": "one sentence in Chinese explaining what WinKitBox will do"
+}
+
+Rules:
+- Mode must be one of:
+  * "collect" for .lnk, .bat, .cmd, .ps1, or standalone .exe that should only be launched (no install/uninstall)
+  * "local-installer" for .exe or .msi installers
+  * "local-archive" for .zip files
+  * "command" only if the file is unusual and you need a custom PowerShell command
+- Always choose "local-installer" for .msi.
+- Always choose "local-archive" for .zip.
+- For .exe, choose "collect" unless the file name strongly looks like an installer (setup, install, installer).
+- For .zip, archiveExecutable should be the most likely main executable inside, e.g. "app.exe" or "bin/app.exe"
+- For installers, launchCommand can be empty; WinKitBox will try to detect installed shortcuts
+- For uninstallers, prefer safe commands like the installer path with silent flags, or empty if unknown
+- Do not invent paths outside the given file path
+- Do not return arbitrary PowerShell unless mode is "command"
+- Keep explanation simple for non-technical users
+- Return JSON only.`
+    }
+  ];
+}
+
+function normalizeAiLocalFileCandidate(candidate, fileInfo) {
+  const raw = candidate && typeof candidate === "object" ? candidate : {};
+  const extension = String(fileInfo.extension || "")
+    .replace(/^\./, "")
+    .toLowerCase();
+  const defaultName = path.basename(
+    fileInfo.fileName,
+    path.extname(fileInfo.fileName)
+  );
+  const allowedModes = new Set(["collect", "local-installer", "local-archive", "command"]);
+  let mode = allowedModes.has(raw.mode) ? raw.mode : "collect";
+
+  if (extension === "msi") {
+    mode = "local-installer";
+  } else if (extension === "zip") {
+    mode = "local-archive";
+  } else if (["lnk", "bat", "cmd", "ps1"].includes(extension)) {
+    mode = "collect";
+  } else if (extension === "exe" && !["collect", "local-installer"].includes(mode)) {
+    mode = looksLikeInstallerName(fileInfo.fileName) ? "local-installer" : "collect";
+  }
+
+  return {
+    mode,
+    name: toShortAiString(raw.name) || defaultName,
+    summary: toShortAiString(raw.summary),
+    description: toShortAiString(raw.description),
+    homepage: toShortAiString(raw.homepage),
+    launchCommand: toShortAiString(raw.launchCommand),
+    uninstallCommand: toShortAiString(raw.uninstallCommand),
+    archiveExecutable: mode === "local-archive" ? toShortAiString(raw.archiveExecutable) : "",
+    explanation:
+      toShortAiString(raw.explanation) ||
+      getLocalFileAnalysisExplanation(mode, extension)
+  };
+}
+
+function looksLikeInstallerName(fileName) {
+  return /(?:setup|install|installer|安装|安装器)/i.test(String(fileName || ""));
+}
+
+function toShortAiString(value) {
+  return typeof value === "string" ? value.trim().slice(0, 240) : "";
+}
+
+function getLocalFileAnalysisExplanation(mode, extension) {
+  if (mode === "local-installer") {
+    return extension === "msi"
+      ? "已识别为 MSI 安装包，WinKitBox 会在安装时启动它。"
+      : "已识别为本地安装包，WinKitBox 会在安装时启动它。";
+  }
+
+  if (mode === "local-archive") {
+    return "已识别为 ZIP 便携包，WinKitBox 会解压后打开其中的程序。";
+  }
+
+  if (mode === "command") {
+    return "已识别为需要自定义命令处理的文件。";
+  }
+
+  return "已识别为可直接打开的本地工具，只加入工具箱。";
 }
 
 function buildAiFixMessages(tool, errorMessage) {
@@ -1847,6 +2069,10 @@ function expandEnvironmentVariables(value) {
   return value.replace(/%([^%]+)%/g, (_match, name) => process.env[name] || `%${name}%`);
 }
 
+function escapePowerShellSingleQuoted(value) {
+  return String(value).replace(/'/g, "''");
+}
+
 async function checkForUpdates() {
   const currentVersion = app.getVersion();
   const releaseUrl = `https://api.github.com/repos/${updateRepository.owner}/${updateRepository.repo}/releases/latest`;
@@ -1887,6 +2113,272 @@ async function checkForUpdates() {
       hasUpdate: false,
       assets: [],
       error: error instanceof Error ? error.message : "更新检查失败。"
+    };
+  }
+}
+
+async function checkToolUpdates(descriptors) {
+  await applyStoredProxy();
+  const results = [];
+
+  for (const rawTool of descriptors.slice(0, 200)) {
+    const tool = {
+      id: String(rawTool?.id ?? ""),
+      name: String(rawTool?.name ?? ""),
+      strategy: String(rawTool?.strategy ?? "manual"),
+      wingetId: String(rawTool?.wingetId ?? "").trim(),
+      releaseApiUrl: String(rawTool?.releaseApiUrl ?? "").trim(),
+      homepage: String(rawTool?.homepage ?? "").trim(),
+      collectionOnly: Boolean(rawTool?.collectionOnly)
+    };
+
+    if (!tool.id) {
+      continue;
+    }
+
+    if (tool.collectionOnly || tool.strategy === "none") {
+      results.push({
+        toolId: tool.id,
+        status: "skipped",
+        strategy: "none",
+        message: "只收纳到工具箱，不由 WinKitBox 检测更新。"
+      });
+      continue;
+    }
+
+    if (tool.strategy === "winget" && tool.wingetId) {
+      results.push(await checkWingetToolUpdate(tool));
+      continue;
+    }
+
+    if (tool.releaseApiUrl) {
+      results.push(await checkReleaseToolUpdate(tool));
+      continue;
+    }
+
+    if (tool.strategy === "reinstall") {
+      results.push({
+        toolId: tool.id,
+        status: "reinstall",
+        strategy: "reinstall",
+        message: "无法自动读取版本，可用重装刷新到你配置的来源。"
+      });
+      continue;
+    }
+
+    results.push({
+      toolId: tool.id,
+      status: "unknown",
+      strategy: "manual",
+      message: "没有可用的自动更新检测来源。"
+    });
+  }
+
+  return results;
+}
+
+async function checkWingetToolUpdate(tool) {
+  const escapedWingetId = escapePowerShellSingleQuoted(tool.wingetId);
+  const script = [
+    "$ErrorActionPreference = 'Continue'",
+    "$ProgressPreference = 'SilentlyContinue'",
+    `$listOutput = (& winget list --id '${escapedWingetId}' --exact --accept-source-agreements --disable-interactivity 2>&1 | Out-String)`,
+    "$listCode = $LASTEXITCODE",
+    `$showOutput = (& winget show --id '${escapedWingetId}' --exact --source winget --accept-source-agreements --disable-interactivity 2>&1 | Out-String)`,
+    "$showCode = $LASTEXITCODE",
+    "[PSCustomObject]@{",
+    "  listCode = $listCode",
+    "  listOutput = [string]$listOutput",
+    "  showCode = $showCode",
+    "  showOutput = [string]$showOutput",
+    "} | ConvertTo-Json -Compress"
+  ].join("\n");
+  const result = await runPowerShellCapture(script);
+  const payload = parseWingetCheckPayload(result.stdout, result.stderr);
+  const parsed = parseWingetReadOnlyUpdateCheck(payload, tool.wingetId);
+
+  return {
+    toolId: tool.id,
+    status: parsed.status,
+    strategy: "winget",
+    currentVersion: parsed.currentVersion,
+    latestVersion: parsed.latestVersion,
+    message: parsed.message
+  };
+}
+
+function parseWingetCheckPayload(stdout, stderr) {
+  try {
+    const payload = JSON.parse(String(stdout || "").trim());
+    return {
+      listCode: Number(payload.listCode ?? 0),
+      listOutput: String(payload.listOutput ?? ""),
+      showCode: Number(payload.showCode ?? 0),
+      showOutput: String(payload.showOutput ?? "")
+    };
+  } catch {
+    return {
+      listCode: undefined,
+      listOutput: "",
+      showCode: undefined,
+      showOutput: `${stdout || ""}\n${stderr || ""}`
+    };
+  }
+}
+
+function parseWingetReadOnlyUpdateCheck(payload, wingetId) {
+  const listOutput = normalizeWingetOutput(payload.listOutput);
+  const showOutput = normalizeWingetOutput(payload.showOutput);
+  const currentVersion = parseWingetListCurrentVersion(listOutput, wingetId);
+
+  if (!currentVersion) {
+    if (isWingetNoInstalledPackageOutput(listOutput)) {
+      return {
+        status: "not-installed",
+        message: "winget 未检测到本机已安装版本。"
+      };
+    }
+
+    return {
+      status: "unknown",
+      message: cleanWingetFailureMessage(listOutput, "winget 未能读取本机安装版本。")
+    };
+  }
+
+  const latestVersion = parseWingetShowLatestVersion(showOutput);
+
+  if (!latestVersion) {
+    return {
+      status: "unknown",
+      currentVersion,
+      message: cleanWingetFailureMessage(showOutput, `已检测到当前 ${currentVersion}，但未读取到 winget 最新版本。`)
+    };
+  }
+
+  if (compareVersions(latestVersion, currentVersion) > 0) {
+    return {
+      status: "available",
+      currentVersion,
+      latestVersion,
+      message: `检测到 winget 新版本：${currentVersion} → ${latestVersion}。`
+    };
+  }
+
+  return {
+    status: "current",
+    currentVersion,
+    latestVersion,
+    message: `已是最新：当前 ${currentVersion}，winget 最新 ${latestVersion}。`
+  };
+}
+
+function normalizeWingetOutput(output) {
+  return String(output || "")
+    .replace(/\u001b\[[0-9;]*m/g, "")
+    .replace(/\r/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function isWingetNoInstalledPackageOutput(output) {
+  return /No installed package|No package found matching input criteria|No installed package found matching input criteria|找不到.*已安装|未找到.*已安装|找不到与输入条件匹配的软件包/i.test(output);
+}
+
+function parseWingetListCurrentVersion(output, wingetId) {
+  const row = findWingetTableRow(output, wingetId);
+
+  if (!row) {
+    return undefined;
+  }
+
+  const tokens = row.split(/\s+/);
+  const idIndex = tokens.findIndex((token) => token === wingetId);
+
+  return idIndex >= 0 ? tokens[idIndex + 1] : undefined;
+}
+
+function parseWingetShowLatestVersion(output) {
+  const lines = output.split(/\n/);
+
+  for (const line of lines) {
+    const match = line.match(/^\s*(?:Version|版本)\s*:\s*(.+?)\s*$/i);
+
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return undefined;
+}
+
+function findWingetTableRow(output, wingetId) {
+  return output
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .find((line) => line.split(/\s+/).includes(wingetId));
+}
+
+function cleanWingetFailureMessage(output, fallback) {
+  const normalized = normalizeWingetOutput(output);
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (/--what-if|无法识别参数名称.*what-if|unrecognized.*what-if/i.test(normalized)) {
+    return "当前 winget 不支持 dry-run 参数，已改用只读版本查询；请重新检测。";
+  }
+
+  if (/source agreements|源协议|协议/i.test(normalized)) {
+    return "winget 源需要先接受协议，检测暂时无法继续。";
+  }
+
+  const firstUsefulLine = normalized
+    .split(/\n/)
+    .map((line) => line.trim())
+    .find((line) => line && !/^[-\s]+$/.test(line) && !/^Windows Package Manager/i.test(line));
+
+  return firstUsefulLine ? `winget 检测失败：${firstUsefulLine.slice(0, 90)}` : fallback;
+}
+
+async function checkReleaseToolUpdate(tool) {
+  try {
+    const response = await net.fetch(tool.releaseApiUrl, {
+      headers: {
+        "User-Agent": "WinKitBox/0.1",
+        Accept: "application/vnd.github+json"
+      }
+    });
+
+    if (!response.ok) {
+      return {
+        toolId: tool.id,
+        status: "unknown",
+        strategy: "reinstall",
+        message: `Release 检测失败：${response.status}`
+      };
+    }
+
+    const release = await response.json();
+    const latestVersion = String(release?.tag_name ?? release?.name ?? "").trim();
+
+    return {
+      toolId: tool.id,
+      status: "reinstall",
+      strategy: "reinstall",
+      latestVersion,
+      releaseUrl: String(release?.html_url ?? tool.homepage),
+      message: latestVersion
+        ? `最新 Release 为 ${latestVersion}，当前版本未知，可重装刷新。`
+        : "已读取 Release，但无法自动判断当前版本，可重装刷新。"
+    };
+  } catch (error) {
+    return {
+      toolId: tool.id,
+      status: "unknown",
+      strategy: "reinstall",
+      message: error instanceof Error ? error.message : "Release 检测失败。"
     };
   }
 }

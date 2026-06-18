@@ -58,13 +58,22 @@ import {
   type AiToolCandidate,
   type AiToolGitHubContext,
 } from "./core/aiTool";
-import { buildExportConfig, parseImportedConfig } from "./core/config";
+import {
+  buildExportConfig,
+  createCustomTool,
+  parseImportedConfig,
+  type CustomToolInput,
+} from "./core/config";
 import { createDashboardStats } from "./core/dashboardStats";
 import {
   getVisibleCatalogTools,
   toggleCatalogQuickFilter,
   type CatalogQuickFilter,
 } from "./core/catalogFilters";
+import {
+  createEnvironmentChecks,
+  type EnvironmentSnapshot,
+} from "./core/environment";
 import { createLaunchDescriptor, getToolLogoUrl } from "./core/launcher";
 import {
   customDnsDomainId,
@@ -87,6 +96,11 @@ import {
   getDefaultSelection,
 } from "./core/planner";
 import { parseRunEventLine, type RunEvent } from "./core/runEvents";
+import {
+  buildToolUpdateCommand,
+  createToolUpdateDescriptors,
+  type ToolUpdateCheckResult,
+} from "./core/toolUpdates";
 import {
   applyDetectionResults,
   applyRunEventSnapshot,
@@ -112,7 +126,7 @@ import { findSetupAsset, type UpdateInfo } from "./core/update";
 import type { ProxyMode } from "./core/github";
 
 type CategoryFilter = "all" | ToolCategory;
-type ActiveView = "catalog" | "discover" | "system" | "settings";
+type ActiveView = "catalog" | "discover" | "system" | "updates" | "settings";
 
 type LogEntry = {
   id: number;
@@ -180,6 +194,7 @@ type SystemInfo = {
     adapterRamGb?: number;
     driverVersion: string;
   }[];
+  environment?: EnvironmentSnapshot;
   utf8BetaEnabled: boolean;
   adapters: SystemAdapter[];
 };
@@ -369,6 +384,8 @@ export function App() {
   const [installProgress, setInstallProgress] = useState<InstallProgress>(() =>
     createEmptyInstallProgress(),
   );
+  const [toolUpdateResults, setToolUpdateResults] = useState<Record<string, ToolUpdateCheckResult>>({});
+  const [isCheckingToolUpdates, setIsCheckingToolUpdates] = useState(false);
   const [settings, setSettings] = useState<ToolPathSettings>(fallbackSettings);
   const [toolRootDraft, setToolRootDraft] = useState(
     fallbackSettings.toolRootPath,
@@ -453,6 +470,10 @@ export function App() {
   const selectedInstalledTools = useMemo(
     () => allTools.filter((tool) => selectedInstalledIds.has(tool.id)),
     [allTools, selectedInstalledIds],
+  );
+  const installedTools = useMemo(
+    () => allTools.filter((tool) => toolStates[tool.id]?.status === "installed"),
+    [allTools, toolStates],
   );
   const dashboardStats = useMemo(
     () =>
@@ -1304,6 +1325,27 @@ export function App() {
     }
   }
 
+  async function addManualCustomTool(input: CustomToolInput) {
+    try {
+      const customTool = createCustomTool(
+        input,
+        new Set(allTools.map((tool) => tool.id)),
+      );
+      const nextCustomTools = [...customTools, customTool];
+      setCustomTools(nextCustomTools);
+      await persistSettings({ ...settings, customTools: nextCustomTools });
+      appendLog("success", `已添加自定义工具：${customTool.name}。`);
+      setSelectedIds((current) => new Set([...current, customTool.id]));
+      await refreshToolStates([customTool]);
+    } catch (error) {
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "添加自定义工具失败。",
+      );
+      throw error;
+    }
+  }
+
   async function removeCustomTool(toolId: string) {
     const tool = customTools.find((item) => item.id === toolId);
     const nextCustomTools = customTools.filter((item) => item.id !== toolId);
@@ -1531,6 +1573,11 @@ export function App() {
   async function installTool(tool: Tool) {
     const installCommand = buildInstallCommand(tool, plannerOptions);
 
+    if (installCommand.skipReason) {
+      appendLog("info", `${tool.name} ${installCommand.skipReason}`);
+      return;
+    }
+
     if (!installCommand.command) {
       appendLog("warning", `${tool.name} 需要手动下载，已打开来源页面。`);
       await openUrl(installCommand.manualUrl ?? tool.homepage);
@@ -1570,6 +1617,11 @@ export function App() {
 
   async function uninstallTool(tool: Tool) {
     const uninstallCommand = buildUninstallCommand(tool, plannerOptions);
+
+    if (uninstallCommand.skipReason) {
+      appendLog("info", `${tool.name} ${uninstallCommand.skipReason}`);
+      return;
+    }
 
     if (!uninstallCommand.command) {
       appendLog("warning", `${tool.name} 没有可执行卸载命令，已打开来源页面。`);
@@ -1614,6 +1666,97 @@ export function App() {
         "error",
         `${tool.name} 卸载命令结束，退出码 ${result.code ?? "未知"}。`,
       );
+    }
+  }
+
+  async function checkInstalledToolUpdates() {
+    if (!window.winKitBox) {
+      appendLog("warning", "浏览器预览模式不能检测工具更新。");
+      return;
+    }
+
+    const targets = installedTools.length > 0 ? installedTools : allTools;
+    setIsCheckingToolUpdates(true);
+    appendLog("info", `开始检测 ${targets.length} 个工具的更新状态。`);
+
+    try {
+      const results = await window.winKitBox.checkToolUpdates(
+        createToolUpdateDescriptors(targets),
+      );
+      setToolUpdateResults(
+        Object.fromEntries(results.map((result) => [result.toolId, result])),
+      );
+      const availableCount = results.filter(
+        (result) => result.status === "available" || result.status === "reinstall",
+      ).length;
+      appendLog("success", `工具更新检测完成，${availableCount} 个工具可更新或可刷新。`);
+    } catch (error) {
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "工具更新检测失败。",
+      );
+    } finally {
+      setIsCheckingToolUpdates(false);
+    }
+  }
+
+  async function updateTool(tool: Tool) {
+    const updateCommand = buildToolUpdateCommand(tool, plannerOptions);
+
+    if (updateCommand.skipReason) {
+      appendLog("info", `${tool.name} ${updateCommand.skipReason}`);
+      return;
+    }
+
+    if (!updateCommand.command) {
+      appendLog("warning", `${tool.name} 需要手动更新，已打开来源页面。`);
+      await openUrl(updateCommand.manualUrl ?? tool.repoUrl ?? tool.homepage);
+      return;
+    }
+
+    if (!window.winKitBox) {
+      appendLog("warning", `浏览器预览不能更新 ${tool.name}，请用桌面版运行 WinKitBox。`);
+      return;
+    }
+
+    const confirmed = window.confirm(`将更新 ${tool.name}。是否继续？`);
+
+    if (!confirmed) {
+      appendLog("info", `已取消更新 ${tool.name}。`);
+      return;
+    }
+
+    const plan = {
+      commands: [updateCommand],
+      readyCount: 1,
+      manualCount: 0,
+      skippedCount: 0,
+      adminCount: updateCommand.requiresAdmin ? 1 : 0,
+      highRiskCount: updateCommand.risk === "high" ? 1 : 0,
+    };
+
+    setIsRunning(true);
+    appendLog("info", `开始更新 ${tool.name}。`);
+
+    try {
+      const result = await window.winKitBox.runPowerShell(buildPowerShellScript(plan));
+      await refreshToolStates([tool], plannerOptions, {
+        preserveActive: false,
+      });
+
+      if (result.code === 0) {
+        appendLog("success", `${tool.name} 更新命令已完成。`);
+        void checkInstalledToolUpdates();
+      } else {
+        appendLog("error", `${tool.name} 更新命令结束，退出码 ${result.code ?? "未知"}。`);
+      }
+    } catch (error) {
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : `${tool.name} 更新失败。`,
+      );
+    } finally {
+      setIsRunning(false);
     }
   }
 
@@ -1915,6 +2058,17 @@ export function App() {
               </span>
               <strong>Win</strong>
             </button>
+            <button
+              className={`category-button ${activeView === "updates" ? "active" : ""}`}
+              type="button"
+              onClick={() => setActiveView("updates")}
+            >
+              <span>
+                <RotateCcw size={16} />
+                工具更新
+              </span>
+              <strong>{installedTools.length}</strong>
+            </button>
           </div>
         </div>
 
@@ -1952,6 +2106,20 @@ export function App() {
         </section>
       )}
 
+      {activeView === "updates" && (
+        <section className="workspace">
+          <ToolUpdatesView
+            tools={installedTools.length > 0 ? installedTools : allTools}
+            results={toolUpdateResults}
+            isChecking={isCheckingToolUpdates}
+            isRunning={isRunning}
+            onCheck={checkInstalledToolUpdates}
+            onUpdate={updateTool}
+            onOpen={openUrl}
+          />
+        </section>
+      )}
+
       {activeView === "settings" && (
         <section className="workspace">
           <SettingsView
@@ -1976,6 +2144,7 @@ export function App() {
             customTools={customTools}
             categories={activeCategoryDefinitions}
             allCategories={settings.customCategories}
+            onAddManualTool={addManualCustomTool}
             onAddAiTool={addAiGeneratedTool}
             onRemoveCustomTool={removeCustomTool}
             onUninstallCustomTool={uninstallTool}
@@ -2204,6 +2373,23 @@ export function App() {
                     ))
                 )}
               </div>
+
+              {installPlan.skippedCount > 0 && (
+                <div className="manual-list">
+                  <div className="section-title">
+                    <Inbox size={15} />
+                    已跳过
+                  </div>
+                  {installPlan.commands
+                    .filter((item) => item.skipReason)
+                    .map((item) => (
+                      <span className="manual-link passive" key={item.toolId}>
+                        {item.label}
+                        <small>{item.skipReason}</small>
+                      </span>
+                    ))}
+                </div>
+              )}
             </>
           )}
         </aside>
@@ -2317,6 +2503,170 @@ function Metric({
   );
 }
 
+function ToolUpdatesView({
+  tools,
+  results,
+  isChecking,
+  isRunning,
+  onCheck,
+  onUpdate,
+  onOpen,
+}: {
+  tools: Tool[];
+  results: Record<string, ToolUpdateCheckResult>;
+  isChecking: boolean;
+  isRunning: boolean;
+  onCheck: () => Promise<void>;
+  onUpdate: (tool: Tool) => Promise<void>;
+  onOpen: (url: string) => Promise<void>;
+}) {
+  const resultList = tools.map((tool) => results[tool.id]).filter(Boolean);
+  const availableCount = resultList.filter(
+    (result) => result.status === "available" || result.status === "reinstall",
+  ).length;
+  const currentCount = resultList.filter((result) => result.status === "current").length;
+  const skippedCount = resultList.filter(
+    (result) => result.status === "skipped" || result.status === "not-installed",
+  ).length;
+
+  return (
+    <div className="updates-page">
+      <header className="command-bar page-topbar">
+        <div className="command-bar-title">
+          <div className="command-bar-icon update-icon">
+            <RotateCcw size={22} />
+          </div>
+          <div>
+            <p className="eyebrow">维护中心</p>
+            <h2>工具更新中心</h2>
+          </div>
+        </div>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={isChecking || isRunning}
+          onClick={() => void onCheck()}
+        >
+          <RotateCcw size={16} className={isChecking ? "spin" : ""} />
+          {isChecking ? "检测中" : "只检测更新"}
+        </button>
+      </header>
+
+      <div className="stats-row compact-stats">
+        <Metric label="待检测工具" value={tools.length} tone="blue" icon={ListChecks} />
+        <Metric label="可更新/刷新" value={availableCount} tone="amber" icon={Download} />
+        <Metric label="已是最新" value={currentCount} tone="green" icon={Check} />
+        <Metric label="跳过" value={skippedCount} tone="teal" icon={Inbox} />
+      </div>
+
+      <div className="update-tool-list">
+        {tools.length === 0 ? (
+          <EmptyState
+            icon={PackageOpen}
+            title="还没有可检测的工具"
+            description="先在工具列表里安装或添加一些工具，再回来检测更新。"
+            compact
+          />
+        ) : (
+          tools.map((tool) => {
+            const result = results[tool.id];
+            const status = result?.status ?? "unknown";
+            const canUpdate = status === "available" || status === "reinstall";
+
+            return (
+              <article className={`update-tool-row status-${status}`} key={tool.id}>
+                <div className="update-tool-main">
+                  <strong>{tool.name}</strong>
+                  <span>{result?.message ?? describeUpdateStrategy(tool)}</span>
+                  {(result?.currentVersion || result?.latestVersion) && (
+                    <em>
+                      {result.currentVersion ? `当前 ${result.currentVersion}` : "当前未知"}
+                      {result.latestVersion ? ` · 最新 ${result.latestVersion}` : ""}
+                    </em>
+                  )}
+                </div>
+                <div className="update-tool-actions">
+                  <span className={`tool-status-pill ${mapUpdateStatusTone(status)}`}>
+                    {getUpdateStatusLabel(status)}
+                  </span>
+                  {canUpdate && (
+                    <button
+                      className="mini-action install"
+                      type="button"
+                      disabled={isRunning}
+                      onClick={() => void onUpdate(tool)}
+                    >
+                      <Download size={14} />
+                      {status === "available" ? "更新" : "重装刷新"}
+                    </button>
+                  )}
+                  <button
+                    className="icon-button"
+                    type="button"
+                    aria-label={`打开 ${tool.name} 来源`}
+                    onClick={() => void onOpen(result?.releaseUrl ?? tool.repoUrl ?? tool.homepage)}
+                  >
+                    <ExternalLink size={15} />
+                  </button>
+                </div>
+              </article>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function describeUpdateStrategy(tool: Tool) {
+  if (tool.collectionOnly) {
+    return "只收纳到工具箱，不由 WinKitBox 更新。";
+  }
+
+  if (tool.wingetId) {
+    return `检测只读取版本；更新时才执行 winget upgrade：${tool.wingetId}`;
+  }
+
+  if (tool.portable?.releaseApiUrl || tool.installer?.releaseApiUrl) {
+    return "可读取最新 Release，但当前版本通常需要重装刷新。";
+  }
+
+  if (tool.customInstallCommand || tool.portable || tool.installer) {
+    return "可执行重装刷新，无法自动判断当前版本。";
+  }
+
+  return "没有可用的自动更新检测来源。";
+}
+
+function getUpdateStatusLabel(status: ToolUpdateCheckResult["status"] | "unknown") {
+  const labels: Record<ToolUpdateCheckResult["status"] | "unknown", string> = {
+    unknown: "未检测",
+    available: "可更新",
+    current: "已最新",
+    reinstall: "可刷新",
+    skipped: "跳过",
+    "not-installed": "未安装",
+  };
+
+  return labels[status];
+}
+
+function mapUpdateStatusTone(status: ToolUpdateCheckResult["status"] | "unknown") {
+  if (status === "available" || status === "reinstall") {
+    return "installing";
+  }
+
+  if (status === "current") {
+    return "installed";
+  }
+
+  if (status === "skipped" || status === "not-installed") {
+    return "not-installed";
+  }
+
+  return "unknown";
+}
+
 function EmptyState({
   icon: Icon,
   title,
@@ -2375,6 +2725,13 @@ function SystemView({
   );
   const selectedAdapter = info?.adapters.find(
     (adapter) => adapter.id === selectedAdapterId,
+  );
+  const environmentChecks = useMemo(
+    () =>
+      info?.environment
+        ? createEnvironmentChecks(info.environment)
+        : [],
+    [info?.environment],
   );
 
   useEffect(() => {
@@ -2602,6 +2959,29 @@ function SystemView({
           <strong>{info?.memoryGb ? `${info.memoryGb} GB` : "未读取"}</strong>
         </div>
       </div>
+
+      <section className="settings-card environment-card">
+        <div className="section-title">
+          <Gauge size={15} />
+          Windows 环境体检
+        </div>
+        {environmentChecks.length === 0 ? (
+          <p className="empty-text">刷新本机配置后显示体检结果。</p>
+        ) : (
+          <div className="environment-check-grid">
+            {environmentChecks.map((check) => (
+              <div
+                className={`environment-check ${check.status}`}
+                key={check.id}
+              >
+                <strong>{check.label}</strong>
+                <span>{check.detail}</span>
+                {check.action && <em>{check.action}</em>}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <div className="hardware-grid">
         <section className="settings-card hardware-card">
@@ -2949,6 +3329,7 @@ function SettingsView({
   customTools,
   categories,
   allCategories,
+  onAddManualTool,
   onAddAiTool,
   onRemoveCustomTool,
   onUninstallCustomTool,
@@ -2983,6 +3364,7 @@ function SettingsView({
   customTools: Tool[];
   categories: CategoryDefinition[];
   allCategories: CategoryDefinition[];
+  onAddManualTool: (input: CustomToolInput) => Promise<void>;
   onAddAiTool: (
     candidate: AiToolCandidate,
     context: AiToolGitHubContext,
@@ -3000,6 +3382,20 @@ function SettingsView({
     toolUrl: "",
     categoryId: customAddCategoryId,
   });
+  const [manualDraft, setManualDraft] = useState({
+    mode: "collect" as CustomToolInput["mode"],
+    name: "",
+    categoryId: customAddCategoryId,
+    homepage: "",
+    localPath: "",
+    archiveExecutable: "",
+    installCommand: "",
+    uninstallCommand: "",
+    launchCommand: "",
+    wingetId: "",
+    aiExplanation: "",
+  });
+  const [showManualAdvanced, setShowManualAdvanced] = useState(false);
   const [detectedModels, setDetectedModels] = useState<string[]>([]);
   const [showModelList, setShowModelList] = useState(false);
   const [aiBusy, setAiBusy] = useState<
@@ -3144,6 +3540,117 @@ function SettingsView({
       );
     } finally {
       setAiBusy(undefined);
+    }
+  }
+
+  async function chooseManualToolFile() {
+    if (!window.winKitBox) {
+      onLog("warning", "浏览器预览模式不能选择本地文件。");
+      return;
+    }
+
+    const filePath = await window.winKitBox.selectLocalFile(manualDraft.localPath);
+
+    if (!filePath) {
+      return;
+    }
+
+    const suggestion = inferManualToolDraftFromPath(filePath);
+
+    setManualDraft((current) => ({
+      ...current,
+      ...suggestion,
+      localPath: filePath,
+      name: current.name || suggestion.name,
+    }));
+  }
+
+  async function analyzeLocalFile() {
+    if (!window.winKitBox) {
+      onLog("warning", "浏览器预览模式不能调用 AI 分析。");
+      return;
+    }
+
+    if (!manualDraft.localPath) {
+      onLog("warning", "请先选择要分析的本地文件。");
+      return;
+    }
+
+    if (!settings.aiBaseUrl || !settings.aiApiKey || !settings.aiModel) {
+      onLog("warning", "请先在设置里保存 AI 接口 URL、API Key 和模型名称。");
+      return;
+    }
+
+    setAiBusy("generate");
+    try {
+      const result = await window.winKitBox.analyzeLocalFile({
+        baseUrl: settings.aiBaseUrl,
+        apiKey: settings.aiApiKey,
+        model: settings.aiModel,
+        filePath: manualDraft.localPath,
+        toolName: manualDraft.name,
+        categoryId: manualDraft.categoryId,
+        remark: manualDraft.homepage,
+      });
+      const candidate = result.candidate;
+      setManualDraft((current) => ({
+        ...current,
+        mode: (candidate.mode as CustomToolInput["mode"]) || current.mode,
+        name: candidate.name || current.name,
+        homepage: candidate.homepage ?? current.homepage,
+        archiveExecutable: candidate.archiveExecutable ?? current.archiveExecutable,
+        installCommand: candidate.mode === "command" ? candidate.launchCommand || "" : "",
+        uninstallCommand: candidate.uninstallCommand ?? current.uninstallCommand,
+        launchCommand:
+          candidate.mode === "local-installer" || candidate.mode === "local-archive" || candidate.mode === "collect"
+            ? candidate.launchCommand ?? current.launchCommand
+            : current.launchCommand,
+        aiExplanation: candidate.explanation || "AI 已分析该文件，请确认信息后添加到工具箱。",
+      }));
+      setShowManualAdvanced(false);
+      onLog("success", "AI 文件分析完成。");
+    } catch (error) {
+      onLog(
+        "error",
+        error instanceof Error ? error.message : "AI 分析本地文件失败。",
+      );
+    } finally {
+      setAiBusy(undefined);
+    }
+  }
+
+  async function addManualTool() {
+    try {
+      const localPath = manualDraft.localPath.trim();
+      const fallbackSuggestion = localPath ? inferManualToolDraftFromPath(localPath) : undefined;
+
+      await onAddManualTool({
+        mode: manualDraft.mode || fallbackSuggestion?.mode,
+        name: manualDraft.name.trim() || fallbackSuggestion?.name || "",
+        category: manualDraft.categoryId,
+        homepage: manualDraft.homepage,
+        localPath: localPath || manualDraft.localPath,
+        archiveExecutable: manualDraft.archiveExecutable,
+        installCommand: manualDraft.installCommand,
+        uninstallCommand: manualDraft.uninstallCommand,
+        launchCommand: manualDraft.launchCommand,
+        wingetId: manualDraft.wingetId,
+        managedRootPath: settings.toolRootPath,
+      });
+      setManualDraft((current) => ({
+        ...current,
+        name: "",
+        homepage: "",
+        localPath: "",
+        archiveExecutable: "",
+        installCommand: "",
+        uninstallCommand: "",
+        launchCommand: "",
+        wingetId: "",
+        aiExplanation: "",
+      }));
+    } catch {
+      // Error is already logged by the owner callback.
     }
   }
 
@@ -3387,6 +3894,240 @@ function SettingsView({
           </p>
         </section>
 
+        <section className="settings-card full-span manual-add-card">
+          <div className="section-title">
+            <Plus size={15} />
+            智能添加本地工具
+          </div>
+          <div className="manual-add-flow">
+            <div className="manual-file-panel">
+              <label className="field-label file-pick-field">
+                本地文件
+                <span className="path-row compact">
+                  <input
+                    value={manualDraft.localPath}
+                    onChange={(event) => {
+                      const localPath = event.target.value;
+                      const suggestion = localPath
+                        ? inferManualToolDraftFromPath(localPath)
+                        : undefined;
+
+                      setManualDraft((current) => ({
+                        ...current,
+                        ...(suggestion ?? {}),
+                        localPath,
+                        name: current.name || suggestion?.name || "",
+                        aiExplanation: suggestion?.aiExplanation || "",
+                      }));
+                    }}
+                    placeholder="exe / msi / zip / lnk / bat / cmd / ps1"
+                  />
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={chooseManualToolFile}
+                  >
+                    选择
+                  </button>
+                </span>
+              </label>
+              <div className="manual-tool-ai-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={!manualDraft.localPath || aiBusy === "generate"}
+                  onClick={analyzeLocalFile}
+                >
+                  <Sparkles size={14} />
+                  {aiBusy === "generate" ? "分析中" : "AI 分析"}
+                </button>
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={() => setShowManualAdvanced((value) => !value)}
+                >
+                  {showManualAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  高级设置
+                </button>
+              </div>
+            </div>
+
+            <div className="manual-tool-preview">
+              <div className="ai-result-title">
+                <Sparkles size={14} />
+                方案预览
+              </div>
+              <strong>{manualDraft.name || "选择文件后自动生成名称"}</strong>
+              <p>{manualDraft.aiExplanation || describeManualDraft(manualDraft)}</p>
+              <dl>
+                <dt>处理方式</dt>
+                <dd>{getManualModeLabel(manualDraft.mode)}</dd>
+                <dt>分类</dt>
+                <dd>{getCategoryName(manualDraft.categoryId, categories)}</dd>
+                {manualDraft.localPath && (
+                  <>
+                    <dt>文件</dt>
+                    <dd>{getBaseName(manualDraft.localPath)}</dd>
+                  </>
+                )}
+                {manualDraft.mode === "local-archive" && (
+                  <>
+                    <dt>ZIP 启动程序</dt>
+                    <dd>{manualDraft.archiveExecutable || "需要 AI 分析或在高级设置填写"}</dd>
+                  </>
+                )}
+              </dl>
+            </div>
+          </div>
+
+          <div className="custom-tool-form manual-tool-form compact">
+            <label className="field-label">
+              工具名称
+              <input
+                value={manualDraft.name}
+                onChange={(event) =>
+                  setManualDraft((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+                placeholder="例如 LocalSend / 自用脚本"
+              />
+            </label>
+            <label className="field-label">
+              添加到分类
+              <select
+                value={manualDraft.categoryId}
+                onChange={(event) =>
+                  setManualDraft((current) => ({
+                    ...current,
+                    categoryId: event.target.value,
+                  }))
+                }
+              >
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field-label">
+              主页 / 备注
+              <input
+                value={manualDraft.homepage}
+                onChange={(event) =>
+                  setManualDraft((current) => ({
+                    ...current,
+                    homepage: event.target.value,
+                  }))
+                }
+                placeholder="可留空"
+              />
+            </label>
+          </div>
+
+          {showManualAdvanced && (
+            <div className="custom-tool-form manual-tool-form advanced">
+              <label className="field-label">
+                处理方式
+                <select
+                  value={manualDraft.mode}
+                  onChange={(event) =>
+                    setManualDraft((current) => ({
+                      ...current,
+                      mode: event.target.value as CustomToolInput["mode"],
+                    }))
+                  }
+                >
+                  <option value="collect">只加入工具箱</option>
+                  <option value="local-installer">本地安装包</option>
+                  <option value="local-archive">ZIP 便携包</option>
+                  <option value="command">自定义命令</option>
+                  <option value="winget">winget 包</option>
+                </select>
+              </label>
+              <label className="field-label">
+                ZIP 内启动程序
+                <input
+                  value={manualDraft.archiveExecutable}
+                  onChange={(event) =>
+                    setManualDraft((current) => ({
+                      ...current,
+                      archiveExecutable: event.target.value,
+                    }))
+                  }
+                  placeholder="例如 app.exe 或 bin\\app.exe"
+                />
+              </label>
+              <label className="field-label">
+                启动命令
+                <input
+                  value={manualDraft.launchCommand}
+                  onChange={(event) =>
+                    setManualDraft((current) => ({
+                      ...current,
+                      launchCommand: event.target.value,
+                    }))
+                  }
+                  placeholder="可留空"
+                />
+              </label>
+              <label className="field-label">
+                winget ID
+                <input
+                  value={manualDraft.wingetId}
+                  onChange={(event) =>
+                    setManualDraft((current) => ({
+                      ...current,
+                      wingetId: event.target.value,
+                    }))
+                  }
+                  placeholder="例如 Microsoft.PowerToys"
+                />
+              </label>
+              <label className="field-label wide">
+                安装命令
+                <input
+                  value={manualDraft.installCommand}
+                  onChange={(event) =>
+                    setManualDraft((current) => ({
+                      ...current,
+                      installCommand: event.target.value,
+                    }))
+                  }
+                  placeholder="仅自定义命令模式需要"
+                />
+              </label>
+              <label className="field-label wide">
+                卸载命令
+                <input
+                  value={manualDraft.uninstallCommand}
+                  onChange={(event) =>
+                    setManualDraft((current) => ({
+                      ...current,
+                      uninstallCommand: event.target.value,
+                    }))
+                  }
+                  placeholder="可留空"
+                />
+              </label>
+            </div>
+          )}
+
+          <div className="settings-actions">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={addManualTool}
+            >
+              <Plus size={15} />
+              添加到工具箱
+            </button>
+            <span>默认加入工具箱；安装包和 ZIP 会在点击安装时处理。</span>
+          </div>
+        </section>
+
         <section className="settings-card full-span">
           <div className="section-title">
             <Plus size={15} />
@@ -3542,12 +4283,14 @@ function SettingsView({
                     className="secondary-button danger"
                     type="button"
                     onClick={async () => {
-                      await onUninstallCustomTool(tool);
+                      if (!tool.collectionOnly) {
+                        await onUninstallCustomTool(tool);
+                      }
                       await onRemoveCustomTool(tool.id);
                     }}
                   >
                     <Trash2 size={14} />
-                    卸载并移除
+                    {tool.collectionOnly ? "移除" : "卸载并移除"}
                   </button>
                 </div>
               ))}
@@ -3607,6 +4350,22 @@ function getToolPlaceholder(tool: Tool) {
 }
 
 function describeCustomTool(tool: Tool) {
+  if (tool.collectionOnly) {
+    return "只收纳 · 不执行安装";
+  }
+
+  if (tool.localSource?.kind === "installer") {
+    return `本地安装包 · ${getBaseName(tool.localSource.path)}`;
+  }
+
+  if (tool.localSource?.kind === "archive") {
+    return `本地 ZIP · ${tool.localSource.executable ?? getBaseName(tool.localSource.path)}`;
+  }
+
+  if (tool.localSource?.kind === "launcher") {
+    return `本地程序 · ${getBaseName(tool.localSource.path)}`;
+  }
+
   if (tool.wingetId) {
     return `winget · ${tool.wingetId}`;
   }
@@ -3628,6 +4387,130 @@ function describeCustomTool(tool: Tool) {
   }
 
   return tool.repoUrl ?? tool.homepage;
+}
+
+function inferToolNameFromPath(filePath: string) {
+  return getBaseName(filePath).replace(/\.[^.]+$/, "");
+}
+
+function inferManualToolDraftFromPath(filePath: string) {
+  const name = inferToolNameFromPath(filePath);
+  const extension = getFileExtension(filePath);
+
+  if (extension === "msi") {
+    return {
+      mode: "local-installer" as CustomToolInput["mode"],
+      name,
+      archiveExecutable: "",
+      launchCommand: "",
+      installCommand: "",
+      aiExplanation: "已识别为本地 MSI 安装包，安装时会启动该文件。",
+    };
+  }
+
+  if (extension === "zip") {
+    return {
+      mode: "local-archive" as CustomToolInput["mode"],
+      name,
+      archiveExecutable: "",
+      launchCommand: "",
+      installCommand: "",
+      aiExplanation: "已识别为 ZIP 便携包，AI 可继续判断 ZIP 里的启动程序。",
+    };
+  }
+
+  if (extension === "exe") {
+    return {
+      mode: "collect" as CustomToolInput["mode"],
+      name,
+      archiveExecutable: "",
+      launchCommand: filePath,
+      installCommand: "",
+      aiExplanation: "已按可直接打开的本地程序处理，只加入工具箱。",
+    };
+  }
+
+  if (["lnk", "bat", "cmd", "ps1"].includes(extension)) {
+    return {
+      mode: "collect" as CustomToolInput["mode"],
+      name,
+      archiveExecutable: "",
+      launchCommand: filePath,
+      installCommand: "",
+      aiExplanation: "已按快捷方式或脚本处理，只加入工具箱用于打开。",
+    };
+  }
+
+  return {
+    mode: "collect" as CustomToolInput["mode"],
+    name,
+    archiveExecutable: "",
+    launchCommand: filePath,
+    installCommand: "",
+    aiExplanation: "已按本地文件处理，只加入工具箱用于打开。",
+  };
+}
+
+function getFileExtension(filePath: string) {
+  const baseName = getBaseName(filePath);
+  const match = baseName.match(/\.([^.]+)$/);
+
+  return match?.[1]?.toLowerCase() ?? "";
+}
+
+function getManualModeLabel(mode: CustomToolInput["mode"]) {
+  if (mode === "local-installer") {
+    return "本地安装包";
+  }
+
+  if (mode === "local-archive") {
+    return "ZIP 便携包";
+  }
+
+  if (mode === "command") {
+    return "自定义命令";
+  }
+
+  if (mode === "winget") {
+    return "winget 包";
+  }
+
+  return "只加入工具箱";
+}
+
+function describeManualDraft(draft: {
+  mode?: CustomToolInput["mode"];
+  localPath?: string;
+  archiveExecutable?: string;
+}) {
+  if (!draft.localPath) {
+    return "选择文件后会自动生成处理方案。";
+  }
+
+  if (draft.mode === "local-installer") {
+    return "安装时会运行这个本地安装包。";
+  }
+
+  if (draft.mode === "local-archive") {
+    return draft.archiveExecutable
+      ? "安装时会解压 ZIP 并打开指定程序。"
+      : "安装时会解压 ZIP，启动程序可由 AI 分析或高级设置补充。";
+  }
+
+  if (draft.mode === "command") {
+    return "会按高级设置里的命令执行。";
+  }
+
+  if (draft.mode === "winget") {
+    return "会按高级设置里的 winget ID 安装和更新。";
+  }
+
+  return "会直接收纳到工具箱，不执行安装。";
+}
+
+function getBaseName(filePath: string) {
+  const normalized = filePath.replace(/\\/g, "/");
+  return normalized.split("/").filter(Boolean).pop() || filePath;
 }
 
 function ToolCard({
@@ -3663,10 +4546,11 @@ function ToolCard({
   const [logoFailed, setLogoFailed] = useState(false);
   const logoUrl = getToolLogoUrl(tool);
   const installDisabled =
+    tool.collectionOnly ||
     toolState.status === "installing" ||
     toolState.status === "uninstalling" ||
     toolState.status === "checking";
-  const uninstallDisabled = toolState.status !== "installed";
+  const uninstallDisabled = tool.collectionOnly || toolState.status !== "installed";
   const openDisabled =
     toolState.status === "installing" ||
     toolState.status === "uninstalling" ||
@@ -3769,7 +4653,7 @@ function ToolCard({
             onClick={onInstall}
           >
             <Download size={14} />
-            {getInstallButtonLabel(toolState.status)}
+            {tool.collectionOnly ? "无需安装" : getInstallButtonLabel(toolState.status)}
           </button>
           {toolState.status === "failed" && (
             <button
@@ -3797,7 +4681,11 @@ function ToolCard({
             onClick={onUninstall}
           >
             <Trash2 size={14} />
-            {toolState.status === "uninstalling" ? "卸载中" : "卸载"}
+            {tool.collectionOnly
+              ? "不卸载"
+              : toolState.status === "uninstalling"
+                ? "卸载中"
+                : "卸载"}
           </button>
           <button
             className="icon-button"

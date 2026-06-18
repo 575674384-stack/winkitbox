@@ -25,4 +25,14 @@ describe("run events", () => {
   it("ignores normal command output", () => {
     expect(parseRunEventLine("Windows Terminal installed successfully.")).toBeUndefined();
   });
+
+  it("serializes and parses skipped tool events", () => {
+    const line = createRunEventLine({ type: "skipped", toolId: "custom-local", label: "Local Tool" });
+
+    expect(parseRunEventLine(line)).toEqual({
+      type: "skipped",
+      toolId: "custom-local",
+      label: "Local Tool"
+    });
+  });
 });

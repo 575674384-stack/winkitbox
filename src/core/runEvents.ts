@@ -12,7 +12,8 @@ export type RunEvent =
         | "uninstall-start"
         | "uninstall-success"
         | "uninstall-failed"
-        | "manual";
+        | "manual"
+        | "skipped";
       toolId: string;
       label: string;
     }

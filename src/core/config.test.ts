@@ -24,6 +24,70 @@ describe("config helpers", () => {
     expect(tool.launch?.commands).toEqual(["my-tool.exe"]);
   });
 
+  it("creates collection-only local launcher tools", () => {
+    const tool = createCustomTool(
+      {
+        mode: "collect",
+        name: "Local Editor",
+        category: "custom-add",
+        homepage: "",
+        localPath: "D:\\Tools\\LocalEditor\\editor.exe"
+      },
+      new Set()
+    );
+
+    expect(tool.collectionOnly).toBe(true);
+    expect(tool.customInstallCommand).toBeUndefined();
+    expect(tool.launch?.commands).toEqual(["D:\\Tools\\LocalEditor\\editor.exe"]);
+    expect(tool.localSource).toEqual({
+      kind: "launcher",
+      path: "D:\\Tools\\LocalEditor\\editor.exe"
+    });
+  });
+
+  it("creates local installer tools from exe or msi packages", () => {
+    const tool = createCustomTool(
+      {
+        mode: "local-installer",
+        name: "Local Setup",
+        category: "custom-add",
+        homepage: "",
+        localPath: "D:\\Downloads\\setup.msi",
+        launchCommand: "local-setup.exe"
+      },
+      new Set()
+    );
+
+    expect(tool.customInstallCommand).toContain("msiexec.exe");
+    expect(tool.customInstallCommand).toContain("D:\\Downloads\\setup.msi");
+    expect(tool.launch?.commands).toEqual(["local-setup.exe"]);
+    expect(tool.localSource?.kind).toBe("installer");
+  });
+
+  it("creates local zip portable tools that extract into the managed tool root", () => {
+    const tool = createCustomTool(
+      {
+        mode: "local-archive",
+        name: "Zip Tool",
+        category: "custom-add",
+        homepage: "",
+        localPath: "D:\\Downloads\\zip-tool.zip",
+        archiveExecutable: "ZipTool\\ZipTool.exe"
+      },
+      new Set()
+    );
+
+    expect(tool.customInstallCommand).toContain("Expand-Archive");
+    expect(tool.customInstallCommand).toContain("zip-tool.zip");
+    expect(tool.customInstallCommand).toContain("ZipTool\\ZipTool.exe");
+    expect(tool.launch?.commands?.[0]).toContain("%LOCALAPPDATA%\\WinKitBox");
+    expect(tool.localSource).toEqual({
+      kind: "archive",
+      path: "D:\\Downloads\\zip-tool.zip",
+      executable: "ZipTool\\ZipTool.exe"
+    });
+  });
+
   it("keeps exported configs under the lightweight 1MB contract", () => {
     const payload = buildExportConfig({
       version: 1,

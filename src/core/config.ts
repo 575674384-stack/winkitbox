@@ -24,7 +24,7 @@ export type WinKitBoxExportConfig = {
 };
 
 export type CustomToolInput = {
-  mode?: "winget" | "local" | "command";
+  mode?: "winget" | "local" | "command" | "collect" | "local-installer" | "local-archive";
   name: string;
   category: ToolCategory;
   homepage: string;
@@ -33,6 +33,8 @@ export type CustomToolInput = {
   launchCommand?: string;
   wingetId?: string;
   localPath?: string;
+  archiveExecutable?: string;
+  managedRootPath?: string;
 };
 
 const maxExportBytes = 1024 * 1024;
@@ -104,6 +106,114 @@ export function createCustomTool(input: CustomToolInput, existingIds: Set<string
     };
   }
 
+  if (mode === "collect") {
+    const localPath = input.localPath?.trim();
+
+    if (!localPath) {
+      throw new Error("本地程序路径不能为空。");
+    }
+
+    return {
+      id,
+      name,
+      category: input.category,
+      summary: "本地收纳工具",
+      description: "用户自行登记的本地程序，只加入工具箱用于打开，不由 WinKitBox 执行安装。",
+      source: "custom",
+      license: "Local",
+      homepage,
+      collectionOnly: true,
+      localSource: {
+        kind: "launcher",
+        path: localPath
+      },
+      launch: {
+        startMenuNames: [name],
+        commands: [localPath]
+      },
+      tags: ["自定义", "本地", "收纳"],
+      risk: "low"
+    };
+  }
+
+  if (mode === "local-installer") {
+    const localPath = input.localPath?.trim();
+
+    if (!localPath) {
+      throw new Error("本地安装包路径不能为空。");
+    }
+
+    const installCommand = buildLocalInstallerCommand(localPath);
+
+    return {
+      id,
+      name,
+      category: input.category,
+      summary: "本地安装包工具",
+      description: "用户自行添加的本地 exe/msi 安装包，WinKitBox 会从本机路径启动安装程序。",
+      source: "custom",
+      license: "Local",
+      homepage,
+      customInstallCommand: installCommand,
+      customUninstallCommand: input.uninstallCommand?.trim() || undefined,
+      localSource: {
+        kind: "installer",
+        path: localPath
+      },
+      launch: {
+        startMenuNames: [name],
+        commands: launchCommand ? [launchCommand] : []
+      },
+      tags: ["自定义", "本地安装包"],
+      risk: "medium"
+    };
+  }
+
+  if (mode === "local-archive") {
+    const localPath = input.localPath?.trim();
+    const archiveExecutable = input.archiveExecutable?.trim();
+
+    if (!localPath) {
+      throw new Error("本地 ZIP 路径不能为空。");
+    }
+
+    if (!archiveExecutable) {
+      throw new Error("ZIP 内启动程序路径不能为空。");
+    }
+
+    if (!/\.zip$/i.test(localPath)) {
+      throw new Error("目前本地便携包只支持 ZIP 文件。");
+    }
+
+    const targetDirName = slugify(name) || id;
+    const managedRootPath = input.managedRootPath?.trim() || "%LOCALAPPDATA%\\WinKitBox";
+    const managedLaunchPath = `${managedRootPath}\\tools\\${targetDirName}\\${normalizeWindowsPath(archiveExecutable)}`;
+
+    return {
+      id,
+      name,
+      category: input.category,
+      summary: "本地 ZIP 便携工具",
+      description: "用户自行添加的本地 ZIP 便携包，WinKitBox 会解压到工具目录后打开其中的程序。",
+      source: "custom",
+      license: "Local",
+      homepage,
+      customInstallCommand: buildLocalArchiveCommand(localPath, targetDirName, archiveExecutable, managedRootPath),
+      customUninstallCommand: buildManagedArchiveUninstallCommand(targetDirName, managedRootPath),
+      localSource: {
+        kind: "archive",
+        path: localPath,
+        executable: archiveExecutable
+      },
+      launch: {
+        startMenuNames: [name],
+        commands: [managedLaunchPath]
+      },
+      tags: ["自定义", "本地ZIP", "便携"],
+      risk: "medium"
+    };
+  }
+
   const installCommand = input.installCommand?.trim();
 
   if (!installCommand) {
@@ -137,6 +247,100 @@ export function createCustomTool(input: CustomToolInput, existingIds: Set<string
 
 function escapePowerShellSingleQuoted(value: string) {
   return value.replace(/'/g, "''");
+}
+
+function buildLocalInstallerCommand(localPath: string) {
+  const escapedPath = escapePowerShellSingleQuoted(localPath);
+  const isMsi = /\.msi$/i.test(localPath);
+
+  if (isMsi) {
+    return [
+      "& {",
+      "  $ErrorActionPreference = 'Stop'",
+      `  $installerPath = [Environment]::ExpandEnvironmentVariables('${escapedPath}')`,
+      "  if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {",
+      "    throw \"WinKitBox local installer not found: $installerPath\"",
+      "  }",
+      "  $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $installerPath) -Wait -PassThru",
+      "  if ($null -ne $process.ExitCode -and $process.ExitCode -ne 0) {",
+      "    throw \"WinKitBox local installer failed: $installerPath\"",
+      "  }",
+      "  $global:LASTEXITCODE = 0",
+      "}"
+    ].join("\n");
+  }
+
+  return [
+    "& {",
+    "  $ErrorActionPreference = 'Stop'",
+    `  $installerPath = [Environment]::ExpandEnvironmentVariables('${escapedPath}')`,
+    "  if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {",
+    "    throw \"WinKitBox local installer not found: $installerPath\"",
+    "  }",
+    "  $process = Start-Process -FilePath $installerPath -Wait -PassThru",
+    "  if ($null -ne $process.ExitCode -and $process.ExitCode -ne 0) {",
+    "    throw \"WinKitBox local installer failed: $installerPath\"",
+    "  }",
+    "  $global:LASTEXITCODE = 0",
+    "}"
+  ].join("\n");
+}
+
+function buildLocalArchiveCommand(
+  localPath: string,
+  targetDirName: string,
+  executable: string,
+  managedRootPath: string
+) {
+  const escapedPath = escapePowerShellSingleQuoted(localPath);
+  const escapedTarget = escapePowerShellSingleQuoted(targetDirName);
+  const escapedExecutable = escapePowerShellSingleQuoted(normalizeWindowsPath(executable));
+  const escapedManagedRoot = escapePowerShellSingleQuoted(managedRootPath);
+
+  return [
+    "& {",
+    "  $ErrorActionPreference = 'Stop'",
+    `  $archivePath = [Environment]::ExpandEnvironmentVariables('${escapedPath}')`,
+    "  if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {",
+    "    throw \"WinKitBox local archive not found: $archivePath\"",
+    "  }",
+    `  $managedRoot = [Environment]::ExpandEnvironmentVariables('${escapedManagedRoot}')`,
+    "  $toolRoot = Join-Path $managedRoot 'tools'",
+    `  $targetDir = Join-Path $toolRoot '${escapedTarget}'`,
+    "  if (Test-Path -LiteralPath $targetDir) {",
+    "    Remove-Item -LiteralPath $targetDir -Recurse -Force",
+    "  }",
+    "  New-Item -ItemType Directory -Force -Path $targetDir | Out-Null",
+    "  Expand-Archive -LiteralPath $archivePath -DestinationPath $targetDir -Force",
+    `  $exePath = Join-Path $targetDir '${escapedExecutable}'`,
+    "  if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {",
+    "    throw \"WinKitBox local archive install failed: executable not found at $exePath\"",
+    "  }",
+    "  $global:LASTEXITCODE = 0",
+    "}"
+  ].join("\n");
+}
+
+function buildManagedArchiveUninstallCommand(targetDirName: string, managedRootPath: string) {
+  const escapedTarget = escapePowerShellSingleQuoted(targetDirName);
+  const escapedManagedRoot = escapePowerShellSingleQuoted(managedRootPath);
+
+  return [
+    "& {",
+    "  $ErrorActionPreference = 'Stop'",
+    `  $managedRoot = [Environment]::ExpandEnvironmentVariables('${escapedManagedRoot}')`,
+    "  $toolRoot = Join-Path $managedRoot 'tools'",
+    `  $targetDir = Join-Path $toolRoot '${escapedTarget}'`,
+    "  if (Test-Path -LiteralPath $targetDir) {",
+    "    Remove-Item -LiteralPath $targetDir -Recurse -Force",
+    "  }",
+    "  $global:LASTEXITCODE = 0",
+    "}"
+  ].join("\n");
+}
+
+function normalizeWindowsPath(value: string) {
+  return value.replace(/\//g, "\\");
 }
 
 export function buildExportConfig(config: WinKitBoxExportConfig) {

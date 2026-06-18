@@ -85,7 +85,7 @@ export function applyRunEventSnapshot(
     };
   }
 
-  if (event.type === "manual") {
+  if (event.type === "manual" || event.type === "skipped") {
     return {
       states: currentStates,
       progress: currentProgress

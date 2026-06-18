@@ -50,6 +50,12 @@ export type Tool = {
   };
   customInstallCommand?: string;
   customUninstallCommand?: string;
+  collectionOnly?: boolean;
+  localSource?: {
+    kind: "launcher" | "installer" | "archive";
+    path: string;
+    executable?: string;
+  };
   launch?: {
     appUserModelIds?: string[];
     startMenuNames?: string[];

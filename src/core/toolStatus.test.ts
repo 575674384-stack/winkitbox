@@ -79,6 +79,28 @@ describe("tool status", () => {
     });
   });
 
+  it("keeps skipped install-plan items out of failure state", () => {
+    const current: ToolRuntimeStates = {
+      local: { status: "installed", message: "已收纳，可直接打开。" }
+    };
+    const progress = {
+      active: true,
+      total: 0,
+      completed: 0,
+      succeeded: 0,
+      failed: 0
+    };
+
+    const skipped = applyRunEventSnapshot(
+      { type: "skipped", toolId: "local", label: "Local Tool" },
+      current,
+      progress
+    );
+
+    expect(skipped.states).toBe(current);
+    expect(skipped.progress).toBe(progress);
+  });
+
   it("turns uninstall events into visible progress and not-installed state", () => {
     const started = applyRunEventSnapshot(
       { type: "uninstall-start", toolId: "geek", label: "Geek Uninstaller" },

@@ -154,6 +154,35 @@ describe("planner", () => {
     expect(plan.highRiskCount).toBe(1);
   });
 
+  it("skips collection-only tools in install plans", () => {
+    const plan = createInstallPlan(
+      [
+        {
+          id: "custom-local-editor",
+          name: "Local Editor",
+          category: "custom-add",
+          summary: "本地程序",
+          description: "只收纳到工具箱，不由 WinKitBox 安装。",
+          source: "custom",
+          license: "Local",
+          homepage: "https://example.com",
+          collectionOnly: true,
+          launch: {
+            commands: ["D:\\Tools\\LocalEditor\\editor.exe"]
+          },
+          tags: ["自定义", "本地"],
+          risk: "low"
+        }
+      ],
+      new Set(["custom-local-editor"])
+    );
+
+    expect(plan.readyCount).toBe(0);
+    expect(plan.skippedCount).toBe(1);
+    expect(plan.commands[0].skipReason).toBe("只收纳到工具箱，不执行安装。");
+    expect(buildPowerShellScript(plan)).toContain("[skip] Local Editor: 只收纳到工具箱，不执行安装。");
+  });
+
   it("renders a powershell script with install steps for portable tools", () => {
     const plan = createInstallPlan(tools, new Set(["powertoys", "geek"]));
     const script = buildPowerShellScript(plan);

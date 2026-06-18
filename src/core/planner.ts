@@ -6,6 +6,7 @@ export type InstallCommand = {
   label: string;
   command?: string;
   manualUrl?: string;
+  skipReason?: string;
   source: Tool["source"];
   requiresAdmin: boolean;
   risk: Tool["risk"];
@@ -15,6 +16,7 @@ export type InstallPlan = {
   commands: InstallCommand[];
   readyCount: number;
   manualCount: number;
+  skippedCount: number;
   adminCount: number;
   highRiskCount: number;
 };
@@ -31,6 +33,13 @@ export function buildInstallCommand(tool: Tool, options: InstallOptions = {}): I
     requiresAdmin: Boolean(tool.requiresAdmin),
     risk: tool.risk
   };
+
+  if (tool.collectionOnly) {
+    return {
+      ...base,
+      skipReason: "只收纳到工具箱，不执行安装。"
+    };
+  }
 
   if (tool.customInstallCommand) {
     return {
@@ -81,6 +90,13 @@ export function buildUninstallCommand(tool: Tool, options: InstallOptions = {}):
     requiresAdmin: Boolean(tool.requiresAdmin),
     risk: tool.risk
   };
+
+  if (tool.collectionOnly) {
+    return {
+      ...base,
+      skipReason: "只收纳到工具箱，不执行卸载。"
+    };
+  }
 
   if (tool.customUninstallCommand) {
     return {
@@ -359,6 +375,7 @@ export function createInstallPlan(allTools: Tool[], selectedIds: Set<string>, op
     commands,
     readyCount: commands.filter((item) => item.command).length,
     manualCount: commands.filter((item) => item.manualUrl && !item.command).length,
+    skippedCount: commands.filter((item) => item.skipReason && !item.command).length,
     adminCount: commands.filter((item) => item.requiresAdmin).length,
     highRiskCount: commands.filter((item) => item.risk === "high").length
   };
@@ -372,6 +389,7 @@ export function createUninstallPlan(allTools: Tool[], selectedIds: Set<string>, 
     commands,
     readyCount: commands.filter((item) => item.command).length,
     manualCount: commands.filter((item) => item.manualUrl && !item.command).length,
+    skippedCount: commands.filter((item) => item.skipReason && !item.command).length,
     adminCount: commands.filter((item) => item.requiresAdmin).length,
     highRiskCount: commands.filter((item) => item.risk === "high").length
   };
@@ -389,6 +407,18 @@ export function buildPowerShellScript(plan: InstallPlan): string {
   ];
 
   for (const item of plan.commands) {
+    if (item.skipReason) {
+      lines.push(
+        `Write-Host '${createRunEventLine({
+          type: "skipped",
+          toolId: item.toolId,
+          label: item.label
+        })}'`
+      );
+      lines.push(`Write-Host '[skip] ${item.label}: ${item.skipReason}'`);
+      continue;
+    }
+
     if (!item.command) {
       lines.push(
         `Write-Host '${createRunEventLine({
@@ -448,6 +478,18 @@ export function buildUninstallPowerShellScript(plan: InstallPlan): string {
   ];
 
   for (const item of plan.commands) {
+    if (item.skipReason) {
+      lines.push(
+        `Write-Host '${createRunEventLine({
+          type: "skipped",
+          toolId: item.toolId,
+          label: item.label
+        })}'`
+      );
+      lines.push(`Write-Host '[skip] ${item.label}: ${item.skipReason}'`);
+      continue;
+    }
+
     if (!item.command) {
       lines.push(
         `Write-Host '${createRunEventLine({

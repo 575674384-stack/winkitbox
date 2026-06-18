@@ -141,7 +141,31 @@ Then smoke-test the portable build in `release/`:
 - local system page shows adapters and DNS recommendations;
 - GitHub update check can read the latest public release.
 
+## Release Checklist
+
+Before packaging and publishing a release:
+
+1. Bump `version` in `package.json` to the next version (e.g. `0.3.5` → `0.3.6`).
+2. Add a new `### vX.Y.Z` section under **Release Notes** below.
+3. Run `npm test` and `npm run build`.
+4. Run `npm run package:win` to produce signed Setup + Portable executables.
+5. Create a **new** GitHub release with the matching tag; do not overwrite an existing release tag.
+
 ## Release Notes
+
+### v0.3.7
+
+- Separated tool update detection from actual updates: winget tools now use read-only version checks and only run `winget upgrade` after the user clicks Update.
+- Cleaned update-center messages so winget errors no longer flood tool cards with raw command output.
+- Simplified local tool adding into a file-first flow with automatic handling suggestions, optional AI analysis, and collapsed advanced settings.
+- Fixed Windows environment checks so `.NET Desktop Runtime` only counts `Microsoft.WindowsDesktop.App` runtimes and displays concise version details.
+
+### v0.3.6
+
+- Fixed winget tool-update detection actually running upgrades: `winget upgrade` now uses `--what-if` for dry-run detection only.
+- Redesigned the manual "Add Tool" form: removed the 5 mode tabs and replaced them with a single upload-file + AI-analyze flow.
+- Added `ai-analyze-local-file` IPC and prompt so AI can decide whether a file should be collected, installed, extracted from ZIP, or handled as a custom command.
+- Users now only need to pick a file, enter a name/remark, and let AI infer launch/uninstall/ZIP-executable settings.
 
 ### v0.3.4
 

@@ -80,6 +80,8 @@ declare global {
       }>;
       selectToolRoot: (currentPath?: string) => Promise<string | undefined>;
       selectLocalLauncher: (currentPath?: string) => Promise<string | undefined>;
+      selectLocalPackage: (currentPath?: string) => Promise<string | undefined>;
+      selectLocalFile: (currentPath?: string) => Promise<string | undefined>;
       selectThemeBackground: (request: {
         themeId: import("../core/themes").ThemeId;
       }) => Promise<{
@@ -104,6 +106,9 @@ declare global {
         }[];
         error?: string;
       }>;
+      checkToolUpdates: (
+        descriptors: import("../core/toolUpdates").ToolUpdateDescriptor[],
+      ) => Promise<import("../core/toolUpdates").ToolUpdateCheckResult[]>;
       downloadUpdate: (request: {
         downloadUrl: string;
         fileName: string;
@@ -136,6 +141,7 @@ declare global {
           adapterRamGb?: number;
           driverVersion: string;
         }[];
+        environment?: import("../core/environment").EnvironmentSnapshot;
         utf8BetaEnabled: boolean;
         adapters: {
           id: string;
@@ -214,6 +220,27 @@ declare global {
         errorMessage?: string;
       }) => Promise<{
         candidate: import("../core/aiTool").AiToolCandidate;
+      }>;
+      analyzeLocalFile: (request: {
+        baseUrl: string;
+        apiKey: string;
+        model: string;
+        filePath: string;
+        toolName?: string;
+        categoryId?: string;
+        remark?: string;
+      }) => Promise<{
+        candidate: {
+          mode?: "collect" | "local-installer" | "local-archive" | "command";
+          name?: string;
+          summary?: string;
+          description?: string;
+          homepage?: string;
+          launchCommand?: string;
+          uninstallCommand?: string;
+          archiveExecutable?: string;
+          explanation?: string;
+        };
       }>;
       runPowerShell: (script: string) => Promise<{ code: number | null }>;
       detectTools: (descriptors: {
