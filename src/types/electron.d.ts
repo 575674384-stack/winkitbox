@@ -6,7 +6,7 @@ declare global {
       openUrl: (url: string) => Promise<boolean>;
       fetchGitHub: (request: {
         url: string;
-        proxy: {
+        proxy?: {
           mode: "system" | "direct" | "manual";
           manualProxy: string;
         };
@@ -19,7 +19,7 @@ declare global {
       }>;
       translateText: (request: {
         url: string;
-        proxy: {
+        proxy?: {
           mode: "system" | "direct" | "manual";
           manualProxy: string;
         };
@@ -36,12 +36,15 @@ declare global {
         aiBaseUrl: string;
         aiApiKey: string;
         aiModel: string;
+        proxyMode: "system" | "direct" | "manual";
+        proxyManual: string;
         themeId: import("../core/themes").ThemeId;
         themeBackgrounds: Partial<Record<import("../core/themes").ThemeId, string>>;
         glassOpacity: number;
         glassBlur: number;
         customTools: import("../core/catalog").Tool[];
         customCategories: import("../core/catalog").CategoryDefinition[];
+        toolCategoryOverrides: Record<string, string>;
       }>;
       setSettings: (settings: {
         toolRootPath: string;
@@ -49,12 +52,15 @@ declare global {
         aiBaseUrl?: string;
         aiApiKey?: string;
         aiModel?: string;
+        proxyMode?: "system" | "direct" | "manual";
+        proxyManual?: string;
         themeId?: import("../core/themes").ThemeId;
         themeBackgrounds?: Partial<Record<import("../core/themes").ThemeId, string>>;
         glassOpacity?: number;
         glassBlur?: number;
         customTools?: import("../core/catalog").Tool[];
         customCategories?: import("../core/catalog").CategoryDefinition[];
+        toolCategoryOverrides?: Record<string, string>;
       }) => Promise<{
         toolRootPath: string;
         defaultToolRootPath: string;
@@ -62,12 +68,15 @@ declare global {
         aiBaseUrl: string;
         aiApiKey: string;
         aiModel: string;
+        proxyMode: "system" | "direct" | "manual";
+        proxyManual: string;
         themeId: import("../core/themes").ThemeId;
         themeBackgrounds: Partial<Record<import("../core/themes").ThemeId, string>>;
         glassOpacity: number;
         glassBlur: number;
         customTools: import("../core/catalog").Tool[];
         customCategories: import("../core/catalog").CategoryDefinition[];
+        toolCategoryOverrides: Record<string, string>;
       }>;
       selectToolRoot: (currentPath?: string) => Promise<string | undefined>;
       selectLocalLauncher: (currentPath?: string) => Promise<string | undefined>;

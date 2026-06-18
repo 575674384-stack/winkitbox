@@ -2,6 +2,12 @@ import type { CategoryDefinition, Tool, ToolCategory } from "./catalog";
 import { normalizeCategoryDefinitions } from "./catalog";
 import { isThemeId, type ThemeId } from "./themes";
 
+const allowedProxyModes = new Set(["system", "direct", "manual"]);
+
+function normalizeProxyMode(value: string): "system" | "direct" | "manual" | undefined {
+  return allowedProxyModes.has(value) ? (value as "system" | "direct" | "manual") : undefined;
+}
+
 export type WinKitBoxExportConfig = {
   version: 1;
   exportedAt: string;
@@ -9,6 +15,8 @@ export type WinKitBoxExportConfig = {
     toolRootPath: string;
     updateOnStartup: boolean;
     themeId?: ThemeId;
+    proxyMode?: "system" | "direct" | "manual";
+    proxyManual?: string;
   };
   selectedToolIds: string[];
   customTools: Tool[];
@@ -154,7 +162,9 @@ export function parseImportedConfig(text: string): WinKitBoxExportConfig {
     settings: {
       toolRootPath: String(parsed.settings.toolRootPath || ""),
       updateOnStartup: parsed.settings.updateOnStartup !== false,
-      themeId: isThemeId(String(parsed.settings.themeId || "")) ? parsed.settings.themeId : undefined
+      themeId: isThemeId(String(parsed.settings.themeId || "")) ? parsed.settings.themeId : undefined,
+      proxyMode: normalizeProxyMode(String(parsed.settings.proxyMode || "")),
+      proxyManual: String(parsed.settings.proxyManual || "").trim() || undefined
     },
     selectedToolIds: Array.isArray(parsed.selectedToolIds) ? parsed.selectedToolIds.map(String) : [],
     customTools: parsed.customTools.slice(0, 200).filter(isLikelyTool),

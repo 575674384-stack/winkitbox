@@ -31,23 +31,28 @@ import {
   getCategoryName,
   type CategoryDefinition
 } from "./core/catalog";
+import type { ProxyMode } from "./core/github";
 import { buildTranslateUrl, parseGoogleTranslatePayload, shouldTranslate } from "./core/translation";
 
 type DiscoverViewProps = {
   categories: CategoryDefinition[];
   defaultCategoryId: string;
+  proxyMode: ProxyMode;
+  proxyManual: string;
   onAddRepoWithAi: (repoUrl: string, categoryId: string) => Promise<void>;
   onOpenUrl: (url: string) => Promise<void>;
 };
 
 type FetchState = "idle" | "loading" | "ready" | "cached" | "error";
 
-const settingsKey = "winkitbox:github-settings:v1";
+const tokenKey = "winkitbox:github-token:v1";
 const translatePreferenceKey = "winkitbox:github-translate:v1";
 
 export function DiscoverView({
   categories,
   defaultCategoryId,
+  proxyMode,
+  proxyManual,
   onAddRepoWithAi,
   onOpenUrl
 }: DiscoverViewProps) {
@@ -58,7 +63,7 @@ export function DiscoverView({
   const [status, setStatus] = useState<FetchState>("idle");
   const [message, setMessage] = useState("准备读取 GitHub 榜单。");
   const [fetchedAt, setFetchedAt] = useState<string>("");
-  const [settings, setSettings] = useState<ProxySettings>(() => loadSettings());
+  const [token, setToken] = useState(() => loadGitHubToken());
   const [translateDescriptions, setTranslateDescriptions] = useState(() => loadTranslatePreference());
   const [addCategoryId, setAddCategoryId] = useState(defaultCategoryId);
   const [addingRepo, setAddingRepo] = useState<string>();
@@ -78,9 +83,18 @@ export function DiscoverView({
     );
   }, [query, repos]);
 
+  const proxySettings: ProxySettings = useMemo(
+    () => ({
+      mode: proxyMode,
+      manualProxy: proxyManual,
+      token,
+    }),
+    [proxyMode, proxyManual, token],
+  );
+
   useEffect(() => {
-    localStorage.setItem(settingsKey, JSON.stringify(settings));
-  }, [settings]);
+    localStorage.setItem(tokenKey, token);
+  }, [token]);
 
   useEffect(() => {
     localStorage.setItem(translatePreferenceKey, JSON.stringify(translateDescriptions));
@@ -108,11 +122,11 @@ export function DiscoverView({
     setMessage("正在访问 GitHub。");
 
     try {
-      let nextRepos = filterWindowsRepos(await fetchTrendingRepos(range, language, settings));
+      let nextRepos = filterWindowsRepos(await fetchTrendingRepos(range, language, proxySettings));
 
       if (translateDescriptions) {
         setMessage("正在翻译项目简介。");
-        nextRepos = await translateRepoDescriptions(nextRepos, settings);
+        nextRepos = await translateRepoDescriptions(nextRepos, proxySettings);
       }
 
       setRepos(nextRepos);
@@ -151,7 +165,7 @@ export function DiscoverView({
     setMessage("正在测试 GitHub 连接。");
 
     try {
-      const response = await fetchGitHubText("https://api.github.com/rate_limit", settings);
+      const response = await fetchGitHubText("https://api.github.com/rate_limit", proxySettings);
       const remain = response.headers["x-ratelimit-remaining"];
       setStatus("ready");
       setMessage(remain ? `连接正常，API 剩余请求 ${remain} 次。` : "连接正常。");
@@ -165,7 +179,7 @@ export function DiscoverView({
     setStatus("loading");
     setMessage("正在翻译项目简介。");
 
-    const translatedRepos = await translateRepoDescriptions(repos, settings);
+    const translatedRepos = await translateRepoDescriptions(repos, proxySettings);
     setRepos(translatedRepos);
     saveCache(range, language, translatedRepos);
     setStatus("ready");
@@ -359,32 +373,23 @@ export function DiscoverView({
               <Github size={16} />
               GitHub 网络
             </div>
-            <div className="proxy-options">
-              {(["system", "direct", "manual"] as const).map((mode) => (
-                <button
-                  className={settings.mode === mode ? "active" : ""}
-                  key={mode}
-                  type="button"
-                  onClick={() => setSettings((current) => ({ ...current, mode }))}
-                >
-                  {mode === "system" ? "系统代理" : mode === "direct" ? "直连" : "手动代理"}
-                </button>
-              ))}
+            <div className="network-status">
+              <span>代理模式</span>
+              <strong>{proxyMode === "system" ? "系统代理" : proxyMode === "direct" ? "直连" : "手动代理"}</strong>
             </div>
-            <label className="field-label">
-              手动代理
-              <input
-                value={settings.manualProxy}
-                onChange={(event) => setSettings((current) => ({ ...current, manualProxy: event.target.value }))}
-                placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:7890"
-              />
-            </label>
+            {proxyMode === "manual" && (
+              <div className="network-status">
+                <span>手动代理</span>
+                <strong>{proxyManual || "未填写"}</strong>
+              </div>
+            )}
             <label className="field-label">
               GitHub Token
               <input
-                value={settings.token}
+                value={token}
                 type="password"
-                onChange={(event) => setSettings((current) => ({ ...current, token: event.target.value }))}
+                onChange={(event) => setToken(event.target.value)}
+                onBlur={() => saveGitHubToken(token)}
                 placeholder="可选，用于提升 API 限额"
               />
             </label>
@@ -523,20 +528,19 @@ async function fetchTranslatedText(text: string, settings: ProxySettings) {
   return parseGoogleTranslatePayload(await response.json());
 }
 
-function loadSettings(): ProxySettings {
+function loadGitHubToken(): string {
   try {
-    const stored = JSON.parse(localStorage.getItem(settingsKey) ?? "{}") as Partial<ProxySettings>;
-    return {
-      mode: stored.mode ?? "system",
-      manualProxy: stored.manualProxy ?? "",
-      token: stored.token ?? ""
-    };
+    return String(localStorage.getItem(tokenKey) ?? "");
   } catch {
-    return {
-      mode: "system",
-      manualProxy: "",
-      token: ""
-    };
+    return "";
+  }
+}
+
+function saveGitHubToken(value: string) {
+  try {
+    localStorage.setItem(tokenKey, value);
+  } catch {
+    // Ignore storage errors.
   }
 }
 

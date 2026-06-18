@@ -98,6 +98,16 @@ describe("planner", () => {
     );
   });
 
+  it("uses purge and force fallbacks when uninstalling Czkawka", () => {
+    const czkawka = tools.find((tool) => tool.id === "czkawka");
+    const command = buildUninstallCommand(czkawka!);
+
+    expect(command.command).toContain("qarmin.czkawka.gui");
+    expect(command.command).toContain("--force");
+    expect(command.command).toContain("--purge");
+    expect(command.command).toContain("qarmin.czkawka");
+  });
+
   it("builds managed portable removal commands for portable tools", () => {
     const geek = tools.find((tool) => tool.id === "geek");
     const command = buildUninstallCommand(geek!);

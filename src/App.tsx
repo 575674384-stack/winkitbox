@@ -95,16 +95,15 @@ import {
   type ToolRuntimeStates,
 } from "./core/toolStatus";
 import {
+  defaultThemeId,
   getThemeDefinition,
   getThemeImageBackgroundUrl,
-  imageThemeIds,
-  isImageThemeId,
-  isSolidThemeId,
-  solidThemeIds,
+  isThemeId,
   themeDefinitions,
   type ThemeId,
 } from "./core/themes";
 import { findSetupAsset, type UpdateInfo } from "./core/update";
+import type { ProxyMode } from "./core/github";
 
 type CategoryFilter = "all" | ToolCategory;
 type ActiveView = "catalog" | "discover" | "system" | "settings";
@@ -122,6 +121,8 @@ type ToolPathSettings = {
   aiBaseUrl: string;
   aiApiKey: string;
   aiModel: string;
+  proxyMode: ProxyMode;
+  proxyManual: string;
   themeId: ThemeId;
   themeBackgrounds: Partial<Record<ThemeId, string>>;
   glassOpacity: number;
@@ -225,7 +226,9 @@ const fallbackSettings: ToolPathSettings = {
   aiBaseUrl: "",
   aiApiKey: "",
   aiModel: "",
-  themeId: "light",
+  proxyMode: "system",
+  proxyManual: "",
+  themeId: defaultThemeId,
   themeBackgrounds: {},
   glassOpacity: 0.72,
   glassBlur: 28,
@@ -475,7 +478,9 @@ export function App() {
     () => getThemeDefinition(settings.themeId),
     [settings.themeId],
   );
-  const currentThemeBackground = getThemeImageBackgroundUrl(settings.themeId);
+  const currentThemeBackground =
+    settings.themeBackgrounds[settings.themeId] ??
+    getThemeImageBackgroundUrl(settings.themeId);
   const themeStyle = useMemo(
     () =>
       ({
@@ -483,15 +488,10 @@ export function App() {
           ? toCssUrl(currentThemeBackground)
           : "none",
         "--theme-backdrop": currentTheme.background,
-        "--glass-opacity": String(settings.glassOpacity),
-        "--glass-blur": `${settings.glassBlur}px`,
+        "--glass-opacity": String(currentTheme.defaultGlassOpacity),
+        "--glass-blur": `${currentTheme.defaultGlassBlur}px`,
       }) as CSSProperties,
-    [
-      currentTheme,
-      currentThemeBackground,
-      settings.glassOpacity,
-      settings.glassBlur,
-    ],
+    [currentTheme, currentThemeBackground],
   );
 
   useEffect(() => {
@@ -508,9 +508,13 @@ export function App() {
           nextSettings.customTools.length > 0
             ? nextSettings.customTools
             : loadCustomTools();
+        const migratedThemeId = isThemeId(nextSettings.themeId)
+          ? nextSettings.themeId
+          : defaultThemeId;
         const normalizedSettings = {
           ...fallbackSettings,
           ...nextSettings,
+          themeId: migratedThemeId,
           updateOnStartup: nextSettings.updateOnStartup !== false,
           customTools: storedCustomTools,
           customCategories: normalizeCategoryDefinitions(
@@ -748,12 +752,15 @@ export function App() {
       aiBaseUrl: nextSettings.aiBaseUrl,
       aiApiKey: nextSettings.aiApiKey,
       aiModel: nextSettings.aiModel,
+      proxyMode: nextSettings.proxyMode,
+      proxyManual: nextSettings.proxyManual,
       themeId: nextSettings.themeId,
       themeBackgrounds: nextSettings.themeBackgrounds,
       glassOpacity: nextSettings.glassOpacity,
       glassBlur: nextSettings.glassBlur,
       customTools: nextSettings.customTools,
       customCategories: nextSettings.customCategories,
+      toolCategoryOverrides: nextSettings.toolCategoryOverrides,
     });
     const normalizedSettings = {
       ...fallbackSettings,
@@ -845,6 +852,21 @@ export function App() {
     }
   }
 
+  async function saveProxySettings(proxy: {
+    proxyMode: ProxyMode;
+    proxyManual: string;
+  }) {
+    try {
+      await persistSettings({ ...settings, ...proxy });
+      appendLog("success", "代理设置已保存并生效。");
+    } catch (error) {
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "保存代理设置失败。",
+      );
+    }
+  }
+
   async function saveCustomCategories(nextCategories: CategoryDefinition[]) {
     try {
       await persistSettings({
@@ -861,19 +883,36 @@ export function App() {
 
   async function saveToolCategory(toolId: string, categoryId: string) {
     try {
-      const originalTool =
-        catalogTools.find((tool) => tool.id === toolId) ??
-        customTools.find((tool) => tool.id === toolId);
-      const nextOverrides = { ...settings.toolCategoryOverrides };
-      if (originalTool && categoryId === originalTool.category) {
+      const catalogTool = catalogTools.find((tool) => tool.id === toolId);
+      const customToolIndex = customTools.findIndex((tool) => tool.id === toolId);
+      const originalTool = catalogTool ?? customTools[customToolIndex];
+
+      if (customToolIndex >= 0) {
+        // Custom tools are part of the customTools list; update them directly
+        // rather than creating an override.
+        const nextCustomTools = customTools.map((tool, index) =>
+          index === customToolIndex ? { ...tool, category: categoryId } : tool,
+        );
+        const nextOverrides = { ...settings.toolCategoryOverrides };
         delete nextOverrides[toolId];
+        await persistSettings({
+          ...settings,
+          customTools: nextCustomTools,
+          toolCategoryOverrides: nextOverrides,
+        });
       } else {
-        nextOverrides[toolId] = categoryId;
+        const nextOverrides = { ...settings.toolCategoryOverrides };
+        if (catalogTool && categoryId === catalogTool.category) {
+          delete nextOverrides[toolId];
+        } else {
+          nextOverrides[toolId] = categoryId;
+        }
+        await persistSettings({
+          ...settings,
+          toolCategoryOverrides: nextOverrides,
+        });
       }
-      await persistSettings({
-        ...settings,
-        toolCategoryOverrides: nextOverrides,
-      });
+
       const toolName = originalTool?.name ?? toolId;
       const categoryName = getCategoryName(categoryId, settings.customCategories);
       appendLog("success", `已将 ${toolName} 移动到 ${categoryName}。`);
@@ -970,9 +1009,6 @@ export function App() {
     const nextSettings = {
       ...settings,
       themeId,
-      glassOpacity: getThemeDefinition(themeId).defaultGlassOpacity,
-      glassBlur: getThemeDefinition(themeId).defaultGlassBlur,
-      themeBackgrounds: {},
     };
     try {
       await persistSettings(nextSettings);
@@ -988,24 +1024,53 @@ export function App() {
     }
   }
 
-  async function saveGlassSettings(glass: {
-    glassOpacity: number;
-    glassBlur: number;
-  }) {
+  async function selectCustomThemeBackground(themeId: ThemeId) {
+    if (!window.winKitBox) {
+      return;
+    }
+
     try {
-      await persistSettings({ ...settings, ...glass });
-      appendLog(
-        "success",
-        `面板效果已调整为不透明度 ${Math.round(glass.glassOpacity * 100)}%、背景柔化 ${glass.glassBlur}px。`,
-      );
+      const result = await window.winKitBox.selectThemeBackground({ themeId });
+
+      if (result.canceled || !result.backgroundUrl || !result.themeId) {
+        return;
+      }
+
+      const nextSettings = {
+        ...settings,
+        themeBackgrounds: {
+          ...settings.themeBackgrounds,
+          [result.themeId]: result.backgroundUrl,
+        },
+      };
+      await persistSettings(nextSettings);
+      appendLog("success", "已设置自定义主题背景。");
     } catch (error) {
       appendLog(
         "error",
-        error instanceof Error ? error.message : "保存面板效果失败。",
+        error instanceof Error ? error.message : "设置背景失败。",
       );
     }
   }
 
+  async function clearCustomThemeBackground(themeId: ThemeId) {
+    if (!window.winKitBox) {
+      return;
+    }
+
+    try {
+      await window.winKitBox.clearThemeBackground({ themeId });
+      const nextBackgrounds = { ...settings.themeBackgrounds };
+      delete nextBackgrounds[themeId];
+      await persistSettings({ ...settings, themeBackgrounds: nextBackgrounds });
+      appendLog("success", "已恢复默认主题背景。");
+    } catch (error) {
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "清除背景失败。",
+      );
+    }
+  }
 
   async function checkForUpdates(silent = false) {
     if (!window.winKitBox) {
@@ -1064,6 +1129,8 @@ export function App() {
           toolRootPath: settings.toolRootPath,
           updateOnStartup: settings.updateOnStartup,
           themeId: settings.themeId,
+          proxyMode: settings.proxyMode,
+          proxyManual: settings.proxyManual,
         },
         selectedToolIds: Array.from(selectedIds),
         customTools,
@@ -1122,6 +1189,8 @@ export function App() {
         toolRootPath: imported.settings.toolRootPath || settings.toolRootPath,
         updateOnStartup: imported.settings.updateOnStartup,
         themeId: imported.settings.themeId ?? settings.themeId,
+        proxyMode: imported.settings.proxyMode ?? settings.proxyMode,
+        proxyManual: imported.settings.proxyManual ?? settings.proxyManual,
         customTools: nextCustomTools,
         customCategories: nextCustomCategories,
       };
@@ -1213,6 +1282,25 @@ export function App() {
     });
     await persistSettings({ ...settings, customTools: nextCustomTools });
     appendLog("success", `已移除自定义工具：${tool?.name ?? toolId}。`);
+  }
+
+  async function removeCustomToolFromCard(tool: Tool) {
+    if (!window.winKitBox) {
+      appendLog("warning", "浏览器预览模式不能移除自定义工具。");
+      return;
+    }
+
+    const isInstalled = toolStates[tool.id]?.status === "installed";
+    const confirmationMessage = isInstalled
+      ? `${tool.name} 当前显示为已安装。移除将仅从 WinKitBox 列表中删除该工具，不会卸载已安装的软件。是否继续？`
+      : `确定要从 WinKitBox 中移除 ${tool.name} 吗？`;
+
+    if (!window.confirm(confirmationMessage)) {
+      appendLog("info", `已取消移除 ${tool.name}。`);
+      return;
+    }
+
+    await removeCustomTool(tool.id);
   }
 
   async function fixToolWithAi(tool: Tool) {
@@ -1782,6 +1870,8 @@ export function App() {
           <DiscoverView
             categories={activeCategoryDefinitions}
             defaultCategoryId={customAddCategoryId}
+            proxyMode={settings.proxyMode}
+            proxyManual={settings.proxyManual}
             onAddRepoWithAi={addDiscoverRepoWithAi}
             onOpenUrl={openUrl}
           />
@@ -1809,8 +1899,10 @@ export function App() {
             openUpdateRelease={openUpdateRelease}
             saveUpdateOnStartup={saveUpdateOnStartup}
             saveAiSettings={saveAiSettings}
+            saveProxySettings={saveProxySettings}
             saveTheme={saveTheme}
-            saveGlassSettings={saveGlassSettings}
+            onSelectCustomThemeBackground={selectCustomThemeBackground}
+            onClearCustomThemeBackground={clearCustomThemeBackground}
             onLog={appendLog}
             logs={logs}
             customTools={customTools}
@@ -1818,6 +1910,7 @@ export function App() {
             allCategories={settings.customCategories}
             onAddAiTool={addAiGeneratedTool}
             onRemoveCustomTool={removeCustomTool}
+            onUninstallCustomTool={uninstallTool}
             onExportConfig={exportConfig}
             onImportConfig={importConfig}
           />
@@ -1929,6 +2022,7 @@ export function App() {
                   toolState={toolStates[tool.id] ?? { status: "unknown" }}
                   selected={selectedIds.has(tool.id)}
                   categories={activeCategoryDefinitions}
+                  isCustom={customTools.some((item) => item.id === tool.id)}
                   onToggle={() => toggleTool(tool.id)}
                   onInstall={() => installTool(tool)}
                   onUninstall={() => uninstallTool(tool)}
@@ -1938,6 +2032,7 @@ export function App() {
                   onSetCategory={(categoryId) =>
                     saveToolCategory(tool.id, categoryId)
                   }
+                  onRemove={() => removeCustomToolFromCard(tool)}
                 />
               ))}
             </div>
@@ -2759,8 +2854,10 @@ function SettingsView({
   openUpdateRelease,
   saveUpdateOnStartup,
   saveAiSettings,
+  saveProxySettings,
   saveTheme,
-  saveGlassSettings,
+  onSelectCustomThemeBackground,
+  onClearCustomThemeBackground,
   onLog,
   logs,
   customTools,
@@ -2768,6 +2865,7 @@ function SettingsView({
   allCategories,
   onAddAiTool,
   onRemoveCustomTool,
+  onUninstallCustomTool,
   onExportConfig,
   onImportConfig,
 }: {
@@ -2787,11 +2885,13 @@ function SettingsView({
     aiApiKey: string;
     aiModel: string;
   }) => Promise<void>;
-  saveTheme: (themeId: ThemeId) => Promise<void>;
-  saveGlassSettings: (glass: {
-    glassOpacity: number;
-    glassBlur: number;
+  saveProxySettings: (proxy: {
+    proxyMode: ProxyMode;
+    proxyManual: string;
   }) => Promise<void>;
+  saveTheme: (themeId: ThemeId) => Promise<void>;
+  onSelectCustomThemeBackground: (themeId: ThemeId) => Promise<void>;
+  onClearCustomThemeBackground: (themeId: ThemeId) => Promise<void>;
   onLog: (level: LogEntry["level"], message: string) => void;
   logs: LogEntry[];
   customTools: Tool[];
@@ -2803,6 +2903,7 @@ function SettingsView({
     categoryId?: string,
   ) => Promise<void>;
   onRemoveCustomTool: (toolId: string) => Promise<void>;
+  onUninstallCustomTool: (tool: Tool) => Promise<void>;
   onExportConfig: () => Promise<void>;
   onImportConfig: () => Promise<void>;
 }) {
@@ -2981,97 +3082,66 @@ function SettingsView({
             主题与背景
           </div>
 
-          <div className="section-title compact-title">颜色主题</div>
-          <div className="theme-grid">
-            {themeDefinitions.filter((theme) => isSolidThemeId(theme.id)).map((theme) => {
-              const active = settings.themeId === theme.id;
-
-              return (
-                <button
-                  className={`theme-card ${active ? "active" : ""}`}
-                  key={theme.id}
-                  type="button"
-                  onClick={() => saveTheme(theme.id)}
-                >
-                  <span
-                    className="theme-swatch"
-                    style={{
-                      background: theme.background,
-                      borderColor: theme.accent,
-                    }}
-                  />
-                  <strong>{theme.name}</strong>
-                  <small>{theme.description}</small>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="section-title compact-title">图片背景主题</div>
+          <div className="section-title compact-title">选择背景主题</div>
           <div className="background-grid">
-            {themeDefinitions.filter((theme) => isImageThemeId(theme.id)).map((theme) => {
+            {themeDefinitions.map((theme) => {
               const active = settings.themeId === theme.id;
+              const customBackground = settings.themeBackgrounds[theme.id];
 
               return (
-                <button
-                  aria-pressed={active}
-                  className={`background-card ${active ? "active" : ""}`}
+                <div
                   key={theme.id}
-                  type="button"
-                  onClick={() => saveTheme(theme.id)}
+                  className={`background-card ${active ? "active" : ""}`}
                 >
-                  <span
-                    className="background-thumb"
-                    style={{
-                      backgroundImage: toCssUrl(theme.imageBackground ?? ""),
-                      borderColor: theme.accent,
-                    }}
-                  />
-                  <strong>{theme.name}</strong>
-                  <small>{theme.description}</small>
-                </button>
+                  <button
+                    aria-pressed={active}
+                    className="background-preview"
+                    type="button"
+                    title={theme.description}
+                    onClick={() => saveTheme(theme.id)}
+                  >
+                    <span
+                      className="background-thumb"
+                      style={{
+                        backgroundImage: toCssUrl(
+                          customBackground ?? theme.imageBackground ?? "",
+                        ),
+                        backgroundPosition:
+                          theme.id === "azure" ? "center" : "right center",
+                        borderColor: theme.accent,
+                      }}
+                    />
+                    <span className="background-check">
+                      <Check size={16} />
+                    </span>
+                    <strong>{theme.name}</strong>
+                    <small>{theme.description}</small>
+                  </button>
+                  <div className="background-actions">
+                    <button
+                      className="icon-button"
+                      type="button"
+                      title="上传自定义背景"
+                      onClick={() => onSelectCustomThemeBackground(theme.id)}
+                    >
+                      <Upload size={14} />
+                    </button>
+                    {customBackground && (
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title="恢复默认背景"
+                        onClick={() => onClearCustomThemeBackground(theme.id)}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
               );
             })}
           </div>
 
-          <div className="glass-controls">
-            <div className="glass-slider">
-              <div className="slider-label">
-                <span>面板透明度</span>
-                <strong>{Math.round(settings.glassOpacity * 100)}%</strong>
-              </div>
-              <input
-                type="range"
-                min={10}
-                max={95}
-                value={Math.round(settings.glassOpacity * 100)}
-                onChange={(event) =>
-                  void saveGlassSettings({
-                    glassOpacity: Number(event.target.value) / 100,
-                    glassBlur: settings.glassBlur,
-                  })
-                }
-              />
-            </div>
-            <div className="glass-slider">
-              <div className="slider-label">
-                <span>背景柔化</span>
-                <strong>{settings.glassBlur}px</strong>
-              </div>
-              <input
-                type="range"
-                min={4}
-                max={48}
-                value={settings.glassBlur}
-                onChange={(event) =>
-                  void saveGlassSettings({
-                    glassOpacity: settings.glassOpacity,
-                    glassBlur: Number(event.target.value),
-                  })
-                }
-              />
-            </div>
-          </div>
         </section>
 
         <section className="settings-card">
@@ -3188,6 +3258,47 @@ function SettingsView({
           {updateInfo?.error && (
             <p className="settings-error">{updateInfo.error}</p>
           )}
+        </section>
+
+        <section className="settings-card">
+          <div className="section-title">
+            <Network size={15} />
+            网络代理
+          </div>
+          <div className="proxy-options settings-proxy-options">
+            {(["system", "direct", "manual"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={`proxy-mode-button ${settings.proxyMode === mode ? "active" : ""}`}
+                onClick={() =>
+                  void saveProxySettings({
+                    proxyMode: mode,
+                    proxyManual: settings.proxyManual,
+                  })
+                }
+              >
+                {mode === "system" ? "系统代理" : mode === "direct" ? "直连" : "手动代理"}
+              </button>
+            ))}
+          </div>
+          <label className="field-label">
+            手动代理地址
+            <input
+              value={settings.proxyManual}
+              onChange={(event) =>
+                void saveProxySettings({
+                  proxyMode: settings.proxyMode,
+                  proxyManual: event.target.value,
+                })
+              }
+              placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:7890"
+              disabled={settings.proxyMode !== "manual"}
+            />
+          </label>
+          <p className="settings-note">
+            影响 GitHub 更新检查、榜单、翻译及安装包下载。系统代理会读取操作系统代理设置。
+          </p>
         </section>
 
         <section className="settings-card full-span">
@@ -3344,10 +3455,13 @@ function SettingsView({
                   <button
                     className="secondary-button danger"
                     type="button"
-                    onClick={() => onRemoveCustomTool(tool.id)}
+                    onClick={async () => {
+                      await onUninstallCustomTool(tool);
+                      await onRemoveCustomTool(tool.id);
+                    }}
                   >
                     <Trash2 size={14} />
-                    移除
+                    卸载并移除
                   </button>
                 </div>
               ))}
@@ -3435,6 +3549,7 @@ function ToolCard({
   toolState,
   selected,
   categories,
+  isCustom,
   onToggle,
   onInstall,
   onUninstall,
@@ -3442,11 +3557,13 @@ function ToolCard({
   onOpen,
   onAiFix,
   onSetCategory,
+  onRemove,
 }: {
   tool: Tool;
   toolState: ToolRuntimeState;
   selected: boolean;
   categories: CategoryDefinition[];
+  isCustom: boolean;
   onToggle: () => void;
   onInstall: () => void;
   onUninstall: () => void;
@@ -3454,6 +3571,7 @@ function ToolCard({
   onOpen: () => void;
   onAiFix: () => void;
   onSetCategory: (categoryId: string) => void;
+  onRemove: () => void;
 }) {
   const Icon = categoryIcons[tool.category];
   const [logoFailed, setLogoFailed] = useState(false);
@@ -3514,25 +3632,37 @@ function ToolCard({
       </div>
 
       <div className="tool-footer">
-        <select
-          className="tool-category-select"
-          value={tool.category}
-          onChange={(event) => onSetCategory(event.target.value)}
-          title="修改分类"
-        >
-          <option value={uncategorizedCategoryId}>未分类</option>
-          {tool.category !== uncategorizedCategoryId &&
-            !categories.some((category) => category.id === tool.category) && (
-              <option value={tool.category} disabled>
-                {categoryLabels[tool.category] ?? tool.category}
+        <div className="tool-category-row">
+          <select
+            className="tool-category-select"
+            value={tool.category}
+            onChange={(event) => onSetCategory(event.target.value)}
+            title="修改分类"
+          >
+            <option value={uncategorizedCategoryId}>未分类</option>
+            {tool.category !== uncategorizedCategoryId &&
+              !categories.some((category) => category.id === tool.category) && (
+                <option value={tool.category} disabled>
+                  {categoryLabels[tool.category] ?? tool.category}
+                </option>
+              )}
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
               </option>
-            )}
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </select>
+            ))}
+          </select>
+          {isCustom && (
+            <button
+              className="mini-action remove"
+              type="button"
+              onClick={onRemove}
+            >
+              <X size={14} />
+              移除
+            </button>
+          )}
+        </div>
         <div className="tool-meta-pills">
           <span
             className={`tool-status-pill ${toolState.status}`}

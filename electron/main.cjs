@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, net, session, shell } = require("electron");
+const { HttpsProxyAgent } = require("https-proxy-agent");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -17,6 +18,7 @@ const {
 let mainWindow;
 let tray;
 let isQuitting = false;
+let activeProxyAgent = null;
 
 const appRoot = path.join(__dirname, "..");
 const updateRepository = {
@@ -66,10 +68,13 @@ function createWindow() {
 }
 
 if (gotSingleInstanceLock) {
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     Menu.setApplicationMenu(null);
     createWindow();
     createAppTray();
+    await applyStoredProxy().catch((error) => {
+      console.error("Failed to apply proxy settings on startup:", error);
+    });
   });
 
   app.on("second-instance", restoreMainWindow);
@@ -154,6 +159,7 @@ ipcMain.handle("settings-set", async (_event, settings) => {
   const normalized = normalizeSettings(settings);
   ensureDirectory(normalized.toolRootPath);
   writeSettings(normalized);
+  await applyStoredProxy();
   return readSettings();
 });
 
@@ -404,24 +410,132 @@ function runPowerShellCapture(script) {
   });
 }
 
-async function applyProxySettings(proxy) {
-  const mode = String(proxy?.mode ?? "system");
-  const manualProxy = String(proxy?.manualProxy ?? "").trim();
+function normalizeProxyUrl(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `http://${trimmed}`;
+}
 
-  if (mode === "direct") {
-    await session.defaultSession.setProxy({ mode: "direct" });
-    return;
+function parseWindowsProxyServer(server) {
+  const trimmed = String(server ?? "").trim();
+  if (!trimmed) return "";
+  if (!trimmed.includes("=")) return normalizeProxyUrl(trimmed);
+
+  const parts = trimmed.split(";");
+  for (const part of parts) {
+    const [scheme, address] = part.split("=", 2);
+    if (scheme && address && scheme.trim().toLowerCase() === "https") {
+      return normalizeProxyUrl(address.trim());
+    }
+  }
+  for (const part of parts) {
+    const [scheme, address] = part.split("=", 2);
+    if (scheme && address && scheme.trim().toLowerCase() === "http") {
+      return normalizeProxyUrl(address.trim());
+    }
+  }
+  return "";
+}
+
+async function readWindowsSystemProxy() {
+  try {
+    const { stdout } = await runPowerShellCapture(`
+      $reg = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
+      $props = Get-ItemProperty -Path $reg -Name ProxyEnable, ProxyServer, ProxyOverride -ErrorAction SilentlyContinue
+      [PSCustomObject]@{
+        ProxyEnable = [bool]$props.ProxyEnable
+        ProxyServer = $props.ProxyServer
+        ProxyOverride = $props.ProxyOverride
+      } | ConvertTo-Json -Compress
+    `);
+    const lines = stdout.trim().split("\n").map((line) => line.trim()).filter(Boolean);
+    const data = JSON.parse(lines[lines.length - 1] || "{}");
+    if (!data.ProxyEnable) return { enabled: false };
+    return {
+      enabled: true,
+      server: parseWindowsProxyServer(data.ProxyServer),
+      bypass: String(data.ProxyOverride || "").replace(/;/g, ",")
+    };
+  } catch {
+    return { enabled: false };
+  }
+}
+
+async function applyProxySettings(proxy) {
+  let mode;
+  let manualProxy;
+
+  if (proxy && typeof proxy === "object") {
+    mode = String(proxy.mode ?? "").trim();
+    manualProxy = String(proxy.manualProxy ?? "").trim();
   }
 
-  if (mode === "manual" && manualProxy) {
+  if (!mode) {
+    const settings = readSettings();
+    mode = settings.proxyMode;
+    manualProxy = settings.proxyManual;
+  }
+
+  mode = normalizeProxyMode(mode);
+
+  // Apply to Electron renderer network stack (net.fetch, web requests).
+  if (mode === "direct") {
+    await session.defaultSession.setProxy({ mode: "direct" });
+  } else if (mode === "manual" && manualProxy) {
     await session.defaultSession.setProxy({
       mode: "fixed_servers",
       proxyRules: manualProxy
     });
+  } else {
+    await session.defaultSession.setProxy({ mode: "system" });
+  }
+
+  // Apply to Node.js http/https modules via environment variables.
+  delete process.env.HTTP_PROXY;
+  delete process.env.http_proxy;
+  delete process.env.HTTPS_PROXY;
+  delete process.env.https_proxy;
+  delete process.env.NO_PROXY;
+  delete process.env.no_proxy;
+  activeProxyAgent = null;
+
+  if (mode === "direct") {
     return;
   }
 
-  await session.defaultSession.setProxy({ mode: "system" });
+  let proxyUrl = "";
+  let bypass = "";
+  if (mode === "manual") {
+    proxyUrl = normalizeProxyUrl(manualProxy);
+  } else {
+    const system = await readWindowsSystemProxy();
+    if (system.enabled) {
+      proxyUrl = system.server;
+      bypass = system.bypass;
+    }
+  }
+
+  if (proxyUrl) {
+    process.env.HTTP_PROXY = proxyUrl;
+    process.env.http_proxy = proxyUrl;
+    process.env.HTTPS_PROXY = proxyUrl;
+    process.env.https_proxy = proxyUrl;
+    if (bypass) {
+      process.env.NO_PROXY = bypass;
+      process.env.no_proxy = bypass;
+    }
+    try {
+      activeProxyAgent = new HttpsProxyAgent(proxyUrl);
+    } catch (error) {
+      activeProxyAgent = null;
+      console.error("Failed to create HTTPS proxy agent:", error);
+    }
+  }
+}
+
+async function applyStoredProxy() {
+  await applyProxySettings();
 }
 
 async function getSystemInfo() {
@@ -1434,6 +1548,8 @@ function writeSettings(settings) {
         aiBaseUrl: normalized.aiBaseUrl,
         aiApiKey: normalized.aiApiKey,
         aiModel: normalized.aiModel,
+        proxyMode: normalized.proxyMode,
+        proxyManual: normalized.proxyManual,
         themeId: normalized.themeId,
         themeBackgrounds: normalized.themeBackgrounds,
         glassOpacity: normalized.glassOpacity,
@@ -1460,7 +1576,9 @@ function normalizeSettings(settings) {
     aiBaseUrl: String(settings?.aiBaseUrl ?? "").trim(),
     aiApiKey: String(settings?.aiApiKey ?? "").trim(),
     aiModel: String(settings?.aiModel ?? "").trim(),
-    themeId: normalizeThemeId(String(settings?.themeId ?? "light")),
+    proxyMode: normalizeProxyMode(String(settings?.proxyMode ?? "")),
+    proxyManual: String(settings?.proxyManual ?? "").trim(),
+    themeId: normalizeThemeId(String(settings?.themeId ?? defaultThemeId)),
     themeBackgrounds: normalizeThemeBackgrounds(settings?.themeBackgrounds),
     glassOpacity: normalizeGlassOpacity(settings?.glassOpacity),
     glassBlur: normalizeGlassBlur(settings?.glassBlur),
@@ -1577,14 +1695,14 @@ function normalizePreviousCodePages(value) {
   return { acp, oemcp, maccp };
 }
 
+const allowedThemeIds = new Set(["azure", "mint", "amber"]);
+const defaultThemeId = "azure";
+
 function normalizeThemeId(value) {
-  const allowed = new Set(["light", "slate", "teal", "rose"]);
-  return allowed.has(value) ? value : "light";
+  return allowedThemeIds.has(value) ? value : defaultThemeId;
 }
 
 function normalizeThemeBackgrounds(value) {
-  const allowed = new Set(["light", "slate", "teal", "rose"]);
-  const builtinBackgrounds = new Set(["sakura-workbench", "neon-terminal", "azure-rooftop"]);
   const result = {};
 
   if (!value || typeof value !== "object") {
@@ -1592,14 +1710,10 @@ function normalizeThemeBackgrounds(value) {
   }
 
   for (const [key, rawUrl] of Object.entries(value)) {
-    const builtinId = typeof rawUrl === "string" && rawUrl.startsWith("builtin:")
-      ? rawUrl.slice("builtin:".length)
-      : "";
-
     if (
-      allowed.has(key) &&
+      allowedThemeIds.has(key) &&
       typeof rawUrl === "string" &&
-      (rawUrl.startsWith("file:///") || builtinBackgrounds.has(builtinId))
+      rawUrl.startsWith("file:///")
     ) {
       result[key] = rawUrl;
     }
@@ -1624,6 +1738,13 @@ function normalizeGlassBlur(value) {
   return Math.max(8, Math.min(48, Math.round(num)));
 }
 
+const allowedProxyModes = new Set(["system", "direct", "manual"]);
+
+function normalizeProxyMode(value) {
+  const trimmed = String(value ?? "").trim();
+  return allowedProxyModes.has(trimmed) ? trimmed : "system";
+}
+
 function ensureDirectory(targetPath) {
   const expandedPath = expandEnvironmentVariables(String(targetPath || ""));
 
@@ -1643,25 +1764,20 @@ async function checkForUpdates() {
   const releaseUrl = `https://api.github.com/repos/${updateRepository.owner}/${updateRepository.repo}/releases/latest`;
 
   try {
-    const response = await net.fetch(releaseUrl, {
-      headers: {
-        "User-Agent": `WinKitBox/${currentVersion}`,
-        Accept: "application/vnd.github+json"
-      }
-    });
+    await applyStoredProxy();
+    const release = await fetchGitHubJson(releaseUrl, currentVersion);
 
-    if (!response.ok) {
+    if (!release || typeof release !== "object") {
       return {
         currentVersion,
         hasUpdate: false,
         assets: [],
-        error: `GitHub 更新检查失败：${response.status}`
+        error: "GitHub 更新检查失败：返回数据无效。"
       };
     }
 
-    const release = await response.json();
-    const latestVersion = String(release?.tag_name ?? "").replace(/^v/i, "");
-    const assets = Array.isArray(release?.assets)
+    const latestVersion = String(release.tag_name ?? "").replace(/^v/i, "");
+    const assets = Array.isArray(release.assets)
       ? release.assets
           .filter((asset) => asset?.name && asset?.browser_download_url)
           .map((asset) => ({
@@ -1673,7 +1789,7 @@ async function checkForUpdates() {
     return {
       currentVersion,
       latestVersion,
-      releaseUrl: String(release?.html_url ?? ""),
+      releaseUrl: String(release.html_url ?? ""),
       hasUpdate: compareVersions(latestVersion, currentVersion) > 0,
       assets
     };
@@ -1687,10 +1803,50 @@ async function checkForUpdates() {
   }
 }
 
+function fetchGitHubJson(url, currentVersion) {
+  return new Promise((resolve, reject) => {
+    requestWithRedirects(
+      url,
+      {
+        method: "GET",
+        headers: {
+          "User-Agent": `WinKitBox/${currentVersion}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28"
+        },
+        timeout: 30000
+      },
+      (error, response) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        if (!response.statusCode || response.statusCode >= 400) {
+          reject(new Error(`GitHub 更新检查失败：${response.statusCode}`));
+          return;
+        }
+
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.on("end", () => {
+          try {
+            resolve(JSON.parse(body));
+          } catch {
+            reject(new Error("GitHub 返回数据解析失败。"));
+          }
+        });
+        response.on("error", (responseError) => reject(responseError));
+      }
+    );
+  });
+}
+
 const MAX_DOWNLOAD_REDIRECTS = 5;
-const DOWNLOAD_PART_COUNT = 4;
 const DOWNLOAD_PROGRESS_THROTTLE_MS = 200;
-const MULTIPART_DOWNLOAD_THRESHOLD = 5 * 1024 * 1024; // 5 MB
 
 function requestWithRedirects(url, options, callback) {
   let redirectCount = 0;
@@ -1707,8 +1863,15 @@ function requestWithRedirects(url, options, callback) {
       timeout: currentOptions.timeout || 60000
     };
 
+    if (client === https && activeProxyAgent) {
+      requestOptions.agent = activeProxyAgent;
+    }
+
     const request = client.request(requestOptions, (response) => {
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        // Consume (and discard) the redirect body so the underlying socket can
+        // be released cleanly before we open the next request.
+        response.resume();
         redirectCount++;
         if (redirectCount > MAX_DOWNLOAD_REDIRECTS) {
           callback(new Error("下载重定向次数过多。"));
@@ -1722,153 +1885,26 @@ function requestWithRedirects(url, options, callback) {
     });
 
     request.on("error", (error) => callback(error));
-    request.on("timeout", () => callback(new Error("下载请求超时。")));
+    request.on("timeout", () => {
+      request.destroy();
+      callback(new Error("下载请求超时。"));
+    });
     request.end();
   }
 
   makeRequest(url, options);
 }
 
-function fetchContentLength(url) {
-  return new Promise((resolve, reject) => {
-    requestWithRedirects(
-      url,
-      {
-        method: "HEAD",
-        headers: { "User-Agent": `WinKitBox/${app.getVersion()}` }
-      },
-      (error, response) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        if (!response.statusCode || response.statusCode >= 400) {
-          reject(new Error(`HEAD 请求失败：${response.statusCode}`));
-          return;
-        }
-        resolve(Number(response.headers["content-length"]) || 0);
-      }
-    );
-  });
-}
-
-function downloadSingleStream(url, filePath, sender) {
-  return new Promise((resolve, reject) => {
-    const fileStream = fs.createWriteStream(filePath);
-    let downloaded = 0;
-    let total = 0;
-    let lastProgressTime = 0;
-
-    requestWithRedirects(
-      url,
-      {
-        method: "GET",
-        headers: {
-          "User-Agent": `WinKitBox/${app.getVersion()}`,
-          Accept: "application/octet-stream"
-        }
-      },
-      (error, response) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        if (!response.statusCode || response.statusCode >= 400) {
-          reject(new Error(`下载更新包失败：${response.statusCode}`));
-          return;
-        }
-
-        total = Number(response.headers["content-length"]) || 0;
-
-        response.on("data", (chunk) => {
-          downloaded += chunk.length;
-          const now = Date.now();
-          if (total > 0 && sender && !sender.isDestroyed() && now - lastProgressTime >= DOWNLOAD_PROGRESS_THROTTLE_MS) {
-            lastProgressTime = now;
-            sender.send("download-update-progress", {
-              downloaded,
-              total,
-              percent: Math.round((downloaded / total) * 100)
-            });
-          }
-        });
-
-        response.pipe(fileStream);
-
-        fileStream.on("finish", () => {
-          fileStream.close(() => resolve({ filePath }));
-        });
-        fileStream.on("error", reject);
-        response.on("error", reject);
-      }
-    );
-  });
-}
-
-function downloadChunk(url, start, end, partPath, onChunk) {
-  return new Promise((resolve, reject) => {
-    const partStream = fs.createWriteStream(partPath);
-    let received = 0;
-
-    requestWithRedirects(
-      url,
-      {
-        method: "GET",
-        headers: {
-          "User-Agent": `WinKitBox/${app.getVersion()}`,
-          Accept: "application/octet-stream",
-          Range: `bytes=${start}-${end}`
-        }
-      },
-      (error, response) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        if (response.statusCode !== 206 && response.statusCode !== 200) {
-          reject(new Error(`分片下载失败：${response.statusCode}`));
-          return;
-        }
-
-        response.on("data", (chunk) => {
-          received += chunk.length;
-          onChunk(chunk.length);
-        });
-        response.pipe(partStream);
-
-        partStream.on("finish", () => {
-          partStream.close(() => resolve(received));
-        });
-        partStream.on("error", reject);
-        response.on("error", reject);
-      }
-    );
-  });
-}
-
-async function downloadMultipart(url, filePath, total, sender) {
-  const chunkSize = Math.ceil(total / DOWNLOAD_PART_COUNT);
-  const chunks = [];
-  const tempDir = path.dirname(filePath);
-
-  for (let i = 0; i < DOWNLOAD_PART_COUNT; i++) {
-    const start = i * chunkSize;
-    const end = Math.min(start + chunkSize - 1, total - 1);
-    chunks.push({
-      start,
-      end,
-      partPath: path.join(tempDir, `${path.basename(filePath)}.part-${i}`)
-    });
-  }
-
-  let downloaded = 0;
+async function downloadSingleStream(url, filePath, sender) {
+  const maxAttempts = 3;
+  let total = 0;
   let lastProgressTime = 0;
 
-  function sendProgress(force = false) {
+  function sendProgress(downloaded, force = false) {
     const now = Date.now();
     if (!force && now - lastProgressTime < DOWNLOAD_PROGRESS_THROTTLE_MS) return;
     lastProgressTime = now;
-    if (sender && !sender.isDestroyed()) {
+    if (sender && !sender.isDestroyed() && total > 0) {
       sender.send("download-update-progress", {
         downloaded,
         total,
@@ -1877,60 +1913,93 @@ async function downloadMultipart(url, filePath, total, sender) {
     }
   }
 
-  try {
-    await Promise.all(
-      chunks.map(async ({ start, end, partPath }) => {
-        let attempts = 0;
-        const maxAttempts = 3;
-        while (attempts < maxAttempts) {
-          attempts++;
-          try {
-            await downloadChunk(url, start, end, partPath, (chunkLength) => {
-              downloaded += chunkLength;
-              sendProgress();
-            });
-            return;
-          } catch (error) {
-            if (attempts >= maxAttempts) {
-              throw new Error(`分片 ${start}-${end} 下载失败：${error.message}`);
-            }
-            await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
-          }
-        }
-      })
-    );
-
-    sendProgress(true);
-
-    const finalFd = fs.openSync(filePath, "w");
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let startByte = 0;
     try {
-      for (const { partPath } of chunks) {
-        const buffer = fs.readFileSync(partPath);
-        fs.writeSync(finalFd, buffer);
-      }
-    } finally {
-      fs.closeSync(finalFd);
+      startByte = fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
+    } catch {
+      startByte = 0;
     }
 
-    for (const { partPath } of chunks) {
-      try {
-        fs.rmSync(partPath, { force: true });
-      } catch {
-        // Ignore cleanup errors.
-      }
-    }
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const fileStream = fs.createWriteStream(filePath, { flags: startByte > 0 ? "a" : "w" });
+        let downloaded = startByte;
 
-    return { filePath };
-  } catch (error) {
-    for (const { partPath } of chunks) {
-      try {
-        fs.rmSync(partPath, { force: true });
-      } catch {
-        // Ignore cleanup errors.
-      }
+        const headers = {
+          "User-Agent": `WinKitBox/${app.getVersion()}`,
+          Accept: "application/octet-stream"
+        };
+        if (startByte > 0) {
+          headers.Range = `bytes=${startByte}-`;
+        }
+
+        requestWithRedirects(
+          url,
+          { method: "GET", headers, timeout: 60000 },
+          (error, response) => {
+            if (error) {
+              fileStream.destroy();
+              reject(error);
+              return;
+            }
+
+            if (!response.statusCode || (response.statusCode >= 400 && response.statusCode !== 416)) {
+              fileStream.destroy();
+              reject(new Error(`下载更新包失败：${response.statusCode}`));
+              return;
+            }
+
+            // Server doesn't support resume (or range is already satisfied); restart from scratch.
+            if (startByte > 0 && response.statusCode !== 206) {
+              fileStream.destroy();
+              try {
+                fs.rmSync(filePath, { force: true });
+              } catch {
+                // ignore
+              }
+              reject(new Error("服务器不支持断点续传，将重新下载。"));
+              return;
+            }
+
+            if (startByte === 0) {
+              total = Number(response.headers["content-length"]) || 0;
+            } else if (response.statusCode === 206) {
+              const contentRange = String(response.headers["content-range"] || "");
+              const match = contentRange.match(/bytes\s+(\d+)-(\d+)\/(\d+)/);
+              if (match) {
+                total = Number(match[3]) || 0;
+              } else {
+                total = startByte + (Number(response.headers["content-length"]) || 0);
+              }
+            }
+
+            response.on("data", (chunk) => {
+              downloaded += chunk.length;
+              sendProgress(downloaded);
+            });
+
+            response.pipe(fileStream);
+
+            fileStream.on("finish", () => {
+              fileStream.close(() => resolve({ filePath }));
+            });
+            fileStream.on("error", reject);
+            response.on("error", reject);
+          }
+        );
+      });
+      return result;
+    } catch (error) {
+      // Do not retry if the server explicitly rejected the request.
+      const isFatal = String(error.message).includes("下载更新包失败：") && !String(error.message).includes("断点续传");
+      if (isFatal || attempt >= maxAttempts) throw error;
+      sendProgress(startByte, true);
+      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
     }
-    throw error;
   }
+
+  throw new Error("下载更新包失败：已达到最大重试次数。");
 }
 
 async function downloadUpdatePackage(request, sender) {
@@ -1941,39 +2010,16 @@ async function downloadUpdatePackage(request, sender) {
     throw new Error("更新下载链接不能为空。");
   }
 
+  await applyStoredProxy();
+
   const tempDir = path.join(os.tmpdir(), "WinKitBox");
   fs.mkdirSync(tempDir, { recursive: true });
   const filePath = path.join(tempDir, fileName);
 
   try {
-    let total = 0;
-    try {
-      total = await fetchContentLength(downloadUrl);
-    } catch {
-      total = 0;
-    }
-
-    if (total > MULTIPART_DOWNLOAD_THRESHOLD) {
-      try {
-        return await downloadMultipart(downloadUrl, filePath, total, sender);
-      } catch (multipartError) {
-        // If multipart fails (e.g. server does not support Range), fall back
-        // to a single-stream download before giving up.
-        if (String(multipartError.message).includes("分片")) {
-          // Clean up any partial part files before fallback.
-          for (let i = 0; i < DOWNLOAD_PART_COUNT; i++) {
-            try {
-              fs.rmSync(path.join(tempDir, `${fileName}.part-${i}`), { force: true });
-            } catch {
-              // Ignore cleanup errors.
-            }
-          }
-        } else {
-          throw multipartError;
-        }
-      }
-    }
-
+    // Multipart download is disabled by default: GitHub release assets redirect
+    // to a CDN that frequently resets parallel Range connections (ECONNRESET).
+    // A single stream with retry + resume is more reliable.
     return await downloadSingleStream(downloadUrl, filePath, sender);
   } catch (error) {
     try {

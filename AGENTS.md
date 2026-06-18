@@ -143,6 +143,69 @@ Then smoke-test the portable build in `release/`:
 
 ## Release Notes
 
+### v0.3.1
+
+- Added two built-in anime-style image themes: mint (浅绿工位) and amber (暖黄工坊), alongside the existing azure theme.
+- Generated the new theme images with the built-in image generation tool and kept UI readability by using theme-specific fixed panel opacity/blur values.
+- Removed the Settings page panel controls for manual opacity and blur.
+- Fixed Czkawka uninstall reliability by using winget portable uninstall flags (`--force --purge`) with fallback package IDs.
+
+### v0.2.28
+
+- Moved the remove button on custom tool cards from the bottom action bar to the right of the category dropdown.
+- Styled the remove button as a small pill to align with the category select.
+
+### v0.2.27
+
+- Fixed update downloads not actually going through the configured proxy.
+- Added `https-proxy-agent` and wired it into Node.js `https.request` used by update checks and update downloads.
+- Proxy agent is recreated whenever system/manual proxy settings change; direct mode clears it.
+
+### v0.2.26
+
+- Added a "移除" button on custom tool cards; clicking it removes the tool from WinKitBox after confirmation (installed tools are removed from the list, not uninstalled).
+- Fixed custom category assignment not persisting: `toolCategoryOverrides` is now saved to settings.
+- Custom tools moved to another category update their own `category` field directly instead of relying on overrides.
+
+### v0.2.25
+
+- Fixed app self-update download failures (`ECONNRESET`).
+- Disabled multipart parallel `Range` downloads; update packages now use a single stream with resume support and automatic retry.
+- Fixed redirect handling: redirect response bodies are now consumed before following the location header, preventing connection resets.
+- Proxy settings now apply to Node.js `https`/`http` requests as well as Electron renderer requests, so update checks, update downloads, and AI API calls respect the configured proxy.
+
+### v0.2.24
+
+- Custom tools in the Settings page now show an "卸载并移除" button.
+- Clicking it reuses the existing single-tool uninstall flow, then removes the tool from the custom list.
+
+### v0.2.23
+
+- Added proxy settings to the Settings page.
+- Users can choose between system proxy, direct connection, or a manually entered proxy address.
+- The configured proxy is applied globally and affects GitHub API requests, translation, update checks, and update downloads.
+- DiscoverView now reads proxy settings from the global settings; GitHub Token remains configurable in the GitHub ranking panel.
+
+### v0.2.22
+
+- Reduced themes to a single built-in image theme: azure (晴空天台).
+- Removed sakura and neon image themes.
+- Ensured the azure rooftop wallpaper is clearly visible inside the workspace area while keeping cards readable with frosted-glass transparency.
+- Fixed GitHub update check 403 errors by switching from `net.fetch` to Node `https` and adding the required `X-GitHub-Api-Version` header.
+
+### v0.2.21
+
+- Theme system refactored to keep only image themes: sakura, neon, and azure.
+- Removed the four solid color themes (light, slate, teal, rose).
+- Fixed a bug where image backgrounds were invisible: `themeId` is now normalized to image theme IDs, and custom backgrounds are applied per image theme.
+- Settings page theme picker now shows image theme cards with a selected checkmark and buttons to upload or reset custom backgrounds.
+- Added theme-specific color schemes and improved card hover/active visual effects.
+
+### v0.2.20
+
+- Improved automatic update download logic: switched to Node `https`/`http` modules.
+- Large update files are downloaded with 4 parallel `Range` chunks and automatically fall back to a single stream.
+
 ### v0.2.19
 
 - DNS latency testing now supports multiple preset domains and a user-defined custom domain.

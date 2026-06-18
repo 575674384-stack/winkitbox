@@ -31,7 +31,9 @@ describe("config helpers", () => {
       settings: {
         toolRootPath: "%LOCALAPPDATA%\\WinKitBox",
         updateOnStartup: true,
-        themeId: "light"
+        themeId: "azure",
+        proxyMode: "manual",
+        proxyManual: "http://127.0.0.1:7890"
       },
       selectedToolIds: ["powertoys"],
       customTools: []
@@ -40,7 +42,27 @@ describe("config helpers", () => {
     expect(payload.length).toBeLessThan(1024 * 1024);
     const imported = parseImportedConfig(payload);
     expect(imported.selectedToolIds).toEqual(["powertoys"]);
-    expect(imported.settings.themeId).toBe("light");
+    expect(imported.settings.themeId).toBe("azure");
+    expect(imported.settings.proxyMode).toBe("manual");
+    expect(imported.settings.proxyManual).toBe("http://127.0.0.1:7890");
+  });
+
+  it("drops unknown proxy modes from imported configs", () => {
+    const imported = parseImportedConfig(
+      JSON.stringify({
+        version: 1,
+        exportedAt: "2026-06-16T00:00:00.000Z",
+        settings: {
+          toolRootPath: "%LOCALAPPDATA%\\WinKitBox",
+          updateOnStartup: true,
+          proxyMode: "unknown"
+        },
+        selectedToolIds: [],
+        customTools: []
+      })
+    );
+
+    expect(imported.settings.proxyMode).toBeUndefined();
   });
 
   it("drops unknown theme ids from imported configs", () => {
