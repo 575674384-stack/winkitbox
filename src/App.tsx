@@ -60,6 +60,11 @@ import {
 } from "./core/aiTool";
 import { buildExportConfig, parseImportedConfig } from "./core/config";
 import { createDashboardStats } from "./core/dashboardStats";
+import {
+  getVisibleCatalogTools,
+  toggleCatalogQuickFilter,
+  type CatalogQuickFilter,
+} from "./core/catalogFilters";
 import { createLaunchDescriptor, getToolLogoUrl } from "./core/launcher";
 import {
   customDnsDomainId,
@@ -80,7 +85,6 @@ import {
   createInstallPlan,
   createUninstallPlan,
   getDefaultSelection,
-  searchTools,
 } from "./core/planner";
 import { parseRunEventLine, type RunEvent } from "./core/runEvents";
 import {
@@ -351,6 +355,7 @@ export function App() {
   const [activeView, setActiveView] = useState<ActiveView>("catalog");
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>("all");
   const [installedOnly, setInstalledOnly] = useState(false);
+  const [selectedOnly, setSelectedOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([
     {
@@ -461,21 +466,25 @@ export function App() {
   );
 
   const visibleTools = useMemo(() => {
-    const categoryFiltered =
-      activeCategory === "all"
-        ? allTools
-        : allTools.filter(
-            (tool) =>
-              resolveToolCategory(tool, settings.customCategories) ===
-              activeCategory,
-          );
-    const statusFiltered = installedOnly
-      ? categoryFiltered.filter(
-          (tool) => toolStates[tool.id]?.status === "installed",
-        )
-      : categoryFiltered;
-    return searchTools(statusFiltered, query);
-  }, [allTools, activeCategory, query, settings.customCategories, installedOnly, toolStates]);
+    return getVisibleCatalogTools(allTools, {
+      activeCategory,
+      customCategories: settings.customCategories,
+      installedOnly,
+      selectedIds,
+      selectedOnly,
+      query,
+      toolStates,
+    });
+  }, [
+    allTools,
+    activeCategory,
+    installedOnly,
+    query,
+    selectedIds,
+    selectedOnly,
+    settings.customCategories,
+    toolStates,
+  ]);
   const currentTheme = useMemo(
     () => getThemeDefinition(settings.themeId),
     [settings.themeId],
@@ -582,6 +591,7 @@ export function App() {
     if (!categoryNavigation.includes(activeCategory)) {
       setActiveCategory("all");
       setInstalledOnly(false);
+      setSelectedOnly(false);
     }
   }, [activeCategory, categoryNavigation]);
 
@@ -594,6 +604,19 @@ export function App() {
       return next.size === current.size ? current : next;
     });
   }, [allTools]);
+
+  function toggleQuickFilter(filter: CatalogQuickFilter) {
+    const nextFilter = toggleCatalogQuickFilter(
+      { installedOnly, selectedOnly },
+      filter,
+    );
+
+    setActiveView("catalog");
+    setActiveCategory("all");
+    setQuery("");
+    setInstalledOnly(nextFilter.installedOnly);
+    setSelectedOnly(nextFilter.selectedOnly);
+  }
 
   function appendLog(level: LogEntry["level"], message: string) {
     if (!message) {
@@ -1718,6 +1741,7 @@ export function App() {
                         setActiveView("catalog");
                         setActiveCategory(category);
                         setInstalledOnly(false);
+                        setSelectedOnly(false);
                       }}
                     >
                       <span>
@@ -1999,34 +2023,47 @@ export function App() {
               value={dashboardStats.selectedCount}
               tone="blue"
               icon={ListChecks}
+              active={selectedOnly}
+              onClick={() => toggleQuickFilter("selected")}
             />
             <Metric
               label="已安装"
               value={dashboardStats.installedCount}
               tone="green"
               icon={Check}
-              onClick={() => {
-                setActiveView("catalog");
-                setActiveCategory("all");
-                setInstalledOnly(true);
-                setQuery("");
-              }}
+              active={installedOnly}
+              onClick={() => toggleQuickFilter("installed")}
             />
           </div>
 
-          {installedOnly && (
+          {(selectedOnly || installedOnly) && (
             <div className="active-filter-bar">
-              <span className="active-filter-chip">
-                仅显示已安装工具
-                <button
-                  className="icon-button tiny"
-                  type="button"
-                  onClick={() => setInstalledOnly(false)}
-                  aria-label="清除已安装筛选"
-                >
-                  <X size={12} />
-                </button>
-              </span>
+              {selectedOnly && (
+                <span className="active-filter-chip">
+                  仅显示已选择工具
+                  <button
+                    className="icon-button tiny"
+                    type="button"
+                    onClick={() => setSelectedOnly(false)}
+                    aria-label="清除已选择筛选"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              )}
+              {installedOnly && (
+                <span className="active-filter-chip">
+                  仅显示已安装工具
+                  <button
+                    className="icon-button tiny"
+                    type="button"
+                    onClick={() => setInstalledOnly(false)}
+                    aria-label="清除已安装筛选"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              )}
             </div>
           )}
 
@@ -2245,18 +2282,23 @@ function Metric({
   value,
   tone,
   icon: Icon,
+  active = false,
   onClick,
 }: {
   label: string;
   value: number;
   tone: "blue" | "green" | "teal" | "amber" | "red";
   icon?: typeof Download;
+  active?: boolean;
   onClick?: () => void;
 }) {
   return (
     <div
-      className={`metric ${tone} ${onClick ? "clickable" : ""}`}
+      className={`metric ${tone} ${active ? "active" : ""} ${
+        onClick ? "clickable" : ""
+      }`}
       role={onClick ? "button" : undefined}
+      aria-pressed={onClick ? active : undefined}
       tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
       onKeyDown={(event) => {

@@ -143,6 +143,12 @@ Then smoke-test the portable build in `release/`:
 
 ## Release Notes
 
+### v0.3.4
+
+- Added a quick "selected tools only" filter from the dashboard selected-count card.
+- Clicking the selected or installed dashboard card now toggles its filter off when it is already active.
+- Category navigation clears quick filters so the catalog view does not stay unexpectedly narrowed.
+
 ### v0.3.3
 
 - Fixed post-install and post-uninstall status refresh so tools no longer stay stuck as "安装中" after the command has finished.
