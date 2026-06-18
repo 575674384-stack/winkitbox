@@ -143,6 +143,12 @@ Then smoke-test the portable build in `release/`:
 
 ## Release Notes
 
+### v0.3.3
+
+- Fixed post-install and post-uninstall status refresh so tools no longer stay stuck as "安装中" after the command has finished.
+- Added a post-run detection merge mode that can override active tool states while keeping normal background detection from interrupting running installs.
+- The left navigation and right install plan panels now reuse the active theme image with a soft readability overlay instead of flat solid backgrounds.
+
 ### v0.3.2
 
 - Added an AI Assistant section under the GitHub ranking view.

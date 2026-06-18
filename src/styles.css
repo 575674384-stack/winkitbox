@@ -75,6 +75,8 @@
   --glass-blur: 28px;
   --theme-background-image: none;
   --theme-backdrop: var(--app-bg-gradient);
+  --side-panel-image-opacity: 0.18;
+  --side-panel-scrim: rgba(255, 255, 255, 0.72);
   --sidebar-active: rgba(13, 148, 136, 0.1);
   --button-hover: var(--neutral-100);
 
@@ -202,7 +204,7 @@ button {
 
 .app-shell.has-custom-background .sidebar,
 .app-shell.has-custom-background .plan-panel {
-  background: rgba(var(--panel-base), 0.18);
+  background: rgba(var(--panel-base), 0.36);
   backdrop-filter: blur(var(--glass-blur, 32px)) saturate(180%);
 }
 
@@ -265,6 +267,8 @@ button {
   --accent-hover: #0284c7;
   --sidebar-active: rgba(14, 165, 233, 0.1);
   --theme-overlay: rgba(240, 249, 255, 0.22);
+  --side-panel-image-opacity: 0.2;
+  --side-panel-scrim: rgba(240, 249, 255, 0.76);
 }
 
 .app-shell.theme-mint {
@@ -284,6 +288,8 @@ button {
   --accent-hover: #15803d;
   --sidebar-active: rgba(22, 163, 74, 0.1);
   --theme-overlay: rgba(240, 253, 244, 0.24);
+  --side-panel-image-opacity: 0.18;
+  --side-panel-scrim: rgba(240, 253, 244, 0.76);
 }
 
 .app-shell.theme-amber {
@@ -303,11 +309,15 @@ button {
   --accent-hover: #b45309;
   --sidebar-active: rgba(217, 119, 6, 0.1);
   --theme-overlay: rgba(255, 251, 235, 0.24);
+  --side-panel-image-opacity: 0.22;
+  --side-panel-scrim: rgba(255, 251, 235, 0.72);
 }
 
 /* Glass panels */
 .sidebar,
 .plan-panel {
+  position: relative;
+  isolation: isolate;
   background: var(--panel-bg);
   border-color: var(--border-color);
   border-style: solid;
@@ -317,6 +327,49 @@ button {
     inset 1px 0 0 rgba(255, 255, 255, calc(var(--glass-opacity, 0.72) * 0.55)),
     inset -1px 0 0 rgba(255, 255, 255, calc(var(--glass-opacity, 0.72) * 0.18)),
     0 0 40px rgba(15, 23, 42, 0.04);
+}
+
+.sidebar::before,
+.plan-panel::before,
+.sidebar::after,
+.plan-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.sidebar::before,
+.plan-panel::before {
+  z-index: 0;
+  background-image: var(--theme-background-image);
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: var(--side-panel-image-opacity);
+  filter: saturate(118%) contrast(104%);
+}
+
+.sidebar::before {
+  background-position: left center;
+}
+
+.plan-panel::before {
+  background-position: right center;
+}
+
+.sidebar::after,
+.plan-panel::after {
+  z-index: 0;
+  background:
+    linear-gradient(180deg, var(--side-panel-scrim), rgba(var(--panel-base), 0.6)),
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 54%);
+  backdrop-filter: blur(6px) saturate(150%);
+}
+
+.sidebar > *,
+.plan-panel > * {
+  position: relative;
+  z-index: 1;
 }
 
 .sidebar {

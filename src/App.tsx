@@ -89,7 +89,9 @@ import {
   createEmptyInstallProgress,
   getInstallButtonLabel,
   getStatusLabel,
+  isActiveStatus,
   markToolsChecking,
+  type DetectionMergeOptions,
   type InstallProgress,
   type ToolRuntimeState,
   type ToolRuntimeStates,
@@ -686,6 +688,7 @@ export function App() {
   async function refreshToolStates(
     targetTools: Tool[],
     options = plannerOptions,
+    detectionOptions: DetectionMergeOptions = {},
   ) {
     if (!window.winKitBox || targetTools.length === 0) {
       return;
@@ -701,13 +704,20 @@ export function App() {
     try {
       const results = await window.winKitBox.detectTools(descriptors);
       setToolStates((current) =>
-        applyDetectionResults(current, results, toolIds),
+        applyDetectionResults(current, results, toolIds, detectionOptions),
       );
     } catch (error) {
       setToolStates((current) => {
         const next = { ...current };
         for (const toolId of toolIds) {
-          if (next[toolId]?.status === "checking") {
+          const status = next[toolId]?.status;
+          const canMarkUnknown =
+            status === "checking" ||
+            (detectionOptions.preserveActive === false &&
+              status !== undefined &&
+              isActiveStatus(status));
+
+          if (canMarkUnknown) {
             next[toolId] = {
               status: "unknown",
               message: "检测失败，可以稍后重试。",
@@ -1442,7 +1452,9 @@ export function App() {
         error instanceof Error ? error.message : "执行安装计划失败。",
       );
     } finally {
-      await refreshToolStates(selectedTools);
+      await refreshToolStates(selectedTools, plannerOptions, {
+        preserveActive: false,
+      });
       setIsRunning(false);
     }
   }
@@ -1478,7 +1490,9 @@ export function App() {
         error instanceof Error ? error.message : "执行卸载计划失败。",
       );
     } finally {
-      await refreshToolStates(selectedInstalledTools);
+      await refreshToolStates(selectedInstalledTools, plannerOptions, {
+        preserveActive: false,
+      });
       setIsRunning(false);
     }
   }
@@ -1517,7 +1531,9 @@ export function App() {
     const result = await window.winKitBox.runPowerShell(
       buildPowerShellScript(singlePlan),
     );
-    await refreshToolStates([tool]);
+    await refreshToolStates([tool], plannerOptions, {
+      preserveActive: false,
+    });
 
     if (result.code === 0) {
       appendLog("success", `${tool.name} 安装命令已完成，可以点击打开试试。`);
@@ -1564,7 +1580,9 @@ export function App() {
     const result = await window.winKitBox.runPowerShell(
       buildUninstallPowerShellScript(singlePlan),
     );
-    await refreshToolStates([tool]);
+    await refreshToolStates([tool], plannerOptions, {
+      preserveActive: false,
+    });
 
     if (result.code === 0) {
       appendLog("success", `${tool.name} 卸载命令已完成。`);
@@ -1611,7 +1629,9 @@ export function App() {
       }));
       appendLog("success", `${tool.name} 已发送启动请求。`);
     } else {
-      await refreshToolStates([tool]);
+      await refreshToolStates([tool], plannerOptions, {
+        preserveActive: false,
+      });
       appendLog(
         "warning",
         `没有找到 ${tool.name} 的已安装入口。可以先安装，或打开来源页面确认安装方式。`,

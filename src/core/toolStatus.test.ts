@@ -154,6 +154,37 @@ describe("tool status", () => {
     });
   });
 
+  it("can finalize active installs during an explicit post-run refresh", () => {
+    const current: ToolRuntimeStates = {
+      terminal: { status: "installing", message: "正在安装 Windows Terminal..." },
+      files: { status: "installing", message: "正在安装 Files..." }
+    };
+
+    const detected = applyDetectionResults(
+      current,
+      [
+        {
+          toolId: "terminal",
+          installed: true,
+          launcherFound: true,
+          launcherType: "app",
+          message: "已安装，可直接打开。"
+        }
+      ],
+      ["terminal", "files"],
+      { preserveActive: false }
+    );
+
+    expect(detected.terminal).toMatchObject({
+      status: "installed",
+      message: "已安装，可直接打开。"
+    });
+    expect(detected.files).toMatchObject({
+      status: "unknown",
+      message: "没有收到检测结果，请稍后重试。"
+    });
+  });
+
   it("keeps user-facing labels short and distinct", () => {
     expect(getStatusLabel("installed")).toBe("已安装");
     expect(getStatusLabel("not-installed")).toBe("未安装");

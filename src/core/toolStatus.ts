@@ -27,6 +27,10 @@ export type ToolDetectionResult = {
   message: string;
 };
 
+export type DetectionMergeOptions = {
+  preserveActive?: boolean;
+};
+
 export type InstallProgress = {
   active: boolean;
   action?: "install" | "uninstall";
@@ -218,15 +222,17 @@ export function markToolsChecking(currentStates: ToolRuntimeStates, toolIds: str
 export function applyDetectionResults(
   currentStates: ToolRuntimeStates,
   results: ToolDetectionResult[],
-  expectedToolIds: string[] = []
+  expectedToolIds: string[] = [],
+  options: DetectionMergeOptions = {}
 ): ToolRuntimeStates {
   const next = { ...currentStates };
   const resultToolIds = new Set(results.map((result) => result.toolId));
+  const preserveActive = options.preserveActive !== false;
 
   for (const result of results) {
     const current = currentStates[result.toolId];
 
-    if (current && (current.status === "installing" || current.status === "uninstalling" || current.status === "opening")) {
+    if (preserveActive && current && (current.status === "installing" || current.status === "uninstalling" || current.status === "opening")) {
       continue;
     }
 
@@ -244,7 +250,11 @@ export function applyDetectionResults(
     }
 
     const current = currentStates[toolId];
-    if (!current || current.status !== "checking") {
+    const canMarkMissing =
+      current?.status === "checking" ||
+      (!preserveActive && current && isActiveStatus(current.status));
+
+    if (!canMarkMissing) {
       continue;
     }
 
