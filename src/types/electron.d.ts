@@ -187,6 +187,14 @@ declare global {
         canceled: boolean;
         filePath?: string;
       }>;
+      saveLogFile: (request: {
+        content: string;
+        fileName: string;
+        format: "json" | "txt";
+      }) => Promise<{
+        canceled: boolean;
+        filePath?: string;
+      }>;
       openConfigFile: () => Promise<{
         canceled: boolean;
         filePath?: string;

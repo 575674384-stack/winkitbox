@@ -297,6 +297,10 @@ ipcMain.handle("save-config-file", async (_event, request) => {
   return saveConfigFile(request);
 });
 
+ipcMain.handle("save-log-file", async (_event, request) => {
+  return saveLogFile(request);
+});
+
 ipcMain.handle("open-config-file", async () => {
   return openConfigFile();
 });
@@ -917,6 +921,29 @@ async function saveConfigFile(request) {
     title: "导出 WinKitBox 配置",
     defaultPath,
     filters: [{ name: "WinKitBox 配置", extensions: ["json"] }]
+  });
+
+  if (result.canceled || !result.filePath) {
+    return { canceled: true };
+  }
+
+  fs.writeFileSync(result.filePath, String(request?.content ?? ""), "utf8");
+  return { canceled: false, filePath: result.filePath };
+}
+
+async function saveLogFile(request) {
+  const format = String(request?.format ?? "json").toLowerCase() === "txt" ? "txt" : "json";
+  const fallbackName = `winkitbox-logs.${format}`;
+  const safeFileName = path.basename(String(request?.fileName || fallbackName));
+  const defaultPath = path.join(app.getPath("documents"), safeFileName);
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: "导出 WinKitBox 日志",
+    defaultPath,
+    filters: [
+      format === "txt"
+        ? { name: "文本日志", extensions: ["txt"] }
+        : { name: "JSON 日志", extensions: ["json"] }
+    ]
   });
 
   if (result.canceled || !result.filePath) {

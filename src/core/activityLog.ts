@@ -19,11 +19,19 @@ export type ActivityLogEntry = {
   status: ActivityStatus;
   title: string;
   detail?: string;
+  rawOutput?: string[];
+  durationMs?: number;
+  commandSummary?: string;
+  metadata?: ActivityLogMetadata;
   toolId?: string;
   toolName?: string;
   exitCode?: number | null;
   source?: string;
 };
+
+export type ActivityLogMetadata = Partial<
+  Record<"categoryId" | "version" | "target", string>
+>;
 
 export type ActivityLogInput = Omit<ActivityLogEntry, "id" | "createdAt"> & {
   id?: string;
@@ -37,7 +45,10 @@ export type ActivityLogStats = {
   lastFailure?: ActivityLogEntry;
 };
 
-export const maxActivityLogEntries = 200;
+export const maxActivityLogEntries = 1000;
+export const maxActivityDetailLength = 2000;
+export const maxActivityRawOutputLines = 200;
+export const maxActivityRawOutputLineLength = 1000;
 
 const activityKinds = new Set<ActivityKind>([
   "install",
@@ -72,7 +83,11 @@ export function createActivityLogEntry(
     kind: activityKinds.has(input.kind) ? input.kind : "system",
     status: activityStatuses.has(input.status) ? input.status : "info",
     title: compactText(input.title, 90) || "未命名操作",
-    detail: compactOptionalText(input.detail, 280),
+    detail: compactOptionalText(redactSensitiveText(input.detail), maxActivityDetailLength),
+    rawOutput: compactRawOutput(input.rawOutput),
+    durationMs: normalizeDurationMs(input.durationMs),
+    commandSummary: compactOptionalText(redactSensitiveText(input.commandSummary), 420),
+    metadata: normalizeMetadata(input.metadata),
     toolId: compactOptionalText(input.toolId, 80),
     toolName: compactOptionalText(input.toolName, 80),
     exitCode:
@@ -81,6 +96,17 @@ export function createActivityLogEntry(
         : undefined,
     source: compactOptionalText(input.source, 80),
   };
+}
+
+export function redactSensitiveText(value: unknown): string {
+  const text = String(value ?? "");
+
+  return text
+    .replace(/\bghp_[A-Za-z0-9_]{10,}\b/g, "[已脱敏]")
+    .replace(/\bgithub_pat_[A-Za-z0-9_]{10,}\b/g, "[已脱敏]")
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[已脱敏]")
+    .replace(/(Authorization\s*:\s*Bearer\s+)[^\s;,)]+/gi, "$1[已脱敏]")
+    .replace(/((?:api[_-]?key|token|password|secret)\s*[:=]\s*)[^\s;,)]+/gi, "$1[已脱敏]");
 }
 
 export function normalizeActivityLog(value: unknown): ActivityLogEntry[] {
@@ -144,4 +170,43 @@ function compactText(value: unknown, maxLength: number) {
 
 function isIsoDate(value: unknown) {
   return typeof value === "string" && !Number.isNaN(Date.parse(value));
+}
+
+function compactRawOutput(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const output = value
+    .map((line) => compactText(redactSensitiveText(line), maxActivityRawOutputLineLength))
+    .filter(Boolean)
+    .slice(-maxActivityRawOutputLines);
+
+  return output.length > 0 ? output : undefined;
+}
+
+function normalizeDurationMs(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return undefined;
+  }
+
+  return Math.round(value);
+}
+
+function normalizeMetadata(value: unknown): ActivityLogMetadata | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const source = value as Record<string, unknown>;
+  const metadata: ActivityLogMetadata = {};
+
+  for (const key of ["categoryId", "version", "target"] as const) {
+    const normalized = compactOptionalText(redactSensitiveText(source[key]), 180);
+    if (normalized) {
+      metadata[key] = normalized;
+    }
+  }
+
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
 }

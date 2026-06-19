@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Check,
   ChevronDown,
@@ -38,6 +38,7 @@ import {
   X,
 } from "lucide-react";
 import { DiscoverView } from "./DiscoverView";
+import { LogsView, type LogsViewFocus } from "./LogsView";
 import winkitboxIconUrl from "../assets/icon/winkitbox-icon.png";
 import {
   categoryLabels,
@@ -138,7 +139,7 @@ import { findSetupAsset, type UpdateInfo } from "./core/update";
 import type { ProxyMode } from "./core/github";
 
 type CategoryFilter = "all" | ToolCategory;
-type ActiveView = "catalog" | "discover" | "system" | "updates" | "settings";
+type ActiveView = "catalog" | "discover" | "system" | "updates" | "logs" | "settings";
 
 type LogEntry = {
   id: number;
@@ -391,7 +392,11 @@ export function App() {
       message: "WinKitBox 已就绪。安装、打开、卸载都会自动刷新状态。",
     },
   ]);
+  const logsRef = useRef<LogEntry[]>(logs);
   const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
+  const [logsViewFocus, setLogsViewFocus] = useState<LogsViewFocus>({
+    nonce: 0,
+  });
   const [isRunning, setIsRunning] = useState(false);
   const [toolStates, setToolStates] = useState<ToolRuntimeStates>({});
   const [installProgress, setInstallProgress] = useState<InstallProgress>(() =>
@@ -498,6 +503,10 @@ export function App() {
       }),
     [allTools, selectedIds, toolStates, installPlan],
   );
+  const activityStats = useMemo(
+    () => getActivityLogStats(activityLog),
+    [activityLog],
+  );
 
   const visibleTools = useMemo(() => {
     return getVisibleCatalogTools(allTools, {
@@ -591,16 +600,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!window.winKitBox) {
-      return;
-    }
-
-    void window.winKitBox
-      .getActivityLog()
-      .then((entries) => setActivityLog(normalizeActivityLog(entries)))
-      .catch(() => {
-        appendLog("warning", "读取操作历史失败，本次会保留实时日志。");
-      });
+    void loadActivityLog();
   }, []);
 
   useEffect(() => {
@@ -665,19 +665,36 @@ export function App() {
     setSelectedOnly(nextFilter.selectedOnly);
   }
 
+  async function loadActivityLog() {
+    if (!window.winKitBox) {
+      return;
+    }
+
+    try {
+      const entries = await window.winKitBox.getActivityLog();
+      setActivityLog(normalizeActivityLog(entries));
+    } catch {
+      appendLog("warning", "读取操作历史失败，本次会保留实时日志。");
+    }
+  }
+
   function appendLog(level: LogEntry["level"], message: string) {
     if (!message) {
       return;
     }
 
-    setLogs((current) => [
-      {
+    setLogs((current) => {
+      const next = [
+        {
         id: ++logCounter,
         level,
         message,
       },
       ...current,
-    ]);
+      ].slice(0, 500);
+      logsRef.current = next;
+      return next;
+    });
   }
 
   async function recordActivity(input: ActivityLogInput) {
@@ -685,16 +702,26 @@ export function App() {
       return;
     }
 
+    const entryInput =
+      input.rawOutput || (input.status !== "error" && input.status !== "warning")
+        ? input
+        : {
+            ...input,
+            rawOutput: logsRef.current
+              .slice(0, 80)
+              .map((log) => `[${log.level}] ${log.message}`),
+          };
+
     if (!window.winKitBox) {
-      setActivityLog((current) => addActivityLogEntry(current, input));
+      setActivityLog((current) => addActivityLogEntry(current, entryInput));
       return;
     }
 
     try {
-      const entries = await window.winKitBox.addActivityLog(input);
+      const entries = await window.winKitBox.addActivityLog(entryInput);
       setActivityLog(normalizeActivityLog(entries));
     } catch {
-      setActivityLog((current) => addActivityLogEntry(current, input));
+      setActivityLog((current) => addActivityLogEntry(current, entryInput));
     }
   }
 
@@ -714,6 +741,66 @@ export function App() {
     }
 
     setActivityLog([]);
+  }
+
+  function openLogsView(focus: Omit<LogsViewFocus, "nonce"> = {}) {
+    setLogsViewFocus({
+      ...focus,
+      nonce: Date.now(),
+    });
+    setActiveView("logs");
+  }
+
+  async function exportActivityLogFile(
+    content: string,
+    format: "json" | "txt",
+    visibleCount: number,
+  ) {
+    const fileName = `winkitbox-logs-${new Date()
+      .toISOString()
+      .slice(0, 10)}.${format}`;
+
+    if (window.winKitBox?.saveLogFile) {
+      const result = await window.winKitBox.saveLogFile({
+        content,
+        fileName,
+        format,
+      });
+      if (!result.canceled) {
+        appendLog("success", `日志已导出：${result.filePath}`);
+      }
+      return;
+    }
+
+    const blob = new Blob([content], {
+      type: format === "json" ? "application/json" : "text/plain",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    appendLog("success", `已导出 ${visibleCount} 条日志。`);
+  }
+
+  function showToolFromLog(toolId: string) {
+    const tool = allTools.find((item) => item.id === toolId);
+    setActiveView("catalog");
+    setActiveCategory("all");
+    setInstalledOnly(false);
+    setSelectedOnly(false);
+    setQuery(tool?.name ?? toolId);
+  }
+
+  function fixToolFromLog(toolId: string) {
+    const tool = allTools.find((item) => item.id === toolId);
+    if (!tool) {
+      appendLog("warning", `没有找到工具：${toolId}。`);
+      return;
+    }
+
+    void fixToolWithAi(tool);
   }
 
   function handleRunOutputLine(line: string) {
@@ -2388,6 +2475,23 @@ export function App() {
               </span>
               <strong>{installedTools.length}</strong>
             </button>
+            <button
+              className={`category-button ${activeView === "logs" ? "active" : ""}`}
+              type="button"
+              onClick={() => openLogsView()}
+            >
+              <span>
+                <Terminal size={16} />
+                日志中心
+              </span>
+              {(activityStats.failed > 0 || activityStats.warnings > 0) && (
+                <strong>
+                  {activityStats.failed > 0
+                    ? activityStats.failed
+                    : activityStats.warnings}
+                </strong>
+              )}
+            </button>
           </div>
         </div>
 
@@ -2421,7 +2525,13 @@ export function App() {
 
       {activeView === "system" && (
         <section className="workspace">
-          <SystemView onLog={appendLog} onRecordActivity={recordActivity} />
+          <SystemView
+            onLog={appendLog}
+            onRecordActivity={recordActivity}
+            onOpenLogs={() =>
+              openLogsView({ kind: "system", quick: "system" })
+            }
+          />
         </section>
       )}
 
@@ -2435,6 +2545,25 @@ export function App() {
             onCheck={checkInstalledToolUpdates}
             onUpdate={updateTool}
             onOpen={openUrl}
+            onViewLogs={(toolId) =>
+              openLogsView({ toolId, kind: "update", quick: "failed" })
+            }
+          />
+        </section>
+      )}
+
+      {activeView === "logs" && (
+        <section className="workspace">
+          <LogsView
+            logs={logs}
+            activityLog={activityLog}
+            focus={logsViewFocus}
+            onRefresh={loadActivityLog}
+            onClearActivityLog={clearActivityLog}
+            onExportActivityLog={exportActivityLogFile}
+            onLog={appendLog}
+            onShowTool={showToolFromLog}
+            onFixTool={fixToolFromLog}
           />
         </section>
       )}
@@ -2459,8 +2588,6 @@ export function App() {
             onSelectCustomThemeBackground={selectCustomThemeBackground}
             onClearCustomThemeBackground={clearCustomThemeBackground}
             onLog={appendLog}
-            logs={logs}
-            activityLog={activityLog}
             customTools={customTools}
             categories={activeCategoryDefinitions}
             allCategories={settings.customCategories}
@@ -2468,7 +2595,6 @@ export function App() {
             onAddAiTool={addAiGeneratedTool}
             onRemoveCustomTool={removeCustomTool}
             onUninstallCustomTool={uninstallTool}
-            onClearActivityLog={clearActivityLog}
             onExportConfig={exportConfig}
             onImportConfig={importConfig}
           />
@@ -2600,6 +2726,9 @@ export function App() {
                   onLaunch={() => launchTool(tool)}
                   onOpen={() => openUrl(tool.repoUrl ?? tool.homepage)}
                   onAiFix={() => fixToolWithAi(tool)}
+                  onViewLogs={() =>
+                    openLogsView({ toolId: tool.id, quick: "failed" })
+                  }
                   onSetCategory={(categoryId) =>
                     saveToolCategory(tool.id, categoryId)
                   }
@@ -2832,6 +2961,7 @@ function ToolUpdatesView({
   onCheck,
   onUpdate,
   onOpen,
+  onViewLogs,
 }: {
   tools: Tool[];
   results: Record<string, ToolUpdateCheckResult>;
@@ -2840,6 +2970,7 @@ function ToolUpdatesView({
   onCheck: () => Promise<void>;
   onUpdate: (tool: Tool) => Promise<void>;
   onOpen: (url: string) => Promise<void>;
+  onViewLogs: (toolId: string) => void;
 }) {
   const resultList = tools.map((tool) => results[tool.id]).filter(Boolean);
   const availableCount = resultList.filter(
@@ -2919,6 +3050,16 @@ function ToolUpdatesView({
                     >
                       <Download size={14} />
                       {status === "available" ? "更新" : "重装刷新"}
+                    </button>
+                  )}
+                  {status === "unknown" && (
+                    <button
+                      className="mini-action"
+                      type="button"
+                      onClick={() => onViewLogs(tool.id)}
+                    >
+                      <Terminal size={14} />
+                      日志
                     </button>
                   )}
                   <button
@@ -3038,9 +3179,11 @@ function EmptyState({
 function SystemView({
   onLog,
   onRecordActivity,
+  onOpenLogs,
 }: {
   onLog: (level: LogEntry["level"], message: string) => void;
   onRecordActivity: (input: ActivityLogInput) => Promise<void>;
+  onOpenLogs: () => void;
 }) {
   const [info, setInfo] = useState<SystemInfo>();
   const [selectedAdapterId, setSelectedAdapterId] = useState("");
@@ -3114,10 +3257,19 @@ function SystemView({
       }
       onLog("success", "本机配置已刷新。");
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "读取本机配置失败。";
       onLog(
         "error",
-        error instanceof Error ? error.message : "读取本机配置失败。",
+        message,
       );
+      await onRecordActivity({
+        kind: "system",
+        status: "error",
+        title: "读取本机配置失败",
+        detail: message,
+        source: "本机配置",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -3175,16 +3327,33 @@ function SystemView({
           `DNS 延迟检测完成，目标域名 ${effectiveDnsDomain}，最快的是 ${fastest.server}（${fastest.latencyMs}ms）。`,
         );
       } else {
+        const message = `DNS 延迟检测完成，目标域名 ${effectiveDnsDomain}，没有可用结果。`;
         onLog(
           "warning",
-          `DNS 延迟检测完成，目标域名 ${effectiveDnsDomain}，没有可用结果。`,
+          message,
         );
+        await onRecordActivity({
+          kind: "system",
+          status: "warning",
+          title: "DNS 延迟检测没有可用结果",
+          detail: message,
+          source: "本机配置",
+        });
       }
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "DNS 延迟检测失败。";
       onLog(
         "error",
-        error instanceof Error ? error.message : "DNS 延迟检测失败。",
+        message,
       );
+      await onRecordActivity({
+        kind: "system",
+        status: "error",
+        title: "DNS 延迟检测失败",
+        detail: message,
+        source: "本机配置",
+      });
     } finally {
       setIsTestingDns(false);
     }
@@ -3220,15 +3389,40 @@ function SystemView({
 
       if (result.code === 0) {
         onLog("success", "网络配置已应用。");
+        await onRecordActivity({
+          kind: "system",
+          status: "success",
+          title: "网络配置已应用",
+          detail: message,
+          exitCode: result.code,
+          source: "本机配置",
+        });
       } else {
         onLog("warning", `网络配置命令结束，退出码 ${result.code ?? "未知"}。`);
+        await onRecordActivity({
+          kind: "system",
+          status: "warning",
+          title: "网络配置命令异常结束",
+          detail: message,
+          exitCode: result.code,
+          source: "本机配置",
+        });
       }
       await refreshSystemInfo();
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "应用网络配置失败。";
       onLog(
         "error",
-        error instanceof Error ? error.message : "应用网络配置失败。",
+        errorMessage,
       );
+      await onRecordActivity({
+        kind: "system",
+        status: "error",
+        title: "应用网络配置失败",
+        detail: errorMessage,
+        source: "本机配置",
+      });
     } finally {
       setIsApplying(false);
     }
@@ -3444,15 +3638,21 @@ function SystemView({
             <h2>查看本机，调整 IP / DNS</h2>
           </div>
         </div>
-        <button
-          className="ghost-button"
-          type="button"
-          disabled={isLoading}
-          onClick={refreshSystemInfo}
-        >
-          <RotateCcw size={16} className={isLoading ? "spin" : ""} />
-          {isLoading ? "刷新中" : "刷新配置"}
-        </button>
+        <div className="top-actions">
+          <button className="ghost-button" type="button" onClick={onOpenLogs}>
+            <Terminal size={16} />
+            系统日志
+          </button>
+          <button
+            className="ghost-button"
+            type="button"
+            disabled={isLoading}
+            onClick={refreshSystemInfo}
+          >
+            <RotateCcw size={16} className={isLoading ? "spin" : ""} />
+            {isLoading ? "刷新中" : "刷新配置"}
+          </button>
+        </div>
       </header>
 
       <div className="info-grid">
@@ -3929,8 +4129,6 @@ function SettingsView({
   onSelectCustomThemeBackground,
   onClearCustomThemeBackground,
   onLog,
-  logs,
-  activityLog,
   customTools,
   categories,
   allCategories,
@@ -3938,7 +4136,6 @@ function SettingsView({
   onAddAiTool,
   onRemoveCustomTool,
   onUninstallCustomTool,
-  onClearActivityLog,
   onExportConfig,
   onImportConfig,
 }: {
@@ -3966,8 +4163,6 @@ function SettingsView({
   onSelectCustomThemeBackground: (themeId: ThemeId) => Promise<void>;
   onClearCustomThemeBackground: (themeId: ThemeId) => Promise<void>;
   onLog: (level: LogEntry["level"], message: string) => void;
-  logs: LogEntry[];
-  activityLog: ActivityLogEntry[];
   customTools: Tool[];
   categories: CategoryDefinition[];
   allCategories: CategoryDefinition[];
@@ -3979,7 +4174,6 @@ function SettingsView({
   ) => Promise<void>;
   onRemoveCustomTool: (toolId: string) => Promise<void>;
   onUninstallCustomTool: (tool: Tool) => Promise<void>;
-  onClearActivityLog: () => Promise<void>;
   onExportConfig: () => Promise<void>;
   onImportConfig: () => Promise<void>;
 }) {
@@ -4013,10 +4207,6 @@ function SettingsView({
   const [downloadProgress, setDownloadProgress] = useState<
     { downloaded: number; total: number; percent: number } | undefined
   >();
-  const activityStats = useMemo(
-    () => getActivityLogStats(activityLog),
-    [activityLog],
-  );
 
   useEffect(() => {
     setAiDraft((current) => ({
@@ -4938,67 +5128,6 @@ function SettingsView({
           </div>
         </section>
 
-        <section className="settings-card log-panel-settings full-span">
-          <div className="log-section-head">
-            <div className="section-title">
-              <Info size={15} />
-              日志与操作历史
-            </div>
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={activityLog.length === 0}
-              onClick={() => void onClearActivityLog()}
-            >
-              <Trash2 size={15} />
-              清空历史
-            </button>
-          </div>
-          <div className="activity-summary-row">
-            <span>历史 {activityStats.total}</span>
-            <span>失败 {activityStats.failed}</span>
-            <span>警告 {activityStats.warnings}</span>
-            <span>
-              最近失败 {activityStats.lastFailure?.toolName ?? activityStats.lastFailure?.title ?? "无"}
-            </span>
-          </div>
-          <div className="log-history-grid">
-            <div className="log-column">
-              <div className="section-title compact-title">实时日志</div>
-              <div className="log-list">
-                {logs.map((log) => (
-                  <div className={`log-entry ${log.level}`} key={log.id}>
-                    {log.message}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="log-column">
-              <div className="section-title compact-title">操作历史</div>
-              <div className="activity-list">
-                {activityLog.length === 0 ? (
-                  <div className="activity-empty">暂无历史记录</div>
-                ) : (
-                  activityLog.slice(0, 80).map((entry) => (
-                    <div className={`activity-entry ${entry.status}`} key={entry.id}>
-                      <div>
-                        <strong>{entry.title}</strong>
-                        <span>
-                          {formatActivityTime(entry.createdAt)}
-                          {" · "}
-                          {getActivityKindLabel(entry.kind)}
-                          {entry.exitCode !== undefined ? ` · ${formatExitCode(entry.exitCode)}` : ""}
-                        </span>
-                        {entry.detail && <p>{entry.detail}</p>}
-                      </div>
-                      {entry.source && <em>{entry.source}</em>}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
       </div>
     </div>
   );
@@ -5245,6 +5374,7 @@ function ToolCard({
   onLaunch,
   onOpen,
   onAiFix,
+  onViewLogs,
   onSetCategory,
   onRemove,
 }: {
@@ -5259,6 +5389,7 @@ function ToolCard({
   onLaunch: () => void;
   onOpen: () => void;
   onAiFix: () => void;
+  onViewLogs: () => void;
   onSetCategory: (categoryId: string) => void;
   onRemove: () => void;
 }) {
@@ -5376,14 +5507,24 @@ function ToolCard({
             {tool.collectionOnly ? "无需安装" : getInstallButtonLabel(toolState.status)}
           </button>
           {toolState.status === "failed" && (
-            <button
-              className="mini-action ai-fix"
-              type="button"
-              onClick={onAiFix}
-            >
-              <Sparkles size={14} />
-              AI修复
-            </button>
+            <>
+              <button
+                className="mini-action ai-fix"
+                type="button"
+                onClick={onAiFix}
+              >
+                <Sparkles size={14} />
+                AI修复
+              </button>
+              <button
+                className="mini-action"
+                type="button"
+                onClick={onViewLogs}
+              >
+                <Terminal size={14} />
+                日志
+              </button>
+            </>
           )}
           <button
             className="mini-action open"

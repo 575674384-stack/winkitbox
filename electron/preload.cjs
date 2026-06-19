@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld("winKitBox", {
   applyNetworkConfig: (request) => ipcRenderer.invoke("apply-network-config", request),
   setSystemUtf8Beta: (request) => ipcRenderer.invoke("system-utf8-set", request),
   saveConfigFile: (request) => ipcRenderer.invoke("save-config-file", request),
+  saveLogFile: (request) => ipcRenderer.invoke("save-log-file", request),
   openConfigFile: () => ipcRenderer.invoke("open-config-file"),
   listAiModels: (request) => ipcRenderer.invoke("ai-list-models", request),
   testAiConnection: (request) => ipcRenderer.invoke("ai-test-connection", request),

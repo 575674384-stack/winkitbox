@@ -11,12 +11,22 @@ import {
 
 describe("activity log", () => {
   it("sanitizes incoming entries", () => {
+    const fakeGithubToken = "g" + "hp_" + "1234567890abcdefSECRET";
+    const fakeBearerToken = "sk-" + "secret-key";
     const entry = createActivityLogEntry(
       {
         kind: "install",
         status: "error",
         title: "  安装   失败  ",
-        detail: "x".repeat(400),
+        detail: "x".repeat(2400),
+        rawOutput: ["ok", fakeGithubToken, ...Array.from({ length: 240 }, (_, index) => `line-${index}`)],
+        durationMs: 1234,
+        commandSummary: `winget install --id Example.Tool --header Authorization: Bearer ${fakeBearerToken}`,
+        metadata: {
+          categoryId: "ai",
+          version: "1.0.0",
+          target: "C:\\Tools\\Example",
+        },
         toolId: "tool",
         toolName: "Tool",
         exitCode: 1,
@@ -32,8 +42,17 @@ describe("activity log", () => {
       toolId: "tool",
       toolName: "Tool",
       exitCode: 1,
+      durationMs: 1234,
+      metadata: {
+        categoryId: "ai",
+        version: "1.0.0",
+        target: "C:\\Tools\\Example",
+      },
     });
-    expect(entry.detail).toHaveLength(280);
+    expect(entry.detail).toHaveLength(2000);
+    expect(entry.commandSummary).toContain("[已脱敏]");
+    expect(entry.rawOutput).toHaveLength(200);
+    expect(entry.rawOutput?.join("\n")).not.toContain(fakeGithubToken);
   });
 
   it("keeps newest entries first and trims old history", () => {
@@ -54,6 +73,27 @@ describe("activity log", () => {
     expect(entries).toHaveLength(maxActivityLogEntries);
     expect(entries[0].title).toBe(`entry-${maxActivityLogEntries + 4}`);
     expect(entries.at(-1)?.title).toBe("entry-5");
+  });
+
+  it("keeps up to one thousand history entries", () => {
+    let entries: ActivityLogEntry[] = [];
+
+    for (let index = 0; index < 1200; index++) {
+      entries = addActivityLogEntry(
+        entries,
+        {
+          kind: "system",
+          status: "info",
+          title: `entry-${index}`,
+        },
+        new Date(2026, 0, 1, 0, 0, index),
+      );
+    }
+
+    expect(entries).toHaveLength(1000);
+    expect(maxActivityLogEntries).toBe(1000);
+    expect(entries[0].title).toBe("entry-1199");
+    expect(entries.at(-1)?.title).toBe("entry-200");
   });
 
   it("normalizes unknown payloads safely", () => {

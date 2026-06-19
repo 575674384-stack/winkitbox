@@ -153,6 +153,14 @@ Before packaging and publishing a release:
 
 ## Release Notes
 
+### v0.3.10
+
+- Moved logs out of Settings into a dedicated Log Center page with operation-history and realtime-output tabs.
+- Added log search, status/type/time filters, quick filters, per-tool scoping, detailed records, and JSON/TXT export.
+- Expanded persistent activity history with redacted command summaries, raw output snippets, durations, and metadata.
+- Added log entry points from failed tool cards, tool update rows, and the Windows system page for faster troubleshooting.
+- Settings now focuses on configuration only; log history and clear-history controls live in the Log Center.
+
 ### v0.3.9
 
 - Upgraded the existing Windows environment check into a health panel with score, status counts, per-item repair buttons, and recommended one-click repairs.
