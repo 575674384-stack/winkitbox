@@ -153,6 +153,12 @@ Before packaging and publishing a release:
 
 ## Release Notes
 
+### v0.3.12
+
+- Fixed the AI model picker dialog so long model lists have a dedicated vertical scrollbar.
+- Added a stable scrollbar gutter and styled scrollbar track/thumb for clearer model-list scrolling.
+- Kept manual model entry unchanged while improving detected-model selection readability.
+
 ### v0.3.11
 
 - Moved local, link-based, and manual custom-tool creation out of Settings into a dedicated Add Tool page.

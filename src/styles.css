@@ -3161,6 +3161,7 @@ button {
   width: min(720px, calc(100vw - 48px));
   max-height: min(680px, calc(100vh - 48px));
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 14px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
@@ -3191,8 +3192,33 @@ button {
 .model-picker-list {
   display: grid;
   gap: 8px;
-  overflow: auto;
-  padding-right: 4px;
+  min-height: 0;
+  max-height: min(472px, calc(100vh - 236px));
+  overflow-y: scroll;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 8px;
+}
+
+.model-picker-list::-webkit-scrollbar {
+  width: 10px;
+}
+
+.model-picker-list::-webkit-scrollbar-track {
+  border-radius: var(--radius-full);
+  background: var(--card-bg-soft);
+  border: 1px solid var(--border-color);
+}
+
+.model-picker-list::-webkit-scrollbar-thumb {
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--accent) 48%, var(--neutral-300));
+  border: 2px solid var(--card-bg-soft);
+}
+
+.model-picker-list::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
 }
 
 .model-picker-item {
