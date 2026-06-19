@@ -144,4 +144,4 @@ scripts/package-win.cjs  Windows 打包脚本
 https://api.github.com/repos/575674384-stack/winkitbox/releases/latest
 ```
 
-发布时请确保 GitHub Release tag 与 `package.json` 版本一致，例如 `v0.3.8`。
+发布时请确保 GitHub Release tag 与 `package.json` 版本一致，例如 `v0.3.9`。

@@ -2397,11 +2397,99 @@ button {
 
 .environment-card {
   margin: 16px 0;
+  overflow: hidden;
+}
+
+.environment-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.environment-head .section-title {
+  margin-bottom: 6px;
+}
+
+.environment-head p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 650;
+}
+
+.environment-overview {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.environment-score {
+  position: relative;
+  display: grid;
+  align-content: center;
+  min-height: 92px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  background:
+    radial-gradient(circle at 84% 18%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 42%),
+    var(--card-bg-soft);
+  box-shadow: var(--shadow-xs);
+}
+
+.environment-score.ok {
+  border-color: color-mix(in srgb, var(--success) 38%, var(--border-color));
+}
+
+.environment-score.warning {
+  border-color: color-mix(in srgb, var(--warning) 48%, var(--border-color));
+}
+
+.environment-score.danger {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--border-color));
+}
+
+.environment-score span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.environment-score strong {
+  color: var(--text-strong);
+  font-size: 38px;
+  line-height: 1;
+  font-weight: 900;
+}
+
+.environment-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(100px, 1fr));
+  gap: 10px;
+}
+
+.environment-metrics span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-main);
+  background: var(--card-bg-soft);
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: var(--shadow-xs);
 }
 
 .environment-check-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 10px;
 }
 
@@ -2415,9 +2503,11 @@ button {
 
 .environment-check {
   display: grid;
-  gap: 5px;
-  padding: 12px;
+  align-content: start;
+  gap: 8px;
+  padding: 14px;
   border-left: 4px solid var(--neutral-400);
+  min-height: 168px;
 }
 
 .environment-check.ok {
@@ -2430,6 +2520,13 @@ button {
 
 .environment-check.danger {
   border-left-color: var(--danger);
+}
+
+.environment-check-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .environment-check strong,
@@ -2447,6 +2544,81 @@ button {
   line-height: 1.45;
   font-style: normal;
   font-weight: 650;
+}
+
+.status-pill {
+  flex: 0 0 auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.status-pill.ok {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, var(--card-bg));
+  border-color: color-mix(in srgb, var(--success) 32%, var(--border-color));
+}
+
+.status-pill.warning {
+  color: #9a5a08;
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--border-color));
+}
+
+.status-pill.danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--border-color));
+}
+
+.environment-repair-button,
+.environment-ok {
+  align-self: end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  border-radius: var(--radius-md);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.environment-repair-button {
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border-color));
+  color: var(--accent);
+  background: var(--accent-soft);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.environment-repair-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.environment-repair-button:disabled {
+  color: var(--text-muted);
+  background: var(--neutral-50);
+  border-color: var(--border-color);
+  cursor: not-allowed;
+}
+
+.environment-ok {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, var(--card-bg));
+}
+
+.environment-disabled {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 700;
 }
 
 .updates-page {
@@ -3537,6 +3709,19 @@ button {
   .info-grid,
   .settings-layout {
     grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+
+  .environment-head,
+  .environment-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .environment-head {
+    flex-direction: column;
+  }
+
+  .environment-metrics {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
 
   .system-layout {

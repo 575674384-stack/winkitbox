@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createEnvironmentChecks } from "./environment";
+import {
+  createEnvironmentChecks,
+  createEnvironmentHealthSummary,
+  getRecommendedEnvironmentRepairs,
+} from "./environment";
 
 describe("environment checks", () => {
   it("marks common Windows setup dependencies as healthy when available", () => {
@@ -12,6 +16,7 @@ describe("environment checks", () => {
         "Microsoft.WindowsDesktop.App 8.0.6 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]",
       ],
       vcredistInstalled: true,
+      webView2Installed: true,
       longPathsEnabled: true,
       utf8BetaEnabled: true,
     });
@@ -21,6 +26,7 @@ describe("environment checks", () => {
       ["powershell", "ok"],
       ["dotnet", "ok"],
       ["vcredist", "ok"],
+      ["webview2", "ok"],
       ["long-paths", "ok"],
       ["utf8", "ok"],
     ]);
@@ -36,6 +42,7 @@ describe("environment checks", () => {
       powershellVersion: "",
       dotnetRuntimes: [],
       vcredistInstalled: false,
+      webView2Installed: false,
       longPathsEnabled: false,
       utf8BetaEnabled: false,
     });
@@ -43,8 +50,74 @@ describe("environment checks", () => {
     expect(checks.find((check) => check.id === "winget")?.status).toBe("danger");
     expect(checks.find((check) => check.id === "dotnet")?.status).toBe("warning");
     expect(checks.find((check) => check.id === "vcredist")?.status).toBe("warning");
+    expect(checks.find((check) => check.id === "webview2")?.status).toBe("warning");
     expect(checks.find((check) => check.id === "long-paths")?.status).toBe("warning");
     expect(checks.find((check) => check.id === "utf8")?.action).toBe("可在本页一键切换");
+  });
+
+  it("attaches repair actions to missing dependencies without making UTF-8 a default fix", () => {
+    const checks = createEnvironmentChecks({
+      wingetAvailable: true,
+      powershellVersion: "5.1.19041.1",
+      dotnetRuntimes: [],
+      vcredistInstalled: false,
+      webView2Installed: false,
+      longPathsEnabled: false,
+      utf8BetaEnabled: false,
+    });
+
+    expect(checks.find((check) => check.id === "dotnet")?.repair?.command).toContain(
+      "Microsoft.DotNet.DesktopRuntime.8",
+    );
+    expect(checks.find((check) => check.id === "vcredist")?.repair?.command).toContain(
+      "Microsoft.VCRedist.2015+.x64",
+    );
+    expect(checks.find((check) => check.id === "webview2")?.repair?.command).toContain(
+      "Microsoft.EdgeWebView2Runtime",
+    );
+
+    const recommended = getRecommendedEnvironmentRepairs(checks).map(
+      (action) => action.checkId,
+    );
+
+    expect(recommended).toEqual(["dotnet", "vcredist", "webview2", "long-paths"]);
+  });
+
+  it("marks winget-dependent repairs as unavailable when winget is missing", () => {
+    const checks = createEnvironmentChecks({
+      wingetAvailable: false,
+      powershellVersion: "5.1.19041.1",
+      dotnetRuntimes: [],
+      vcredistInstalled: false,
+      webView2Installed: false,
+      longPathsEnabled: true,
+      utf8BetaEnabled: true,
+    });
+
+    expect(checks.find((check) => check.id === "winget")?.repair?.kind).toBe("url");
+    expect(checks.find((check) => check.id === "dotnet")?.repair?.disabledReason).toBe(
+      "需要先修复 winget。",
+    );
+  });
+
+  it("summarizes environment health for the UI", () => {
+    const checks = createEnvironmentChecks({
+      wingetAvailable: true,
+      powershellVersion: "5.1.19041.1",
+      dotnetRuntimes: [],
+      vcredistInstalled: true,
+      webView2Installed: true,
+      longPathsEnabled: false,
+      utf8BetaEnabled: true,
+    });
+
+    expect(createEnvironmentHealthSummary(checks)).toMatchObject({
+      total: 7,
+      ok: 5,
+      warning: 2,
+      danger: 0,
+      recommendedRepairCount: 2,
+    });
   });
 
   it("does not treat ASP.NET or base .NET runtimes as Desktop Runtime", () => {
@@ -56,6 +129,7 @@ describe("environment checks", () => {
         "Microsoft.NETCore.App 5.0.17 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]",
       ],
       vcredistInstalled: true,
+      webView2Installed: true,
       longPathsEnabled: true,
       utf8BetaEnabled: true,
     });
@@ -78,6 +152,7 @@ describe("environment checks", () => {
         "Microsoft.WindowsDesktop.App 9.0.1 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]",
       ],
       vcredistInstalled: true,
+      webView2Installed: true,
       longPathsEnabled: true,
       utf8BetaEnabled: true,
     });

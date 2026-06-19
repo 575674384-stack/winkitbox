@@ -153,6 +153,14 @@ Before packaging and publishing a release:
 
 ## Release Notes
 
+### v0.3.9
+
+- Upgraded the existing Windows environment check into a health panel with score, status counts, per-item repair buttons, and recommended one-click repairs.
+- Added WebView2 Runtime detection alongside winget, PowerShell, .NET Desktop Runtime, VC++ runtime, long paths, and UTF-8 beta checks.
+- Added typed repair actions for .NET Desktop Runtime, VC++ runtime, WebView2 Runtime, long path enablement, App Installer guidance, and UTF-8 beta toggling.
+- Environment repair actions now write to the operation history so system fixes are visible in the log center.
+- Refined the system page UI with clearer health cards, status pills, repair CTAs, and better responsive layout.
+
 ### v0.3.8
 
 - Added a persistent operation history stored outside `settings.json`, keeping recent install, uninstall, update, update-check, launch, AI, and config actions.

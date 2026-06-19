@@ -34,6 +34,7 @@ import {
   Trash2,
   Upload,
   WifiOff,
+  Wrench,
   X,
 } from "lucide-react";
 import { DiscoverView } from "./DiscoverView";
@@ -80,7 +81,10 @@ import {
 } from "./core/catalogFilters";
 import {
   createEnvironmentChecks,
+  createEnvironmentHealthSummary,
+  getRecommendedEnvironmentRepairs,
   type EnvironmentSnapshot,
+  type EnvironmentRepairAction,
 } from "./core/environment";
 import { createLaunchDescriptor, getToolLogoUrl } from "./core/launcher";
 import {
@@ -2417,7 +2421,7 @@ export function App() {
 
       {activeView === "system" && (
         <section className="workspace">
-          <SystemView onLog={appendLog} />
+          <SystemView onLog={appendLog} onRecordActivity={recordActivity} />
         </section>
       )}
 
@@ -2984,6 +2988,28 @@ function mapUpdateStatusTone(status: ToolUpdateCheckResult["status"] | "unknown"
   return "unknown";
 }
 
+function getEnvironmentStatusLabel(status: "ok" | "warning" | "danger") {
+  const labels = {
+    ok: "正常",
+    warning: "建议处理",
+    danger: "需要修复",
+  };
+
+  return labels[status];
+}
+
+function getEnvironmentScoreTone(score: number) {
+  if (score >= 85) {
+    return "ok";
+  }
+
+  if (score >= 60) {
+    return "warning";
+  }
+
+  return "danger";
+}
+
 function EmptyState({
   icon: Icon,
   title,
@@ -3011,8 +3037,10 @@ function EmptyState({
 
 function SystemView({
   onLog,
+  onRecordActivity,
 }: {
   onLog: (level: LogEntry["level"], message: string) => void;
+  onRecordActivity: (input: ActivityLogInput) => Promise<void>;
 }) {
   const [info, setInfo] = useState<SystemInfo>();
   const [selectedAdapterId, setSelectedAdapterId] = useState("");
@@ -3027,6 +3055,10 @@ function SystemView({
   const [isTestingDns, setIsTestingDns] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [isSettingUtf8, setIsSettingUtf8] = useState(false);
+  const [repairingEnvironmentActionId, setRepairingEnvironmentActionId] =
+    useState("");
+  const [isRepairingRecommendedEnvironment, setIsRepairingRecommendedEnvironment] =
+    useState(false);
   const [dnsTestDomain, setDnsTestDomain] = useState(dnsTestDomains[0].domain);
   const [customDnsDomain, setCustomDnsDomain] = useState("");
   const effectiveDnsDomain = useMemo(() => {
@@ -3049,6 +3081,14 @@ function SystemView({
         ? createEnvironmentChecks(info.environment)
         : [],
     [info?.environment],
+  );
+  const environmentSummary = useMemo(
+    () => createEnvironmentHealthSummary(environmentChecks),
+    [environmentChecks],
+  );
+  const recommendedEnvironmentRepairs = useMemo(
+    () => getRecommendedEnvironmentRepairs(environmentChecks),
+    [environmentChecks],
   );
 
   useEffect(() => {
@@ -3194,20 +3234,25 @@ function SystemView({
     }
   }
 
-  async function setUtf8Beta(enabled: boolean) {
+  async function setUtf8Beta(
+    enabled: boolean,
+    options: { skipConfirm?: boolean; refreshAfter?: boolean } = {},
+  ): Promise<boolean> {
     if (!window.winKitBox) {
       onLog("warning", "浏览器预览模式不能修改系统区域设置。");
-      return;
+      return false;
     }
 
-    const confirmed = window.confirm(
-      enabled
-        ? "将开启 Windows 的“使用 Unicode UTF-8 提供全球语言支持”，需要管理员确认并重启系统后生效。是否继续？"
-        : "将关闭 Windows UTF-8 beta 开关并尽量恢复之前的代码页，需要管理员确认并重启系统后生效。是否继续？",
-    );
+    const confirmed =
+      options.skipConfirm ||
+      window.confirm(
+        enabled
+          ? "将开启 Windows 的“使用 Unicode UTF-8 提供全球语言支持”，需要管理员确认并重启系统后生效。是否继续？"
+          : "将关闭 Windows UTF-8 beta 开关并尽量恢复之前的代码页，需要管理员确认并重启系统后生效。是否继续？",
+      );
 
     if (!confirmed) {
-      return;
+      return false;
     }
 
     setIsSettingUtf8(true);
@@ -3220,17 +3265,170 @@ function SystemView({
             ? "UTF-8 beta 开关已开启，重启系统后生效。"
             : "UTF-8 beta 开关已关闭，重启系统后生效。",
         );
+        await onRecordActivity({
+          kind: "system",
+          status: "success",
+          title: enabled ? "开启 UTF-8 beta" : "关闭 UTF-8 beta",
+          detail: "系统区域设置已写入，重启 Windows 后生效。",
+          exitCode: result.code,
+          source: "Windows 环境体检",
+        });
       } else {
         onLog("warning", `UTF-8 设置命令结束，退出码 ${result.code ?? "未知"}。`);
+        await onRecordActivity({
+          kind: "system",
+          status: "warning",
+          title: enabled ? "开启 UTF-8 beta" : "关闭 UTF-8 beta",
+          detail: "命令已结束，但退出码不是 0。",
+          exitCode: result.code,
+          source: "Windows 环境体检",
+        });
       }
-      await refreshSystemInfo();
+      if (options.refreshAfter !== false) {
+        await refreshSystemInfo();
+      }
+      return result.code === 0;
     } catch (error) {
       onLog(
         "error",
         error instanceof Error ? error.message : "修改 UTF-8 设置失败。",
       );
+      await onRecordActivity({
+        kind: "system",
+        status: "error",
+        title: enabled ? "开启 UTF-8 beta" : "关闭 UTF-8 beta",
+        detail: error instanceof Error ? error.message : "修改 UTF-8 设置失败。",
+        source: "Windows 环境体检",
+      });
+      return false;
     } finally {
       setIsSettingUtf8(false);
+    }
+  }
+
+  async function repairEnvironmentAction(
+    action: EnvironmentRepairAction,
+    options: { skipConfirm?: boolean; refreshAfter?: boolean } = {},
+  ): Promise<boolean> {
+    if (!window.winKitBox) {
+      onLog("warning", "浏览器预览模式不能修复 Windows 环境。");
+      return false;
+    }
+
+    if (action.disabledReason) {
+      onLog("warning", action.disabledReason);
+      return false;
+    }
+
+    if (action.kind === "utf8") {
+      return setUtf8Beta(true, options);
+    }
+
+    const confirmed =
+      options.skipConfirm ||
+      window.confirm(
+        action.requiresAdmin
+          ? `将执行“${action.label}”，可能弹出管理员确认窗口。是否继续？`
+          : `将执行“${action.label}”。是否继续？`,
+      );
+
+    if (!confirmed) {
+      return false;
+    }
+
+    setRepairingEnvironmentActionId(action.id);
+    try {
+      onLog("info", `开始处理：${action.label}。`);
+
+      if (action.kind === "url") {
+        if (!action.url) {
+          throw new Error("缺少可打开的修复链接。");
+        }
+        await window.winKitBox.openUrl(action.url);
+        await onRecordActivity({
+          kind: "system",
+          status: "info",
+          title: action.label,
+          detail: action.description,
+          source: "Windows 环境体检",
+        });
+        onLog("info", `已打开：${action.label}。`);
+        return true;
+      }
+
+      if (!action.command) {
+        throw new Error("缺少修复命令。");
+      }
+
+      const result = await window.winKitBox.runPowerShell(action.command);
+      const ok = result.code === 0;
+      onLog(
+        ok ? "success" : "warning",
+        ok
+          ? `${action.label} 已执行完成。`
+          : `${action.label} 执行结束，退出码 ${result.code ?? "未知"}。`,
+      );
+      await onRecordActivity({
+        kind: "system",
+        status: ok ? "success" : "warning",
+        title: action.label,
+        detail: action.description,
+        exitCode: result.code,
+        source: "Windows 环境体检",
+      });
+      if (options.refreshAfter !== false) {
+        await refreshSystemInfo();
+      }
+      return ok;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${action.label} 失败。`;
+      onLog("error", message);
+      await onRecordActivity({
+        kind: "system",
+        status: "error",
+        title: action.label,
+        detail: message,
+        source: "Windows 环境体检",
+      });
+      return false;
+    } finally {
+      setRepairingEnvironmentActionId("");
+    }
+  }
+
+  async function repairRecommendedEnvironmentActions() {
+    if (recommendedEnvironmentRepairs.length === 0) {
+      onLog("info", "当前没有推荐的一键修复项。");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `将依次执行 ${recommendedEnvironmentRepairs.length} 个推荐修复项，部分步骤可能弹出管理员确认或安装窗口。是否继续？`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsRepairingRecommendedEnvironment(true);
+    try {
+      let successCount = 0;
+      for (const action of recommendedEnvironmentRepairs) {
+        const ok = await repairEnvironmentAction(action, {
+          skipConfirm: true,
+          refreshAfter: false,
+        });
+        if (ok) {
+          successCount += 1;
+        }
+      }
+      await refreshSystemInfo();
+      onLog(
+        successCount === recommendedEnvironmentRepairs.length ? "success" : "warning",
+        `推荐修复已执行 ${successCount}/${recommendedEnvironmentRepairs.length} 项。`,
+      );
+    } finally {
+      setIsRepairingRecommendedEnvironment(false);
     }
   }
 
@@ -3278,25 +3476,114 @@ function SystemView({
       </div>
 
       <section className="settings-card environment-card">
-        <div className="section-title">
-          <Gauge size={15} />
-          Windows 环境体检
+        <div className="environment-head">
+          <div>
+            <div className="section-title">
+              <Gauge size={15} />
+              Windows 环境体检
+            </div>
+            <p>检查装机和运行常用工具所需的基础环境，并在可处理时直接修复。</p>
+          </div>
+          <button
+            className={
+              recommendedEnvironmentRepairs.length > 0
+                ? "primary-button"
+                : "secondary-button"
+            }
+            type="button"
+            disabled={
+              isRepairingRecommendedEnvironment ||
+              recommendedEnvironmentRepairs.length === 0
+            }
+            onClick={() => void repairRecommendedEnvironmentActions()}
+          >
+            <Wrench size={15} />
+            {isRepairingRecommendedEnvironment
+              ? "修复中"
+              : recommendedEnvironmentRepairs.length > 0
+                ? `一键修复 ${recommendedEnvironmentRepairs.length} 项`
+                : "暂无修复项"}
+          </button>
         </div>
         {environmentChecks.length === 0 ? (
           <p className="empty-text">刷新本机配置后显示体检结果。</p>
         ) : (
-          <div className="environment-check-grid">
-            {environmentChecks.map((check) => (
+          <>
+            <div className="environment-overview">
               <div
-                className={`environment-check ${check.status}`}
-                key={check.id}
+                className={`environment-score ${getEnvironmentScoreTone(
+                  environmentSummary.score,
+                )}`}
               >
-                <strong>{check.label}</strong>
-                <span>{check.detail}</span>
-                {check.action && <em>{check.action}</em>}
+                <span>健康分</span>
+                <strong>{environmentSummary.score}</strong>
               </div>
-            ))}
-          </div>
+              <div className="environment-metrics">
+                <span>
+                  <Check size={14} />
+                  正常 {environmentSummary.ok}
+                </span>
+                <span>
+                  <Info size={14} />
+                  建议 {environmentSummary.warning}
+                </span>
+                <span>
+                  <ShieldAlert size={14} />
+                  修复 {environmentSummary.danger}
+                </span>
+                <span>
+                  <Wrench size={14} />
+                  可一键 {environmentSummary.recommendedRepairCount}
+                </span>
+              </div>
+            </div>
+
+            <div className="environment-check-grid">
+              {environmentChecks.map((check) => (
+                <div
+                  className={`environment-check ${check.status}`}
+                  key={check.id}
+                >
+                  <div className="environment-check-head">
+                    <strong>{check.label}</strong>
+                    <span className={`status-pill ${check.status}`}>
+                      {getEnvironmentStatusLabel(check.status)}
+                    </span>
+                  </div>
+                  <span>{check.detail}</span>
+                  {check.action && <em>{check.action}</em>}
+                  {check.repair ? (
+                    <button
+                      className="environment-repair-button"
+                      type="button"
+                      disabled={
+                        Boolean(check.repair.disabledReason) ||
+                        repairingEnvironmentActionId === check.repair.id ||
+                        isRepairingRecommendedEnvironment
+                      }
+                      title={check.repair.disabledReason}
+                      onClick={() => void repairEnvironmentAction(check.repair!)}
+                    >
+                      <Wrench size={14} />
+                      {repairingEnvironmentActionId === check.repair.id
+                        ? "处理中"
+                        : check.repair.label}
+                    </button>
+                  ) : (
+                    <small className="environment-ok">
+                      <Check size={14} />
+                      当前无需处理
+                    </small>
+                  )}
+                  {check.repair?.disabledReason && (
+                    <small className="environment-disabled">
+                      {check.repair.disabledReason}
+                    </small>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </section>
 
@@ -3372,7 +3659,7 @@ function SystemView({
               className={info?.utf8BetaEnabled ? "secondary-button danger" : "primary-button"}
               type="button"
               disabled={isSettingUtf8 || !info}
-              onClick={() => setUtf8Beta(!info?.utf8BetaEnabled)}
+              onClick={() => void setUtf8Beta(!info?.utf8BetaEnabled)}
             >
               <Keyboard size={15} />
               {isSettingUtf8

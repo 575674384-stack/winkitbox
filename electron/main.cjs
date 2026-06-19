@@ -651,6 +651,15 @@ $vcredistInstalled = [bool](
     Where-Object { [string]$_.DisplayName -match 'Microsoft Visual C\\+\\+.*(2015|2017|2019|2022).*Redistributable' } |
     Select-Object -First 1
 )
+$webView2Installed = [bool](
+  Get-ItemProperty @(
+    'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',
+    'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',
+    'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'
+  ) -ErrorAction SilentlyContinue |
+    Where-Object { [string]$_.DisplayName -match 'Microsoft Edge WebView2 Runtime' } |
+    Select-Object -First 1
+)
 $fileSystem = Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem' -ErrorAction SilentlyContinue
 $codePage = Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage'
 $adapters = Get-NetIPConfiguration |
@@ -693,6 +702,7 @@ $adapters = Get-NetIPConfiguration |
     dotnetRuntimes = @($dotnetRuntimes)
     dotnetDesktopRuntimes = @($dotnetDesktopRuntimes)
     vcredistInstalled = [bool]$vcredistInstalled
+    webView2Installed = [bool]$webView2Installed
     longPathsEnabled = [bool]($fileSystem.LongPathsEnabled -eq 1)
     utf8BetaEnabled = [bool]($codePage.ACP -eq '65001')
   }
