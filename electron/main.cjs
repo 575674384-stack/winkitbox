@@ -163,6 +163,23 @@ ipcMain.handle("settings-set", async (_event, settings) => {
   return readSettings();
 });
 
+ipcMain.handle("activity-log-get", async () => {
+  return readActivityLog();
+});
+
+ipcMain.handle("activity-log-add", async (_event, entry) => {
+  const nextEntries = writeActivityLog([
+    normalizeActivityLogEntry(entry),
+    ...readActivityLog()
+  ]);
+  return nextEntries;
+});
+
+ipcMain.handle("activity-log-clear", async () => {
+  writeActivityLog([]);
+  return [];
+});
+
 ipcMain.handle("select-tool-root", async (_event, currentPath) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: "选择 WinKitBox 工具安装目录",
@@ -1834,6 +1851,10 @@ function getSettingsPath() {
   return path.join(app.getPath("userData"), "settings.json");
 }
 
+function getActivityLogPath() {
+  return path.join(app.getPath("userData"), "activity-log.json");
+}
+
 function getDefaultToolRootPath() {
   return path.join(process.env.LOCALAPPDATA || app.getPath("appData"), "WinKitBox");
 }
@@ -1849,6 +1870,7 @@ function readSettings() {
 
 function writeSettings(settings) {
   const normalized = normalizeSettings(settings);
+  ensureDirectory(path.dirname(getSettingsPath()));
   fs.writeFileSync(
     getSettingsPath(),
     JSON.stringify(
@@ -1873,6 +1895,111 @@ function writeSettings(settings) {
       2
     )
   );
+}
+
+function readActivityLog() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(getActivityLogPath(), "utf8"));
+    return normalizeActivityLogEntries(parsed);
+  } catch {
+    return [];
+  }
+}
+
+function writeActivityLog(entries) {
+  const normalized = normalizeActivityLogEntries(entries);
+  ensureDirectory(path.dirname(getActivityLogPath()));
+  fs.writeFileSync(getActivityLogPath(), JSON.stringify(normalized, null, 2));
+  return normalized;
+}
+
+function normalizeActivityLogEntries(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(normalizeActivityLogEntry)
+    .filter(Boolean)
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+    .slice(0, 200);
+}
+
+function normalizeActivityLogEntry(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const now = new Date();
+  const createdAt = Number.isNaN(Date.parse(String(value.createdAt ?? "")))
+    ? now.toISOString()
+    : String(value.createdAt);
+  const kind = normalizeActivityKind(String(value.kind ?? ""));
+  const status = normalizeActivityStatus(String(value.status ?? ""));
+  const title = compactActivityText(value.title, 90) || "未命名操作";
+  const entry = {
+    id: compactActivityText(value.id, 120) || `${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt,
+    kind,
+    status,
+    title
+  };
+  const detail = compactActivityText(value.detail, 280);
+  const toolId = compactActivityText(value.toolId, 80);
+  const toolName = compactActivityText(value.toolName, 80);
+  const source = compactActivityText(value.source, 80);
+
+  if (detail) {
+    entry.detail = detail;
+  }
+
+  if (toolId) {
+    entry.toolId = toolId;
+  }
+
+  if (toolName) {
+    entry.toolName = toolName;
+  }
+
+  if (source) {
+    entry.source = source;
+  }
+
+  if (typeof value.exitCode === "number" || value.exitCode === null) {
+    entry.exitCode = value.exitCode;
+  }
+
+  return entry;
+}
+
+function normalizeActivityKind(value) {
+  return [
+    "install",
+    "uninstall",
+    "update",
+    "update-check",
+    "launch",
+    "ai",
+    "config",
+    "system",
+    "category",
+    "theme"
+  ].includes(value)
+    ? value
+    : "system";
+}
+
+function normalizeActivityStatus(value) {
+  return ["success", "warning", "error", "info"].includes(value)
+    ? value
+    : "info";
+}
+
+function compactActivityText(value, maxLength) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
 }
 
 function normalizeSettings(settings) {

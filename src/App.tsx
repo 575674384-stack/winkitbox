@@ -59,6 +59,14 @@ import {
   type AiToolGitHubContext,
 } from "./core/aiTool";
 import {
+  addActivityLogEntry,
+  getActivityLogStats,
+  getLatestToolFailure,
+  normalizeActivityLog,
+  type ActivityLogEntry,
+  type ActivityLogInput,
+} from "./core/activityLog";
+import {
   buildExportConfig,
   createCustomTool,
   parseImportedConfig,
@@ -379,6 +387,7 @@ export function App() {
       message: "WinKitBox 已就绪。安装、打开、卸载都会自动刷新状态。",
     },
   ]);
+  const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [toolStates, setToolStates] = useState<ToolRuntimeStates>({});
   const [installProgress, setInstallProgress] = useState<InstallProgress>(() =>
@@ -561,7 +570,7 @@ export function App() {
         });
 
         if (storedCustomTools.length > 0 && nextSettings.customTools.length === 0) {
-          await window.winKitBox.setSettings(normalizedSettings);
+      await window.winKitBox.setSettings(normalizedSettings);
         }
 
         if (normalizedSettings.updateOnStartup) {
@@ -575,6 +584,19 @@ export function App() {
         await refreshToolStates(allTools);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    if (!window.winKitBox) {
+      return;
+    }
+
+    void window.winKitBox
+      .getActivityLog()
+      .then((entries) => setActivityLog(normalizeActivityLog(entries)))
+      .catch(() => {
+        appendLog("warning", "读取操作历史失败，本次会保留实时日志。");
+      });
   }, []);
 
   useEffect(() => {
@@ -652,6 +674,42 @@ export function App() {
       },
       ...current,
     ]);
+  }
+
+  async function recordActivity(input: ActivityLogInput) {
+    if (!input.title) {
+      return;
+    }
+
+    if (!window.winKitBox) {
+      setActivityLog((current) => addActivityLogEntry(current, input));
+      return;
+    }
+
+    try {
+      const entries = await window.winKitBox.addActivityLog(input);
+      setActivityLog(normalizeActivityLog(entries));
+    } catch {
+      setActivityLog((current) => addActivityLogEntry(current, input));
+    }
+  }
+
+  async function clearActivityLog() {
+    if (window.winKitBox) {
+      try {
+        const entries = await window.winKitBox.clearActivityLog();
+        setActivityLog(normalizeActivityLog(entries));
+        appendLog("success", "操作历史已清空。");
+        return;
+      } catch (error) {
+        appendLog(
+          "error",
+          error instanceof Error ? error.message : "清空操作历史失败。",
+        );
+      }
+    }
+
+    setActivityLog([]);
   }
 
   function handleRunOutputLine(line: string) {
@@ -1197,6 +1255,12 @@ export function App() {
         });
         if (!result.canceled) {
           appendLog("success", `配置已导出：${result.filePath}`);
+          await recordActivity({
+            kind: "config",
+            status: "success",
+            title: "配置已导出",
+            detail: result.filePath,
+          });
         }
         return;
       }
@@ -1210,11 +1274,22 @@ export function App() {
       anchor.click();
       URL.revokeObjectURL(url);
       appendLog("success", "配置已导出。");
+      await recordActivity({
+        kind: "config",
+        status: "success",
+        title: "配置已导出",
+      });
     } catch (error) {
       appendLog(
         "error",
         error instanceof Error ? error.message : "导出配置失败。",
       );
+      await recordActivity({
+        kind: "config",
+        status: "error",
+        title: "导出配置失败",
+        detail: error instanceof Error ? error.message : "导出配置失败。",
+      });
     }
   }
 
@@ -1256,6 +1331,12 @@ export function App() {
         "success",
         `配置已导入${opened.filePath ? `：${opened.filePath}` : ""}。`,
       );
+      await recordActivity({
+        kind: "config",
+        status: "success",
+        title: "配置已导入",
+        detail: opened.filePath,
+      });
       await refreshToolStates([...catalogTools, ...nextCustomTools], {
         managedRootPath: nextSettings.toolRootPath,
       });
@@ -1264,6 +1345,12 @@ export function App() {
         "error",
         error instanceof Error ? error.message : "导入配置失败。",
       );
+      await recordActivity({
+        kind: "config",
+        status: "error",
+        title: "导入配置失败",
+        detail: error instanceof Error ? error.message : "导入配置失败。",
+      });
     }
   }
 
@@ -1315,6 +1402,14 @@ export function App() {
       setCustomTools(nextCustomTools);
       await persistSettings({ ...settings, customTools: nextCustomTools });
       appendLog("success", `AI 已添加工具：${customTool.name}。`);
+      await recordActivity({
+        kind: "ai",
+        status: "success",
+        title: `AI 已添加工具：${customTool.name}`,
+        toolId: customTool.id,
+        toolName: customTool.name,
+        source: getToolActivitySource(customTool),
+      });
       setSelectedIds((current) => new Set([...current, customTool.id]));
       await refreshToolStates([customTool]);
     } catch (error) {
@@ -1322,6 +1417,12 @@ export function App() {
         "error",
         error instanceof Error ? error.message : "AI 添加工具失败。",
       );
+      await recordActivity({
+        kind: "ai",
+        status: "error",
+        title: "AI 添加工具失败",
+        detail: error instanceof Error ? error.message : "AI 添加工具失败。",
+      });
     }
   }
 
@@ -1335,6 +1436,14 @@ export function App() {
       setCustomTools(nextCustomTools);
       await persistSettings({ ...settings, customTools: nextCustomTools });
       appendLog("success", `已添加自定义工具：${customTool.name}。`);
+      await recordActivity({
+        kind: "config",
+        status: "success",
+        title: `已添加自定义工具：${customTool.name}`,
+        toolId: customTool.id,
+        toolName: customTool.name,
+        source: getToolActivitySource(customTool),
+      });
       setSelectedIds((current) => new Set([...current, customTool.id]));
       await refreshToolStates([customTool]);
     } catch (error) {
@@ -1342,6 +1451,12 @@ export function App() {
         "error",
         error instanceof Error ? error.message : "添加自定义工具失败。",
       );
+      await recordActivity({
+        kind: "config",
+        status: "error",
+        title: "添加自定义工具失败",
+        detail: error instanceof Error ? error.message : "添加自定义工具失败。",
+      });
       throw error;
     }
   }
@@ -1357,6 +1472,14 @@ export function App() {
     });
     await persistSettings({ ...settings, customTools: nextCustomTools });
     appendLog("success", `已移除自定义工具：${tool?.name ?? toolId}。`);
+    await recordActivity({
+      kind: "config",
+      status: "success",
+      title: `已移除自定义工具：${tool?.name ?? toolId}`,
+      toolId,
+      toolName: tool?.name,
+      source: tool ? getToolActivitySource(tool) : undefined,
+    });
   }
 
   async function removeCustomToolFromCard(tool: Tool) {
@@ -1391,6 +1514,14 @@ export function App() {
     }
 
     const toolState = toolStates[tool.id] ?? { status: "unknown" };
+    const latestFailure = getLatestToolFailure(activityLog, tool.id);
+    const errorMessage = [
+      toolState.message,
+      latestFailure?.title,
+      latestFailure?.detail,
+    ]
+      .filter(Boolean)
+      .join("；");
     const isBuiltinTool = !customTools.some((item) => item.id === tool.id);
     appendLog("info", `正在用 AI 分析 ${tool.name} 的安装失败原因...`);
 
@@ -1400,7 +1531,7 @@ export function App() {
         apiKey: settings.aiApiKey,
         model: settings.aiModel,
         tool,
-        errorMessage: toolState.message ?? "安装失败",
+        errorMessage: errorMessage || "安装失败",
       });
 
       const repoRef = parseGitHubRepoFromUrl(tool.repoUrl);
@@ -1432,12 +1563,30 @@ export function App() {
           ? `AI 已修复 ${tool.name} 的安装配置，已保存为自定义覆盖版本，后续安装将使用修复后的配置。`
           : `AI 已修复 ${tool.name} 的安装配置，请重新尝试安装。`,
       );
+      await recordActivity({
+        kind: "ai",
+        status: "success",
+        title: `AI 已修复工具：${tool.name}`,
+        detail: errorMessage || undefined,
+        toolId: tool.id,
+        toolName: tool.name,
+        source: getToolActivitySource(fixedTool),
+      });
       await refreshToolStates([fixedTool]);
     } catch (error) {
       appendLog(
         "error",
         error instanceof Error ? error.message : "AI 修复工具失败。",
       );
+      await recordActivity({
+        kind: "ai",
+        status: "error",
+        title: `AI 修复失败：${tool.name}`,
+        detail: error instanceof Error ? error.message : "AI 修复工具失败。",
+        toolId: tool.id,
+        toolName: tool.name,
+        source: getToolActivitySource(tool),
+      });
     }
   }
 
@@ -1511,11 +1660,26 @@ export function App() {
       } else {
         appendLog("error", `安装计划结束，退出码 ${result.code ?? "未知"}。`);
       }
+      await recordActivity({
+        kind: "install",
+        status: getActivityStatusFromExitCode(result.code),
+        title: result.code === 0 ? "批量安装计划完成" : "批量安装计划失败",
+        detail: `自动项 ${installPlan.readyCount} 个，${formatExitCode(result.code)}。`,
+        exitCode: result.code,
+        source: "install-plan",
+      });
     } catch (error) {
       appendLog(
         "error",
         error instanceof Error ? error.message : "执行安装计划失败。",
       );
+      await recordActivity({
+        kind: "install",
+        status: "error",
+        title: "批量安装计划执行失败",
+        detail: error instanceof Error ? error.message : "执行安装计划失败。",
+        source: "install-plan",
+      });
     } finally {
       await refreshToolStates(selectedTools, plannerOptions, {
         preserveActive: false,
@@ -1549,11 +1713,26 @@ export function App() {
       } else {
         appendLog("error", `卸载计划结束，退出码 ${result.code ?? "未知"}。`);
       }
+      await recordActivity({
+        kind: "uninstall",
+        status: getActivityStatusFromExitCode(result.code),
+        title: result.code === 0 ? "批量卸载计划完成" : "批量卸载计划失败",
+        detail: `卸载项 ${uninstallPlan.readyCount} 个，${formatExitCode(result.code)}。`,
+        exitCode: result.code,
+        source: "uninstall-plan",
+      });
     } catch (error) {
       appendLog(
         "error",
         error instanceof Error ? error.message : "执行卸载计划失败。",
       );
+      await recordActivity({
+        kind: "uninstall",
+        status: "error",
+        title: "批量卸载计划执行失败",
+        detail: error instanceof Error ? error.message : "执行卸载计划失败。",
+        source: "uninstall-plan",
+      });
     } finally {
       await refreshToolStates(selectedInstalledTools, plannerOptions, {
         preserveActive: false,
@@ -1575,11 +1754,29 @@ export function App() {
 
     if (installCommand.skipReason) {
       appendLog("info", `${tool.name} ${installCommand.skipReason}`);
+      await recordActivity({
+        kind: "install",
+        status: "info",
+        title: `${tool.name} 无需安装`,
+        detail: installCommand.skipReason,
+        toolId: tool.id,
+        toolName: tool.name,
+        source: getToolActivitySource(tool),
+      });
       return;
     }
 
     if (!installCommand.command) {
       appendLog("warning", `${tool.name} 需要手动下载，已打开来源页面。`);
+      await recordActivity({
+        kind: "install",
+        status: "warning",
+        title: `${tool.name} 需要手动下载`,
+        detail: installCommand.manualUrl ?? tool.homepage,
+        toolId: tool.id,
+        toolName: tool.name,
+        source: getToolActivitySource(tool),
+      });
       await openUrl(installCommand.manualUrl ?? tool.homepage);
       return;
     }
@@ -1613,6 +1810,16 @@ export function App() {
         `${tool.name} 安装命令结束，退出码 ${result.code ?? "未知"}。`,
       );
     }
+    await recordActivity({
+      kind: "install",
+      status: getActivityStatusFromExitCode(result.code),
+      title: result.code === 0 ? `${tool.name} 安装完成` : `${tool.name} 安装失败`,
+      detail: formatExitCode(result.code),
+      toolId: tool.id,
+      toolName: tool.name,
+      exitCode: result.code,
+      source: getToolActivitySource(tool),
+    });
   }
 
   async function uninstallTool(tool: Tool) {
@@ -1620,11 +1827,29 @@ export function App() {
 
     if (uninstallCommand.skipReason) {
       appendLog("info", `${tool.name} ${uninstallCommand.skipReason}`);
+      await recordActivity({
+        kind: "uninstall",
+        status: "info",
+        title: `${tool.name} 不由 WinKitBox 卸载`,
+        detail: uninstallCommand.skipReason,
+        toolId: tool.id,
+        toolName: tool.name,
+        source: getToolActivitySource(tool),
+      });
       return;
     }
 
     if (!uninstallCommand.command) {
       appendLog("warning", `${tool.name} 没有可执行卸载命令，已打开来源页面。`);
+      await recordActivity({
+        kind: "uninstall",
+        status: "warning",
+        title: `${tool.name} 需要手动卸载`,
+        detail: uninstallCommand.manualUrl ?? tool.homepage,
+        toolId: tool.id,
+        toolName: tool.name,
+        source: getToolActivitySource(tool),
+      });
       await openUrl(uninstallCommand.manualUrl ?? tool.homepage);
       return;
     }
@@ -1667,6 +1892,16 @@ export function App() {
         `${tool.name} 卸载命令结束，退出码 ${result.code ?? "未知"}。`,
       );
     }
+    await recordActivity({
+      kind: "uninstall",
+      status: getActivityStatusFromExitCode(result.code),
+      title: result.code === 0 ? `${tool.name} 卸载完成` : `${tool.name} 卸载失败`,
+      detail: formatExitCode(result.code),
+      toolId: tool.id,
+      toolName: tool.name,
+      exitCode: result.code,
+      source: getToolActivitySource(tool),
+    });
   }
 
   async function checkInstalledToolUpdates() {
@@ -1690,11 +1925,26 @@ export function App() {
         (result) => result.status === "available" || result.status === "reinstall",
       ).length;
       appendLog("success", `工具更新检测完成，${availableCount} 个工具可更新或可刷新。`);
+      const failedCount = results.filter((result) => result.status === "unknown").length;
+      await recordActivity({
+        kind: "update-check",
+        status: failedCount > 0 ? "warning" : "success",
+        title: "工具更新检测完成",
+        detail: `检测 ${results.length} 个工具，${availableCount} 个可更新或可刷新，${failedCount} 个无法判断。`,
+        source: "tool-update-center",
+      });
     } catch (error) {
       appendLog(
         "error",
         error instanceof Error ? error.message : "工具更新检测失败。",
       );
+      await recordActivity({
+        kind: "update-check",
+        status: "error",
+        title: "工具更新检测失败",
+        detail: error instanceof Error ? error.message : "工具更新检测失败。",
+        source: "tool-update-center",
+      });
     } finally {
       setIsCheckingToolUpdates(false);
     }
@@ -1705,11 +1955,29 @@ export function App() {
 
     if (updateCommand.skipReason) {
       appendLog("info", `${tool.name} ${updateCommand.skipReason}`);
+      await recordActivity({
+        kind: "update",
+        status: "info",
+        title: `${tool.name} 跳过更新`,
+        detail: updateCommand.skipReason,
+        toolId: tool.id,
+        toolName: tool.name,
+        source: getToolActivitySource(tool),
+      });
       return;
     }
 
     if (!updateCommand.command) {
       appendLog("warning", `${tool.name} 需要手动更新，已打开来源页面。`);
+      await recordActivity({
+        kind: "update",
+        status: "warning",
+        title: `${tool.name} 需要手动更新`,
+        detail: updateCommand.manualUrl ?? tool.repoUrl ?? tool.homepage,
+        toolId: tool.id,
+        toolName: tool.name,
+        source: getToolActivitySource(tool),
+      });
       await openUrl(updateCommand.manualUrl ?? tool.repoUrl ?? tool.homepage);
       return;
     }
@@ -1746,15 +2014,44 @@ export function App() {
 
       if (result.code === 0) {
         appendLog("success", `${tool.name} 更新命令已完成。`);
+        await recordActivity({
+          kind: "update",
+          status: "success",
+          title: `${tool.name} 更新完成`,
+          detail: formatExitCode(result.code),
+          toolId: tool.id,
+          toolName: tool.name,
+          exitCode: result.code,
+          source: getToolActivitySource(tool),
+        });
         void checkInstalledToolUpdates();
       } else {
         appendLog("error", `${tool.name} 更新命令结束，退出码 ${result.code ?? "未知"}。`);
+        await recordActivity({
+          kind: "update",
+          status: "error",
+          title: `${tool.name} 更新失败`,
+          detail: formatExitCode(result.code),
+          toolId: tool.id,
+          toolName: tool.name,
+          exitCode: result.code,
+          source: getToolActivitySource(tool),
+        });
       }
     } catch (error) {
       appendLog(
         "error",
         error instanceof Error ? error.message : `${tool.name} 更新失败。`,
       );
+      await recordActivity({
+        kind: "update",
+        status: "error",
+        title: `${tool.name} 更新失败`,
+        detail: error instanceof Error ? error.message : `${tool.name} 更新失败。`,
+        toolId: tool.id,
+        toolName: tool.name,
+        source: getToolActivitySource(tool),
+      });
     } finally {
       setIsRunning(false);
     }
@@ -1794,6 +2091,14 @@ export function App() {
         },
       }));
       appendLog("success", `${tool.name} 已发送启动请求。`);
+      await recordActivity({
+        kind: "launch",
+        status: "success",
+        title: `${tool.name} 已打开`,
+        toolId: tool.id,
+        toolName: tool.name,
+        source: getToolActivitySource(tool),
+      });
     } else {
       await refreshToolStates([tool], plannerOptions, {
         preserveActive: false,
@@ -1802,6 +2107,16 @@ export function App() {
         "warning",
         `没有找到 ${tool.name} 的已安装入口。可以先安装，或打开来源页面确认安装方式。`,
       );
+      await recordActivity({
+        kind: "launch",
+        status: "warning",
+        title: `${tool.name} 打开入口未找到`,
+        detail: "没有找到已安装入口。",
+        toolId: tool.id,
+        toolName: tool.name,
+        exitCode: result.code,
+        source: getToolActivitySource(tool),
+      });
     }
   }
 
@@ -2141,6 +2456,7 @@ export function App() {
             onClearCustomThemeBackground={clearCustomThemeBackground}
             onLog={appendLog}
             logs={logs}
+            activityLog={activityLog}
             customTools={customTools}
             categories={activeCategoryDefinitions}
             allCategories={settings.customCategories}
@@ -2148,6 +2464,7 @@ export function App() {
             onAddAiTool={addAiGeneratedTool}
             onRemoveCustomTool={removeCustomTool}
             onUninstallCustomTool={uninstallTool}
+            onClearActivityLog={clearActivityLog}
             onExportConfig={exportConfig}
             onImportConfig={importConfig}
           />
@@ -3326,6 +3643,7 @@ function SettingsView({
   onClearCustomThemeBackground,
   onLog,
   logs,
+  activityLog,
   customTools,
   categories,
   allCategories,
@@ -3333,6 +3651,7 @@ function SettingsView({
   onAddAiTool,
   onRemoveCustomTool,
   onUninstallCustomTool,
+  onClearActivityLog,
   onExportConfig,
   onImportConfig,
 }: {
@@ -3361,6 +3680,7 @@ function SettingsView({
   onClearCustomThemeBackground: (themeId: ThemeId) => Promise<void>;
   onLog: (level: LogEntry["level"], message: string) => void;
   logs: LogEntry[];
+  activityLog: ActivityLogEntry[];
   customTools: Tool[];
   categories: CategoryDefinition[];
   allCategories: CategoryDefinition[];
@@ -3372,6 +3692,7 @@ function SettingsView({
   ) => Promise<void>;
   onRemoveCustomTool: (toolId: string) => Promise<void>;
   onUninstallCustomTool: (tool: Tool) => Promise<void>;
+  onClearActivityLog: () => Promise<void>;
   onExportConfig: () => Promise<void>;
   onImportConfig: () => Promise<void>;
 }) {
@@ -3405,6 +3726,10 @@ function SettingsView({
   const [downloadProgress, setDownloadProgress] = useState<
     { downloaded: number; total: number; percent: number } | undefined
   >();
+  const activityStats = useMemo(
+    () => getActivityLogStats(activityLog),
+    [activityLog],
+  );
 
   useEffect(() => {
     setAiDraft((current) => ({
@@ -4326,17 +4651,65 @@ function SettingsView({
           </div>
         </section>
 
-        <section className="settings-card log-panel-settings">
-          <div className="section-title">
-            <Info size={15} />
-            日志
+        <section className="settings-card log-panel-settings full-span">
+          <div className="log-section-head">
+            <div className="section-title">
+              <Info size={15} />
+              日志与操作历史
+            </div>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={activityLog.length === 0}
+              onClick={() => void onClearActivityLog()}
+            >
+              <Trash2 size={15} />
+              清空历史
+            </button>
           </div>
-          <div className="log-list">
-            {logs.map((log) => (
-              <div className={`log-entry ${log.level}`} key={log.id}>
-                {log.message}
+          <div className="activity-summary-row">
+            <span>历史 {activityStats.total}</span>
+            <span>失败 {activityStats.failed}</span>
+            <span>警告 {activityStats.warnings}</span>
+            <span>
+              最近失败 {activityStats.lastFailure?.toolName ?? activityStats.lastFailure?.title ?? "无"}
+            </span>
+          </div>
+          <div className="log-history-grid">
+            <div className="log-column">
+              <div className="section-title compact-title">实时日志</div>
+              <div className="log-list">
+                {logs.map((log) => (
+                  <div className={`log-entry ${log.level}`} key={log.id}>
+                    {log.message}
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
+            <div className="log-column">
+              <div className="section-title compact-title">操作历史</div>
+              <div className="activity-list">
+                {activityLog.length === 0 ? (
+                  <div className="activity-empty">暂无历史记录</div>
+                ) : (
+                  activityLog.slice(0, 80).map((entry) => (
+                    <div className={`activity-entry ${entry.status}`} key={entry.id}>
+                      <div>
+                        <strong>{entry.title}</strong>
+                        <span>
+                          {formatActivityTime(entry.createdAt)}
+                          {" · "}
+                          {getActivityKindLabel(entry.kind)}
+                          {entry.exitCode !== undefined ? ` · ${formatExitCode(entry.exitCode)}` : ""}
+                        </span>
+                        {entry.detail && <p>{entry.detail}</p>}
+                      </div>
+                      {entry.source && <em>{entry.source}</em>}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </section>
       </div>
@@ -4387,6 +4760,66 @@ function describeCustomTool(tool: Tool) {
   }
 
   return tool.repoUrl ?? tool.homepage;
+}
+
+function getToolActivitySource(tool: Tool) {
+  if (tool.wingetId) {
+    return `winget:${tool.wingetId}`;
+  }
+
+  if (tool.portable?.releaseApiUrl || tool.installer?.releaseApiUrl) {
+    return "github-release";
+  }
+
+  if (tool.localSource?.kind) {
+    return `local-${tool.localSource.kind}`;
+  }
+
+  if (tool.customInstallCommand) {
+    return "custom-command";
+  }
+
+  return tool.source;
+}
+
+function getActivityStatusFromExitCode(code: number | null) {
+  return code === 0 ? "success" : "error";
+}
+
+function formatExitCode(code: number | null) {
+  return `退出码 ${code ?? "未知"}`;
+}
+
+function formatActivityTime(createdAt: string) {
+  const date = new Date(createdAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return createdAt;
+  }
+
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getActivityKindLabel(kind: ActivityLogEntry["kind"]) {
+  const labels: Record<ActivityLogEntry["kind"], string> = {
+    install: "安装",
+    uninstall: "卸载",
+    update: "更新",
+    "update-check": "检测",
+    launch: "打开",
+    ai: "AI",
+    config: "配置",
+    system: "系统",
+    category: "分类",
+    theme: "主题",
+  };
+
+  return labels[kind];
 }
 
 function inferToolNameFromPath(filePath: string) {

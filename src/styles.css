@@ -2646,6 +2646,117 @@ button {
   max-height: 320px;
 }
 
+.log-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.log-section-head .section-title {
+  margin-bottom: 0;
+}
+
+.activity-summary-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 14px;
+}
+
+.activity-summary-row span {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background: var(--card-bg-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 10px;
+  max-width: 100%;
+}
+
+.log-history-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 16px;
+}
+
+.log-column {
+  min-width: 0;
+}
+
+.activity-list {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.activity-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  border-left: 3px solid var(--neutral-400);
+  border-radius: var(--radius-md);
+  background: var(--card-bg-soft);
+  padding: 10px 12px;
+  box-shadow: var(--shadow-xs);
+}
+
+.activity-entry.success {
+  border-left-color: var(--success);
+}
+
+.activity-entry.warning {
+  border-left-color: var(--warning);
+}
+
+.activity-entry.error {
+  border-left-color: var(--danger);
+}
+
+.activity-entry strong {
+  display: block;
+  color: var(--text-strong);
+  font-size: 13px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.activity-entry span,
+.activity-entry p,
+.activity-entry em,
+.activity-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  font-style: normal;
+  font-weight: 650;
+}
+
+.activity-entry p {
+  margin: 4px 0 0;
+  word-break: break-word;
+}
+
+.activity-entry em {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background: var(--card-bg);
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.activity-empty {
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  text-align: center;
+}
+
 .info-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(160px, 1fr));
@@ -3448,6 +3559,10 @@ button {
   }
 
   .manual-add-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .log-history-grid {
     grid-template-columns: 1fr;
   }
 

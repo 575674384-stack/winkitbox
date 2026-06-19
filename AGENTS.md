@@ -153,6 +153,13 @@ Before packaging and publishing a release:
 
 ## Release Notes
 
+### v0.3.8
+
+- Added a persistent operation history stored outside `settings.json`, keeping recent install, uninstall, update, update-check, launch, AI, and config actions.
+- Settings now shows realtime logs and operation history together, with counts, latest failure summary, source labels, exit codes, and a clear-history action.
+- AI repair now reuses the latest failed operation context for the selected tool.
+- Rewrote the README with a clearer product overview, workflow, security boundary, project map, generated hero art, and a real app screenshot.
+
 ### v0.3.7
 
 - Separated tool update detection from actual updates: winget tools now use read-only version checks and only run `winget upgrade` after the user clicks Update.

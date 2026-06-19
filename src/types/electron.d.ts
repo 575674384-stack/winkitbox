@@ -78,6 +78,11 @@ declare global {
         customCategories: import("../core/catalog").CategoryDefinition[];
         toolCategoryOverrides: Record<string, string>;
       }>;
+      getActivityLog: () => Promise<import("../core/activityLog").ActivityLogEntry[]>;
+      addActivityLog: (
+        entry: import("../core/activityLog").ActivityLogInput,
+      ) => Promise<import("../core/activityLog").ActivityLogEntry[]>;
+      clearActivityLog: () => Promise<import("../core/activityLog").ActivityLogEntry[]>;
       selectToolRoot: (currentPath?: string) => Promise<string | undefined>;
       selectLocalLauncher: (currentPath?: string) => Promise<string | undefined>;
       selectLocalPackage: (currentPath?: string) => Promise<string | undefined>;
