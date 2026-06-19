@@ -833,6 +833,11 @@ button {
   box-shadow: 0 6px 10px -2px rgba(17, 24, 39, 0.28);
 }
 
+.command-bar-icon.add-tool-icon {
+  background: linear-gradient(135deg, var(--success) 0%, var(--accent) 100%);
+  box-shadow: 0 6px 10px -2px color-mix(in srgb, var(--success) 36%, transparent);
+}
+
 .topbar,
 .panel-header {
   display: flex;
@@ -2534,6 +2539,53 @@ button {
   max-height: calc(100vh - 280px);
 }
 
+.add-tool-page {
+  display: grid;
+  gap: 16px;
+}
+
+.add-tool-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.add-tool-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text-main);
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 850;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-fast);
+}
+
+.add-tool-tabs button:hover,
+.add-tool-tabs button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.add-tool-layout,
+.add-tool-workspace,
+.ai-settings-card {
+  display: grid;
+  gap: 16px;
+}
+
+.link-preview {
+  margin-top: 14px;
+}
+
 .settings-layout {
   display: grid;
   grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr);
@@ -3092,6 +3144,84 @@ button {
   background: var(--accent-soft);
   color: var(--accent);
   border-color: var(--accent);
+}
+
+.model-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(8px);
+  padding: 24px;
+}
+
+.model-picker-dialog {
+  width: min(720px, calc(100vw - 48px));
+  max-height: min(680px, calc(100vh - 48px));
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-lg);
+  padding: 18px;
+  overflow: hidden;
+}
+
+.model-picker-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.model-picker-head p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.model-picker-search {
+  margin: 0;
+}
+
+.model-picker-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.model-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--card-bg-soft);
+  color: var(--text-main);
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.model-picker-item span {
+  overflow-wrap: anywhere;
+}
+
+.model-picker-item:hover,
+.model-picker-item.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .category-editor-head {

@@ -37,6 +37,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
+import { AddToolView, type AddToolFocus } from "./AddToolView";
 import { DiscoverView } from "./DiscoverView";
 import { LogsView, type LogsViewFocus } from "./LogsView";
 import winkitboxIconUrl from "../assets/icon/winkitbox-icon.png";
@@ -139,7 +140,14 @@ import { findSetupAsset, type UpdateInfo } from "./core/update";
 import type { ProxyMode } from "./core/github";
 
 type CategoryFilter = "all" | ToolCategory;
-type ActiveView = "catalog" | "discover" | "system" | "updates" | "logs" | "settings";
+type ActiveView =
+  | "catalog"
+  | "discover"
+  | "system"
+  | "updates"
+  | "addTool"
+  | "logs"
+  | "settings";
 
 type LogEntry = {
   id: number;
@@ -395,6 +403,9 @@ export function App() {
   const logsRef = useRef<LogEntry[]>(logs);
   const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
   const [logsViewFocus, setLogsViewFocus] = useState<LogsViewFocus>({
+    nonce: 0,
+  });
+  const [addToolFocus, setAddToolFocus] = useState<AddToolFocus>({
     nonce: 0,
   });
   const [isRunning, setIsRunning] = useState(false);
@@ -751,6 +762,14 @@ export function App() {
     setActiveView("logs");
   }
 
+  function openAddToolView(focus: Omit<AddToolFocus, "nonce"> = {}) {
+    setAddToolFocus({
+      ...focus,
+      nonce: Date.now(),
+    });
+    setActiveView("addTool");
+  }
+
   async function exportActivityLogFile(
     content: string,
     format: "json" | "txt",
@@ -1046,7 +1065,7 @@ export function App() {
   }) {
     try {
       await persistSettings({ ...settings, ...aiSettings });
-      appendLog("success", "AI 添加工具配置已保存。");
+      appendLog("success", "AI 模型配置已保存。");
     } catch (error) {
       appendLog(
         "error",
@@ -1682,25 +1701,12 @@ export function App() {
   }
 
   async function addDiscoverRepoWithAi(repoUrl: string, categoryId: string) {
-    if (!window.winKitBox) {
-      appendLog("warning", "浏览器预览模式不能调用 AI 添加工具。");
-      return;
-    }
-
-    if (!settings.aiBaseUrl || !settings.aiApiKey || !settings.aiModel) {
-      appendLog("warning", "请先在设置里保存 AI 接口 URL、API Key 和模型名称。");
-      setActiveView("settings");
-      return;
-    }
-
-    const result = await window.winKitBox.generateAiTool({
-      baseUrl: settings.aiBaseUrl,
-      apiKey: settings.aiApiKey,
-      model: settings.aiModel,
-      toolUrl: repoUrl,
+    openAddToolView({
+      tab: "link",
+      sourceUrl: repoUrl,
       categoryId,
     });
-    await addAiGeneratedTool(result.candidate, result.context, categoryId);
+    appendLog("info", "已把 GitHub 项目填入添加工具页，请确认后添加。");
   }
 
   async function recommendDiscoverReposWithAi(prompt: string) {
@@ -2450,19 +2456,19 @@ export function App() {
 
           <div className="nav-section">
             <div className="section-title">
-              <Github size={15} />
-              发现
+              <Plus size={15} />
+              工具
             </div>
             <button
-              className={`category-button ${activeView === "discover" ? "active" : ""}`}
+              className={`category-button ${activeView === "addTool" ? "active" : ""}`}
               type="button"
-              onClick={() => setActiveView("discover")}
+              onClick={() => openAddToolView()}
             >
               <span>
-                <Github size={16} />
-                GitHub 榜单
+                <Plus size={16} />
+                添加工具
               </span>
-              <strong>Win</strong>
+              <strong>{customTools.length}</strong>
             </button>
             <button
               className={`category-button ${activeView === "updates" ? "active" : ""}`}
@@ -2491,6 +2497,24 @@ export function App() {
                     : activityStats.warnings}
                 </strong>
               )}
+            </button>
+          </div>
+
+          <div className="nav-section">
+            <div className="section-title">
+              <Github size={15} />
+              发现
+            </div>
+            <button
+              className={`category-button ${activeView === "discover" ? "active" : ""}`}
+              type="button"
+              onClick={() => setActiveView("discover")}
+            >
+              <span>
+                <Github size={16} />
+                GitHub 榜单
+              </span>
+              <strong>Win</strong>
             </button>
           </div>
         </div>
@@ -2552,6 +2576,25 @@ export function App() {
         </section>
       )}
 
+      {activeView === "addTool" && (
+        <section className="workspace">
+          <AddToolView
+            settings={settings}
+            categories={activeCategoryDefinitions}
+            allCategories={settings.customCategories}
+            customTools={customTools}
+            focus={addToolFocus}
+            onAddManualTool={addManualCustomTool}
+            onAddAiTool={addAiGeneratedTool}
+            onRemoveCustomTool={removeCustomTool}
+            onUninstallCustomTool={uninstallTool}
+            onOpenSettings={() => setActiveView("settings")}
+            onOpenUrl={openUrl}
+            onLog={appendLog}
+          />
+        </section>
+      )}
+
       {activeView === "logs" && (
         <section className="workspace">
           <LogsView
@@ -2588,13 +2631,6 @@ export function App() {
             onSelectCustomThemeBackground={selectCustomThemeBackground}
             onClearCustomThemeBackground={clearCustomThemeBackground}
             onLog={appendLog}
-            customTools={customTools}
-            categories={activeCategoryDefinitions}
-            allCategories={settings.customCategories}
-            onAddManualTool={addManualCustomTool}
-            onAddAiTool={addAiGeneratedTool}
-            onRemoveCustomTool={removeCustomTool}
-            onUninstallCustomTool={uninstallTool}
             onExportConfig={exportConfig}
             onImportConfig={importConfig}
           />
@@ -4129,13 +4165,6 @@ function SettingsView({
   onSelectCustomThemeBackground,
   onClearCustomThemeBackground,
   onLog,
-  customTools,
-  categories,
-  allCategories,
-  onAddManualTool,
-  onAddAiTool,
-  onRemoveCustomTool,
-  onUninstallCustomTool,
   onExportConfig,
   onImportConfig,
 }: {
@@ -4163,17 +4192,6 @@ function SettingsView({
   onSelectCustomThemeBackground: (themeId: ThemeId) => Promise<void>;
   onClearCustomThemeBackground: (themeId: ThemeId) => Promise<void>;
   onLog: (level: LogEntry["level"], message: string) => void;
-  customTools: Tool[];
-  categories: CategoryDefinition[];
-  allCategories: CategoryDefinition[];
-  onAddManualTool: (input: CustomToolInput) => Promise<void>;
-  onAddAiTool: (
-    candidate: AiToolCandidate,
-    context: AiToolGitHubContext,
-    categoryId?: string,
-  ) => Promise<void>;
-  onRemoveCustomTool: (toolId: string) => Promise<void>;
-  onUninstallCustomTool: (tool: Tool) => Promise<void>;
   onExportConfig: () => Promise<void>;
   onImportConfig: () => Promise<void>;
 }) {
@@ -4181,25 +4199,10 @@ function SettingsView({
     aiBaseUrl: settings.aiBaseUrl,
     aiApiKey: settings.aiApiKey,
     aiModel: settings.aiModel,
-    toolUrl: "",
-    categoryId: customAddCategoryId,
   });
-  const [manualDraft, setManualDraft] = useState({
-    mode: "collect" as CustomToolInput["mode"],
-    name: "",
-    categoryId: customAddCategoryId,
-    homepage: "",
-    localPath: "",
-    archiveExecutable: "",
-    installCommand: "",
-    uninstallCommand: "",
-    launchCommand: "",
-    wingetId: "",
-    aiExplanation: "",
-  });
-  const [showManualAdvanced, setShowManualAdvanced] = useState(false);
   const [detectedModels, setDetectedModels] = useState<string[]>([]);
   const [showModelList, setShowModelList] = useState(false);
+  const [modelSearch, setModelSearch] = useState("");
   const [aiBusy, setAiBusy] = useState<
     "models" | "test" | "generate" | undefined
   >();
@@ -4314,147 +4317,6 @@ function SettingsView({
     }
   }
 
-  async function generateAiTool() {
-    if (!window.winKitBox) {
-      return;
-    }
-
-    setAiBusy("generate");
-    try {
-      await saveAiSettings({
-        aiBaseUrl: aiDraft.aiBaseUrl,
-        aiApiKey: aiDraft.aiApiKey,
-        aiModel: aiDraft.aiModel,
-      });
-      const result = await window.winKitBox.generateAiTool({
-        baseUrl: aiDraft.aiBaseUrl,
-        apiKey: aiDraft.aiApiKey,
-        model: aiDraft.aiModel,
-        toolUrl: aiDraft.toolUrl,
-        categoryId: aiDraft.categoryId,
-      });
-      await onAddAiTool(result.candidate, result.context, aiDraft.categoryId);
-      setAiDraft((current) => ({ ...current, toolUrl: "" }));
-    } catch (error) {
-      onLog(
-        "error",
-        error instanceof Error ? error.message : "AI 添加工具失败。",
-      );
-    } finally {
-      setAiBusy(undefined);
-    }
-  }
-
-  async function chooseManualToolFile() {
-    if (!window.winKitBox) {
-      onLog("warning", "浏览器预览模式不能选择本地文件。");
-      return;
-    }
-
-    const filePath = await window.winKitBox.selectLocalFile(manualDraft.localPath);
-
-    if (!filePath) {
-      return;
-    }
-
-    const suggestion = inferManualToolDraftFromPath(filePath);
-
-    setManualDraft((current) => ({
-      ...current,
-      ...suggestion,
-      localPath: filePath,
-      name: current.name || suggestion.name,
-    }));
-  }
-
-  async function analyzeLocalFile() {
-    if (!window.winKitBox) {
-      onLog("warning", "浏览器预览模式不能调用 AI 分析。");
-      return;
-    }
-
-    if (!manualDraft.localPath) {
-      onLog("warning", "请先选择要分析的本地文件。");
-      return;
-    }
-
-    if (!settings.aiBaseUrl || !settings.aiApiKey || !settings.aiModel) {
-      onLog("warning", "请先在设置里保存 AI 接口 URL、API Key 和模型名称。");
-      return;
-    }
-
-    setAiBusy("generate");
-    try {
-      const result = await window.winKitBox.analyzeLocalFile({
-        baseUrl: settings.aiBaseUrl,
-        apiKey: settings.aiApiKey,
-        model: settings.aiModel,
-        filePath: manualDraft.localPath,
-        toolName: manualDraft.name,
-        categoryId: manualDraft.categoryId,
-        remark: manualDraft.homepage,
-      });
-      const candidate = result.candidate;
-      setManualDraft((current) => ({
-        ...current,
-        mode: (candidate.mode as CustomToolInput["mode"]) || current.mode,
-        name: candidate.name || current.name,
-        homepage: candidate.homepage ?? current.homepage,
-        archiveExecutable: candidate.archiveExecutable ?? current.archiveExecutable,
-        installCommand: candidate.mode === "command" ? candidate.launchCommand || "" : "",
-        uninstallCommand: candidate.uninstallCommand ?? current.uninstallCommand,
-        launchCommand:
-          candidate.mode === "local-installer" || candidate.mode === "local-archive" || candidate.mode === "collect"
-            ? candidate.launchCommand ?? current.launchCommand
-            : current.launchCommand,
-        aiExplanation: candidate.explanation || "AI 已分析该文件，请确认信息后添加到工具箱。",
-      }));
-      setShowManualAdvanced(false);
-      onLog("success", "AI 文件分析完成。");
-    } catch (error) {
-      onLog(
-        "error",
-        error instanceof Error ? error.message : "AI 分析本地文件失败。",
-      );
-    } finally {
-      setAiBusy(undefined);
-    }
-  }
-
-  async function addManualTool() {
-    try {
-      const localPath = manualDraft.localPath.trim();
-      const fallbackSuggestion = localPath ? inferManualToolDraftFromPath(localPath) : undefined;
-
-      await onAddManualTool({
-        mode: manualDraft.mode || fallbackSuggestion?.mode,
-        name: manualDraft.name.trim() || fallbackSuggestion?.name || "",
-        category: manualDraft.categoryId,
-        homepage: manualDraft.homepage,
-        localPath: localPath || manualDraft.localPath,
-        archiveExecutable: manualDraft.archiveExecutable,
-        installCommand: manualDraft.installCommand,
-        uninstallCommand: manualDraft.uninstallCommand,
-        launchCommand: manualDraft.launchCommand,
-        wingetId: manualDraft.wingetId,
-        managedRootPath: settings.toolRootPath,
-      });
-      setManualDraft((current) => ({
-        ...current,
-        name: "",
-        homepage: "",
-        localPath: "",
-        archiveExecutable: "",
-        installCommand: "",
-        uninstallCommand: "",
-        launchCommand: "",
-        wingetId: "",
-        aiExplanation: "",
-      }));
-    } catch {
-      // Error is already logged by the owner callback.
-    }
-  }
 
   return (
     <div className="settings-page">
@@ -4696,244 +4558,10 @@ function SettingsView({
           </p>
         </section>
 
-        <section className="settings-card full-span manual-add-card">
+        <section className="settings-card full-span ai-settings-card">
           <div className="section-title">
-            <Plus size={15} />
-            智能添加本地工具
-          </div>
-          <div className="manual-add-flow">
-            <div className="manual-file-panel">
-              <label className="field-label file-pick-field">
-                本地文件
-                <span className="path-row compact">
-                  <input
-                    value={manualDraft.localPath}
-                    onChange={(event) => {
-                      const localPath = event.target.value;
-                      const suggestion = localPath
-                        ? inferManualToolDraftFromPath(localPath)
-                        : undefined;
-
-                      setManualDraft((current) => ({
-                        ...current,
-                        ...(suggestion ?? {}),
-                        localPath,
-                        name: current.name || suggestion?.name || "",
-                        aiExplanation: suggestion?.aiExplanation || "",
-                      }));
-                    }}
-                    placeholder="exe / msi / zip / lnk / bat / cmd / ps1"
-                  />
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={chooseManualToolFile}
-                  >
-                    选择
-                  </button>
-                </span>
-              </label>
-              <div className="manual-tool-ai-actions">
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled={!manualDraft.localPath || aiBusy === "generate"}
-                  onClick={analyzeLocalFile}
-                >
-                  <Sparkles size={14} />
-                  {aiBusy === "generate" ? "分析中" : "AI 分析"}
-                </button>
-                <button
-                  className="text-button"
-                  type="button"
-                  onClick={() => setShowManualAdvanced((value) => !value)}
-                >
-                  {showManualAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  高级设置
-                </button>
-              </div>
-            </div>
-
-            <div className="manual-tool-preview">
-              <div className="ai-result-title">
-                <Sparkles size={14} />
-                方案预览
-              </div>
-              <strong>{manualDraft.name || "选择文件后自动生成名称"}</strong>
-              <p>{manualDraft.aiExplanation || describeManualDraft(manualDraft)}</p>
-              <dl>
-                <dt>处理方式</dt>
-                <dd>{getManualModeLabel(manualDraft.mode)}</dd>
-                <dt>分类</dt>
-                <dd>{getCategoryName(manualDraft.categoryId, categories)}</dd>
-                {manualDraft.localPath && (
-                  <>
-                    <dt>文件</dt>
-                    <dd>{getBaseName(manualDraft.localPath)}</dd>
-                  </>
-                )}
-                {manualDraft.mode === "local-archive" && (
-                  <>
-                    <dt>ZIP 启动程序</dt>
-                    <dd>{manualDraft.archiveExecutable || "需要 AI 分析或在高级设置填写"}</dd>
-                  </>
-                )}
-              </dl>
-            </div>
-          </div>
-
-          <div className="custom-tool-form manual-tool-form compact">
-            <label className="field-label">
-              工具名称
-              <input
-                value={manualDraft.name}
-                onChange={(event) =>
-                  setManualDraft((current) => ({
-                    ...current,
-                    name: event.target.value,
-                  }))
-                }
-                placeholder="例如 LocalSend / 自用脚本"
-              />
-            </label>
-            <label className="field-label">
-              添加到分类
-              <select
-                value={manualDraft.categoryId}
-                onChange={(event) =>
-                  setManualDraft((current) => ({
-                    ...current,
-                    categoryId: event.target.value,
-                  }))
-                }
-              >
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field-label">
-              主页 / 备注
-              <input
-                value={manualDraft.homepage}
-                onChange={(event) =>
-                  setManualDraft((current) => ({
-                    ...current,
-                    homepage: event.target.value,
-                  }))
-                }
-                placeholder="可留空"
-              />
-            </label>
-          </div>
-
-          {showManualAdvanced && (
-            <div className="custom-tool-form manual-tool-form advanced">
-              <label className="field-label">
-                处理方式
-                <select
-                  value={manualDraft.mode}
-                  onChange={(event) =>
-                    setManualDraft((current) => ({
-                      ...current,
-                      mode: event.target.value as CustomToolInput["mode"],
-                    }))
-                  }
-                >
-                  <option value="collect">只加入工具箱</option>
-                  <option value="local-installer">本地安装包</option>
-                  <option value="local-archive">ZIP 便携包</option>
-                  <option value="command">自定义命令</option>
-                  <option value="winget">winget 包</option>
-                </select>
-              </label>
-              <label className="field-label">
-                ZIP 内启动程序
-                <input
-                  value={manualDraft.archiveExecutable}
-                  onChange={(event) =>
-                    setManualDraft((current) => ({
-                      ...current,
-                      archiveExecutable: event.target.value,
-                    }))
-                  }
-                  placeholder="例如 app.exe 或 bin\\app.exe"
-                />
-              </label>
-              <label className="field-label">
-                启动命令
-                <input
-                  value={manualDraft.launchCommand}
-                  onChange={(event) =>
-                    setManualDraft((current) => ({
-                      ...current,
-                      launchCommand: event.target.value,
-                    }))
-                  }
-                  placeholder="可留空"
-                />
-              </label>
-              <label className="field-label">
-                winget ID
-                <input
-                  value={manualDraft.wingetId}
-                  onChange={(event) =>
-                    setManualDraft((current) => ({
-                      ...current,
-                      wingetId: event.target.value,
-                    }))
-                  }
-                  placeholder="例如 Microsoft.PowerToys"
-                />
-              </label>
-              <label className="field-label wide">
-                安装命令
-                <input
-                  value={manualDraft.installCommand}
-                  onChange={(event) =>
-                    setManualDraft((current) => ({
-                      ...current,
-                      installCommand: event.target.value,
-                    }))
-                  }
-                  placeholder="仅自定义命令模式需要"
-                />
-              </label>
-              <label className="field-label wide">
-                卸载命令
-                <input
-                  value={manualDraft.uninstallCommand}
-                  onChange={(event) =>
-                    setManualDraft((current) => ({
-                      ...current,
-                      uninstallCommand: event.target.value,
-                    }))
-                  }
-                  placeholder="可留空"
-                />
-              </label>
-            </div>
-          )}
-
-          <div className="settings-actions">
-            <button
-              className="primary-button"
-              type="button"
-              onClick={addManualTool}
-            >
-              <Plus size={15} />
-              添加到工具箱
-            </button>
-            <span>默认加入工具箱；安装包和 ZIP 会在点击安装时处理。</span>
-          </div>
-        </section>
-
-        <section className="settings-card full-span">
-          <div className="section-title">
-            <Plus size={15} />
-            AI 添加工具
+            <Sparkles size={15} />
+            AI 模型
           </div>
           <div className="custom-tool-form ai-tool-form">
             <label className="field-label">
@@ -4963,7 +4591,7 @@ function SettingsView({
                 type="password"
               />
             </label>
-            <label className="field-label ai-model-field">
+            <label className="field-label">
               模型名称
               <input
                 value={aiDraft.aiModel}
@@ -4973,72 +4601,8 @@ function SettingsView({
                     aiModel: event.target.value,
                   }))
                 }
-                placeholder="gpt-4o-mini"
+                placeholder="可手填，例如 gpt-4.1-mini"
               />
-              {detectedModels.length > 0 && (
-                <div className="ai-model-panel">
-                  <div className="ai-model-panel-header">
-                    <span>检测到的模型（点击填入）</span>
-                    <button
-                      className="icon-button tiny"
-                      type="button"
-                      onClick={() => setShowModelList((current) => !current)}
-                    >
-                      {showModelList ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                    </button>
-                  </div>
-                  {showModelList && (
-                    <div className="ai-model-list">
-                      {detectedModels.map((model) => (
-                        <button
-                          key={model}
-                          className={`ai-model-item ${aiDraft.aiModel === model ? "active" : ""}`}
-                          type="button"
-                          onClick={() =>
-                            setAiDraft((current) => ({
-                              ...current,
-                              aiModel: model,
-                            }))
-                          }
-                        >
-                          {model}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </label>
-            <label className="field-label wide">
-              工具主页 / 下载页
-              <input
-                value={aiDraft.toolUrl}
-                onChange={(event) =>
-                  setAiDraft((current) => ({
-                    ...current,
-                    toolUrl: event.target.value,
-                  }))
-                }
-                placeholder="https://github.com/owner/repo 或 https://example.com/download"
-              />
-            </label>
-            <label className="field-label">
-              添加到分类
-              <select
-                value={aiDraft.categoryId}
-                onChange={(event) =>
-                  setAiDraft((current) => ({
-                    ...current,
-                    categoryId: event.target.value,
-                  }))
-                }
-              >
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
             </label>
           </div>
           <div className="settings-actions">
@@ -5054,6 +4618,15 @@ function SettingsView({
             <button
               className="secondary-button"
               type="button"
+              disabled={detectedModels.length === 0}
+              onClick={() => setShowModelList(true)}
+            >
+              <ChevronDown size={15} />
+              选择模型
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
               disabled={Boolean(aiBusy)}
               onClick={testAiConnection}
             >
@@ -5064,41 +4637,78 @@ function SettingsView({
               className="primary-button"
               type="button"
               disabled={Boolean(aiBusy)}
-              onClick={generateAiTool}
+              onClick={() =>
+                void saveAiSettings({
+                  aiBaseUrl: aiDraft.aiBaseUrl,
+                  aiApiKey: aiDraft.aiApiKey,
+                  aiModel: aiDraft.aiModel,
+                })
+              }
             >
-              <Plus size={15} />
-              {aiBusy === "generate" ? "生成中" : "AI 添加工具"}
+              <Save size={15} />
+              保存 AI 设置
             </button>
           </div>
-          {customTools.length > 0 && (
-            <div className="custom-tool-list">
-              {customTools.map((tool) => (
-                <div className="custom-tool-row" key={tool.id}>
-                  <div>
-                    <strong>{tool.name}</strong>
-                    <span>
-                      {getCategoryName(tool.category, allCategories)} ·{" "}
-                      {describeCustomTool(tool)}
-                    </span>
-                  </div>
-                  <button
-                    className="secondary-button danger"
-                    type="button"
-                    onClick={async () => {
-                      if (!tool.collectionOnly) {
-                        await onUninstallCustomTool(tool);
-                      }
-                      await onRemoveCustomTool(tool.id);
-                    }}
-                  >
-                    <Trash2 size={14} />
-                    {tool.collectionOnly ? "移除" : "卸载并移除"}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          <p className="settings-note">
+            添加工具、GitHub AI 助手和 AI 修复会复用这里保存的模型配置。
+          </p>
         </section>
+
+        {showModelList && (
+          <div className="model-picker-backdrop" role="presentation">
+            <div className="model-picker-dialog" role="dialog" aria-modal="true">
+              <div className="model-picker-head">
+                <div>
+                  <div className="section-title">
+                    <Sparkles size={15} />
+                    选择 AI 模型
+                  </div>
+                  <p>点击模型即可填入；也可以关闭窗口后继续手动输入。</p>
+                </div>
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label="关闭模型选择"
+                  onClick={() => setShowModelList(false)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="search-row model-picker-search">
+                <Search size={16} />
+                <input
+                  value={modelSearch}
+                  onChange={(event) => setModelSearch(event.target.value)}
+                  placeholder="搜索模型名称"
+                />
+              </div>
+              <div className="model-picker-list">
+                {detectedModels
+                  .filter((model) =>
+                    model.toLowerCase().includes(modelSearch.trim().toLowerCase()),
+                  )
+                  .map((model) => (
+                    <button
+                      className={`model-picker-item ${aiDraft.aiModel === model ? "active" : ""}`}
+                      key={model}
+                      type="button"
+                      onClick={() => {
+                        setAiDraft((current) => ({ ...current, aiModel: model }));
+                        setShowModelList(false);
+                      }}
+                    >
+                      <span>{model}</span>
+                      {aiDraft.aiModel === model && <Check size={16} />}
+                    </button>
+                  ))}
+              </div>
+              {detectedModels.length === 0 && (
+                <p className="settings-note">还没有检测结果，请先点击“检测可用模型”。</p>
+              )}
+            </div>
+          </div>
+        )}
+
 
         <section className="settings-card">
           <div className="section-title">
@@ -5138,45 +4748,6 @@ function getToolPlaceholder(tool: Tool) {
   return first || "?";
 }
 
-function describeCustomTool(tool: Tool) {
-  if (tool.collectionOnly) {
-    return "只收纳 · 不执行安装";
-  }
-
-  if (tool.localSource?.kind === "installer") {
-    return `本地安装包 · ${getBaseName(tool.localSource.path)}`;
-  }
-
-  if (tool.localSource?.kind === "archive") {
-    return `本地 ZIP · ${tool.localSource.executable ?? getBaseName(tool.localSource.path)}`;
-  }
-
-  if (tool.localSource?.kind === "launcher") {
-    return `本地程序 · ${getBaseName(tool.localSource.path)}`;
-  }
-
-  if (tool.wingetId) {
-    return `winget · ${tool.wingetId}`;
-  }
-
-  if (tool.installer) {
-    return tool.installer.assetPattern
-      ? `GitHub 安装包 · ${tool.installer.assetPattern}`
-      : `下载安装包 · ${tool.installer.fileName}`;
-  }
-
-  if (tool.portable) {
-    return tool.portable.assetPattern
-      ? `GitHub 便携包 · ${tool.portable.assetPattern}`
-      : `下载便携包 · ${tool.portable.executable}`;
-  }
-
-  if (tool.customInstallCommand) {
-    return "自定义命令";
-  }
-
-  return tool.repoUrl ?? tool.homepage;
-}
 
 function getToolActivitySource(tool: Tool) {
   if (tool.wingetId) {
@@ -5238,129 +4809,6 @@ function getActivityKindLabel(kind: ActivityLogEntry["kind"]) {
   return labels[kind];
 }
 
-function inferToolNameFromPath(filePath: string) {
-  return getBaseName(filePath).replace(/\.[^.]+$/, "");
-}
-
-function inferManualToolDraftFromPath(filePath: string) {
-  const name = inferToolNameFromPath(filePath);
-  const extension = getFileExtension(filePath);
-
-  if (extension === "msi") {
-    return {
-      mode: "local-installer" as CustomToolInput["mode"],
-      name,
-      archiveExecutable: "",
-      launchCommand: "",
-      installCommand: "",
-      aiExplanation: "已识别为本地 MSI 安装包，安装时会启动该文件。",
-    };
-  }
-
-  if (extension === "zip") {
-    return {
-      mode: "local-archive" as CustomToolInput["mode"],
-      name,
-      archiveExecutable: "",
-      launchCommand: "",
-      installCommand: "",
-      aiExplanation: "已识别为 ZIP 便携包，AI 可继续判断 ZIP 里的启动程序。",
-    };
-  }
-
-  if (extension === "exe") {
-    return {
-      mode: "collect" as CustomToolInput["mode"],
-      name,
-      archiveExecutable: "",
-      launchCommand: filePath,
-      installCommand: "",
-      aiExplanation: "已按可直接打开的本地程序处理，只加入工具箱。",
-    };
-  }
-
-  if (["lnk", "bat", "cmd", "ps1"].includes(extension)) {
-    return {
-      mode: "collect" as CustomToolInput["mode"],
-      name,
-      archiveExecutable: "",
-      launchCommand: filePath,
-      installCommand: "",
-      aiExplanation: "已按快捷方式或脚本处理，只加入工具箱用于打开。",
-    };
-  }
-
-  return {
-    mode: "collect" as CustomToolInput["mode"],
-    name,
-    archiveExecutable: "",
-    launchCommand: filePath,
-    installCommand: "",
-    aiExplanation: "已按本地文件处理，只加入工具箱用于打开。",
-  };
-}
-
-function getFileExtension(filePath: string) {
-  const baseName = getBaseName(filePath);
-  const match = baseName.match(/\.([^.]+)$/);
-
-  return match?.[1]?.toLowerCase() ?? "";
-}
-
-function getManualModeLabel(mode: CustomToolInput["mode"]) {
-  if (mode === "local-installer") {
-    return "本地安装包";
-  }
-
-  if (mode === "local-archive") {
-    return "ZIP 便携包";
-  }
-
-  if (mode === "command") {
-    return "自定义命令";
-  }
-
-  if (mode === "winget") {
-    return "winget 包";
-  }
-
-  return "只加入工具箱";
-}
-
-function describeManualDraft(draft: {
-  mode?: CustomToolInput["mode"];
-  localPath?: string;
-  archiveExecutable?: string;
-}) {
-  if (!draft.localPath) {
-    return "选择文件后会自动生成处理方案。";
-  }
-
-  if (draft.mode === "local-installer") {
-    return "安装时会运行这个本地安装包。";
-  }
-
-  if (draft.mode === "local-archive") {
-    return draft.archiveExecutable
-      ? "安装时会解压 ZIP 并打开指定程序。"
-      : "安装时会解压 ZIP，启动程序可由 AI 分析或高级设置补充。";
-  }
-
-  if (draft.mode === "command") {
-    return "会按高级设置里的命令执行。";
-  }
-
-  if (draft.mode === "winget") {
-    return "会按高级设置里的 winget ID 安装和更新。";
-  }
-
-  return "会直接收纳到工具箱，不执行安装。";
-}
-
-function getBaseName(filePath: string) {
-  const normalized = filePath.replace(/\\/g, "/");
-  return normalized.split("/").filter(Boolean).pop() || filePath;
-}
 
 function ToolCard({
   tool,

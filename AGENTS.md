@@ -153,6 +153,14 @@ Before packaging and publishing a release:
 
 ## Release Notes
 
+### v0.3.11
+
+- Moved local, link-based, and manual custom-tool creation out of Settings into a dedicated Add Tool page.
+- Added a unified Add Tool workflow with Local File, Link Add, and Manual Add tabs, plus reusable previews and the existing custom-tool list.
+- GitHub ranking and AI assistant add buttons now open the Add Tool link workflow with the repository URL prefilled instead of adding immediately.
+- Simplified Settings so it keeps global configuration only, including tool directory, updates, proxy, theme, sync, and AI model settings.
+- Reworked AI model detection into a searchable model-picker dialog while keeping manual model entry available.
+
 ### v0.3.10
 
 - Moved logs out of Settings into a dedicated Log Center page with operation-history and realtime-output tabs.

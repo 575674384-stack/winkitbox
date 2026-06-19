@@ -43,7 +43,7 @@ type DiscoverViewProps = {
   defaultCategoryId: string;
   proxyMode: ProxyMode;
   proxyManual: string;
-  onAddRepoWithAi: (repoUrl: string, categoryId: string) => Promise<void>;
+  onAddRepoWithAi: (repoUrl: string, categoryId: string) => Promise<void> | void;
   onRecommendReposWithAi: (prompt: string) => Promise<unknown>;
   onOpenUrl: (url: string) => Promise<void>;
 };
@@ -234,15 +234,15 @@ export function DiscoverView({
 
   async function addRepoWithAi(repo: GitHubRepo) {
     setAddingRepo(repo.fullName);
-    setMessage(`正在让 AI 分析 ${repo.fullName}。`);
+    setMessage(`正在打开添加工具页：${repo.fullName}。`);
 
     try {
       await onAddRepoWithAi(repo.url, addCategoryId);
       setStatus("ready");
-      setMessage(`${repo.fullName} 已添加到 ${getCategoryName(addCategoryId, categories)}。`);
+      setMessage(`${repo.fullName} 已填入添加工具页，可确认后加入 ${getCategoryName(addCategoryId, categories)}。`);
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "AI 添加工具失败。");
+      setMessage(error instanceof Error ? error.message : "打开添加工具页失败。");
     } finally {
       setAddingRepo(undefined);
     }
@@ -369,7 +369,7 @@ export function DiscoverView({
                         onClick={() => addRepoWithAi(repo)}
                       >
                         <Plus size={14} />
-                        {addingRepo === repo.fullName ? "添加中" : "AI 添加"}
+                        {addingRepo === repo.fullName ? "打开中" : "去添加"}
                       </button>
                       <button className="icon-button" type="button" aria-label="复制 GitHub 链接" onClick={() => copyRepoUrl(repo)}>
                         <Copy size={15} />
@@ -452,7 +452,7 @@ export function DiscoverView({
                       onClick={() => addRepoWithAi(repo)}
                     >
                       <Plus size={14} />
-                      {addingRepo === repo.fullName ? "添加中" : "AI 添加"}
+                      {addingRepo === repo.fullName ? "打开中" : "去添加"}
                     </button>
                     <button className="icon-button" type="button" aria-label="复制 clone 命令" onClick={() => copyCloneCommand(repo)}>
                       <Copy size={15} />
