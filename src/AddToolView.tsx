@@ -20,6 +20,7 @@ import {
   type Tool,
 } from "./core/catalog";
 import type { AiToolCandidate, AiToolGitHubContext } from "./core/aiTool";
+import type { AiLogInput } from "./core/aiLog";
 import {
   createDefaultAddToolDraft,
   describeAddToolDraft,
@@ -72,6 +73,7 @@ export function AddToolView({
   onOpenSettings,
   onOpenUrl,
   onLog,
+  onRecordAiLog,
 }: {
   settings: AddToolSettings;
   categories: CategoryDefinition[];
@@ -89,6 +91,7 @@ export function AddToolView({
   onOpenSettings: () => void;
   onOpenUrl: (url: string) => Promise<void>;
   onLog: (level: LogLevel, message: string) => void;
+  onRecordAiLog?: (input: AiLogInput) => Promise<void> | void;
 }) {
   const [activeTab, setActiveTab] = useState<AddToolTab>("local");
   const [localDraft, setLocalDraft] = useState(() =>
@@ -237,8 +240,35 @@ export function AddToolView({
           candidate.explanation || "AI 已分析该文件，请确认信息后添加到工具箱。",
       }));
       setShowLocalAdvanced(false);
+      await onRecordAiLog?.({
+        kind: "local-analysis",
+        status: "success",
+        title: `AI 本地文件分析：${candidate.name || localDraft.name || "未命名工具"}`,
+        prompt: [
+          `文件：${localDraft.localPath}`,
+          localDraft.name ? `名称：${localDraft.name}` : "",
+          localDraft.homepage ? `备注：${localDraft.homepage}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        response: result.aiResponse || candidate.explanation || "AI 已分析本地文件。",
+        structured: candidate,
+        model: settings.aiModel,
+        source: "添加工具 / 本地文件",
+        toolName: candidate.name || localDraft.name,
+      });
       showFeedback("success", "AI 文件分析完成，请确认方案后添加到工具箱。");
     } catch (error) {
+      await onRecordAiLog?.({
+        kind: "local-analysis",
+        status: "error",
+        title: "AI 本地文件分析失败",
+        prompt: localDraft.localPath,
+        response: error instanceof Error ? error.message : "AI 分析本地文件失败。",
+        model: settings.aiModel,
+        source: "添加工具 / 本地文件",
+        toolName: localDraft.name,
+      });
       showFeedback(
         "error",
         error instanceof Error ? error.message : "AI 分析本地文件失败。",
@@ -284,8 +314,34 @@ export function AddToolView({
           result.candidate.summary ||
           "AI 已生成候选方案，请确认后添加到工具箱。",
       }));
+      await onRecordAiLog?.({
+        kind: "tool-analysis",
+        status: "success",
+        title: `AI 链接分析：${result.candidate.name || linkDraft.sourceUrl}`,
+        prompt: linkDraft.sourceUrl,
+        response:
+          result.aiResponse ||
+          result.candidate.description ||
+          result.candidate.summary ||
+          "AI 已生成候选方案。",
+        structured: result,
+        model: settings.aiModel,
+        source: "添加工具 / 链接添加",
+        toolName: result.candidate.name,
+        repoUrl: result.context.htmlUrl || linkDraft.sourceUrl,
+      });
       showFeedback("success", "AI 链接分析完成，请确认候选方案后添加到工具箱。");
     } catch (error) {
+      await onRecordAiLog?.({
+        kind: "tool-analysis",
+        status: "error",
+        title: "AI 链接分析失败",
+        prompt: linkDraft.sourceUrl,
+        response: error instanceof Error ? error.message : "AI 链接分析失败。",
+        model: settings.aiModel,
+        source: "添加工具 / 链接添加",
+        repoUrl: linkDraft.sourceUrl,
+      });
       showFeedback(
         "error",
         error instanceof Error ? error.message : "AI 链接分析失败。",

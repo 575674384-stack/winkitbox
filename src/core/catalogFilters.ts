@@ -6,12 +6,15 @@ import {
 } from "./catalog";
 import { searchTools } from "./planner";
 import type { ToolRuntimeStates } from "./toolStatus";
+import type { ToolUpdateCheckResult } from "./toolUpdates";
 
-export type CatalogQuickFilter = "installed" | "selected";
+export type CatalogQuickFilter = "installed" | "selected" | "failed" | "updatable";
 
 export type CatalogQuickFilterState = {
+  failedOnly: boolean;
   installedOnly: boolean;
   selectedOnly: boolean;
+  updatableOnly: boolean;
 };
 
 export type CatalogFilterOptions = CatalogQuickFilterState & {
@@ -20,21 +23,43 @@ export type CatalogFilterOptions = CatalogQuickFilterState & {
   selectedIds: ReadonlySet<string>;
   query: string;
   toolStates: ToolRuntimeStates;
+  toolUpdateResults?: Record<string, Pick<ToolUpdateCheckResult, "status">>;
 };
 
 export function toggleCatalogQuickFilter(
   state: CatalogQuickFilterState,
   filter: CatalogQuickFilter,
 ): CatalogQuickFilterState {
+  const idle = {
+    failedOnly: false,
+    installedOnly: false,
+    selectedOnly: false,
+    updatableOnly: false,
+  };
+
   if (filter === "installed") {
     return {
+      ...idle,
       installedOnly: !state.installedOnly,
-      selectedOnly: false,
+    };
+  }
+
+  if (filter === "failed") {
+    return {
+      ...idle,
+      failedOnly: !state.failedOnly,
+    };
+  }
+
+  if (filter === "updatable") {
+    return {
+      ...idle,
+      updatableOnly: !state.updatableOnly,
     };
   }
 
   return {
-    installedOnly: false,
+    ...idle,
     selectedOnly: !state.selectedOnly,
   };
 }
@@ -62,5 +87,18 @@ export function getVisibleCatalogTools(
       )
     : selectedFiltered;
 
-  return searchTools([...statusFiltered], options.query);
+  const failedFiltered = options.failedOnly
+    ? statusFiltered.filter(
+        (tool) => options.toolStates[tool.id]?.status === "failed",
+      )
+    : statusFiltered;
+
+  const updatableFiltered = options.updatableOnly
+    ? failedFiltered.filter((tool) => {
+        const status = options.toolUpdateResults?.[tool.id]?.status;
+        return status === "available" || status === "reinstall";
+      })
+    : failedFiltered;
+
+  return searchTools([...updatableFiltered], options.query);
 }

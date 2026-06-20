@@ -180,6 +180,23 @@ ipcMain.handle("activity-log-clear", async () => {
   return [];
 });
 
+ipcMain.handle("ai-log-get", async () => {
+  return readAiLog();
+});
+
+ipcMain.handle("ai-log-add", async (_event, entry) => {
+  const nextEntries = writeAiLog([
+    normalizeAiLogEntry(entry),
+    ...readAiLog()
+  ]);
+  return nextEntries;
+});
+
+ipcMain.handle("ai-log-clear", async () => {
+  writeAiLog([]);
+  return [];
+});
+
 ipcMain.handle("select-tool-root", async (_event, currentPath) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: "选择 WinKitBox 工具安装目录",
@@ -1186,6 +1203,7 @@ async function generateToolWithAi(request) {
 
   return {
     candidate,
+    aiResponse: content,
     context: {
       owner: context.owner,
       repo: context.repo,
@@ -1227,7 +1245,7 @@ async function fixToolWithAi(request) {
     );
   }
 
-  return { candidate };
+  return { candidate, aiResponse: content };
 }
 
 async function analyzeLocalFileWithAi(request) {
@@ -1265,7 +1283,10 @@ async function analyzeLocalFileWithAi(request) {
     );
   }
 
-  return { candidate: normalizeAiLocalFileCandidate(candidate, { filePath, fileName, extension }) };
+  return {
+    candidate: normalizeAiLocalFileCandidate(candidate, { filePath, fileName, extension }),
+    aiResponse: content
+  };
 }
 
 async function recommendGitHubReposWithAi(request) {
@@ -1290,7 +1311,10 @@ async function recommendGitHubReposWithAi(request) {
   );
 
   try {
-    return parseJsonFromAi(content);
+    const parsed = parseJsonFromAi(content);
+    return parsed && typeof parsed === "object"
+      ? { ...parsed, aiResponse: content }
+      : { recommendations: [], aiResponse: content };
   } catch (error) {
     throw new Error(
       `${error.message}（原始响应：${content.replace(/\s+/g, " ").slice(0, 200)}）`
@@ -1892,6 +1916,10 @@ function getActivityLogPath() {
   return path.join(app.getPath("userData"), "activity-log.json");
 }
 
+function getAiLogPath() {
+  return path.join(app.getPath("userData"), "ai-log.json");
+}
+
 function getDefaultToolRootPath() {
   return path.join(process.env.LOCALAPPDATA || app.getPath("appData"), "WinKitBox");
 }
@@ -1948,6 +1976,101 @@ function writeActivityLog(entries) {
   ensureDirectory(path.dirname(getActivityLogPath()));
   fs.writeFileSync(getActivityLogPath(), JSON.stringify(normalized, null, 2));
   return normalized;
+}
+
+function readAiLog() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(getAiLogPath(), "utf8"));
+    return normalizeAiLogEntries(parsed);
+  } catch {
+    return [];
+  }
+}
+
+function writeAiLog(entries) {
+  const normalized = normalizeAiLogEntries(entries);
+  ensureDirectory(path.dirname(getAiLogPath()));
+  fs.writeFileSync(getAiLogPath(), JSON.stringify(normalized, null, 2));
+  return normalized;
+}
+
+function normalizeAiLogEntries(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(normalizeAiLogEntry)
+    .filter(Boolean)
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+    .slice(0, 500);
+}
+
+function normalizeAiLogEntry(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const now = new Date();
+  const createdAt = Number.isNaN(Date.parse(String(value.createdAt ?? "")))
+    ? now.toISOString()
+    : String(value.createdAt);
+  const kind = normalizeAiLogKind(String(value.kind ?? ""));
+  const status = normalizeActivityStatus(String(value.status ?? ""));
+  const entry = {
+    id: compactActivityText(value.id, 120) || `${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt,
+    kind,
+    status,
+    title: compactActivityText(redactSensitiveText(value.title), 120) || "未命名 AI 记录"
+  };
+  const prompt = compactAiMultiline(value.prompt, 5000);
+  const response = compactAiMultiline(value.response, 20000);
+  const model = compactActivityText(redactSensitiveText(value.model), 120);
+  const source = compactActivityText(redactSensitiveText(value.source), 120);
+  const toolId = compactActivityText(value.toolId, 100);
+  const toolName = compactActivityText(value.toolName, 120);
+  const repoUrl = compactActivityText(value.repoUrl, 400);
+
+  if (prompt) {
+    entry.prompt = prompt;
+  }
+  if (response) {
+    entry.response = response;
+  }
+  if (value.structured !== undefined) {
+    entry.structured = normalizeAiStructured(value.structured);
+  }
+  if (model) {
+    entry.model = model;
+  }
+  if (source) {
+    entry.source = source;
+  }
+  if (toolId) {
+    entry.toolId = toolId;
+  }
+  if (toolName) {
+    entry.toolName = toolName;
+  }
+  if (repoUrl) {
+    entry.repoUrl = repoUrl;
+  }
+
+  return entry;
+}
+
+function normalizeAiLogKind(value) {
+  return [
+    "recommendation",
+    "tool-analysis",
+    "local-analysis",
+    "repair",
+    "model",
+    "other"
+  ].includes(value)
+    ? value
+    : "other";
 }
 
 function normalizeActivityLogEntries(value) {
@@ -2037,6 +2160,32 @@ function compactActivityText(value, maxLength) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+function compactAiMultiline(value, maxLength) {
+  const text = redactSensitiveText(value)
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim();
+
+  return text ? text.slice(0, maxLength) : "";
+}
+
+function normalizeAiStructured(value) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return compactAiMultiline(value, 2000);
+  }
+}
+
+function redactSensitiveText(value) {
+  return String(value ?? "")
+    .replace(/\bghp_[A-Za-z0-9_]{10,}\b/g, "[已脱敏]")
+    .replace(/\bgithub_pat_[A-Za-z0-9_]{10,}\b/g, "[已脱敏]")
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[已脱敏]")
+    .replace(/(Authorization\s*:\s*Bearer\s+)[^\s;,)]+/gi, "$1[已脱敏]")
+    .replace(/((?:api[_-]?key|token|password|secret)\s*[:=]\s*)[^\s;,)]+/gi, "$1[已脱敏]");
 }
 
 function normalizeSettings(settings) {

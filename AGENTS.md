@@ -153,6 +153,16 @@ Before packaging and publishing a release:
 
 ## Release Notes
 
+### v0.5.1
+
+- Added a dedicated AI log tab in Log Center for full AI replies from GitHub recommendations, link/local analysis, and repair flows.
+- Added persistent AI log storage with redaction, filtering, detail view, copy, clear, and JSON/TXT export.
+- Added a task center for install, uninstall, update, update-check, and Windows environment repair actions, including status tracking and retry for failed tool tasks.
+- Added tool detail drawers with install source, status, category, update info, recent operation logs, and recent AI records.
+- Enhanced Tool Update Center with status filters, batch update for visible updatable tools, ignored-version handling, and clearer empty states.
+- Expanded Windows environment health cards with affected-feature impact labels while keeping repair actions inside the existing health panel.
+- Added sidebar quick filters for all tools, selected, installed, updatable, and failed tools.
+
 ### v0.4.1
 
 - Added in-page feedback to Settings actions so tool directory, update, proxy, theme, AI setting, and config import/export operations no longer rely only on realtime logs.

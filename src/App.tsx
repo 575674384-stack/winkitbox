@@ -70,6 +70,12 @@ import {
   type ActivityLogInput,
 } from "./core/activityLog";
 import {
+  addAiLogEntry,
+  normalizeAiLog,
+  type AiLogEntry,
+  type AiLogInput,
+} from "./core/aiLog";
+import {
   buildExportConfig,
   createCustomTool,
   parseImportedConfig,
@@ -115,6 +121,17 @@ import {
   createToolUpdateDescriptors,
   type ToolUpdateCheckResult,
 } from "./core/toolUpdates";
+import {
+  addTaskQueueItem,
+  completeTaskQueueItem,
+  failTaskQueueItem,
+  getTaskQueueStats,
+  startTaskQueueItem,
+  type TaskQueueItem,
+  type TaskQueueKind,
+  type TaskQueueStats,
+  type TaskQueueStatus,
+} from "./core/taskQueue";
 import {
   applyDetectionResults,
   applyRunEventSnapshot,
@@ -266,6 +283,7 @@ const categoryIcons: Record<string, typeof Download> = {
 let logCounter = 0;
 const selectionStorageKey = "winkitbox:selected-tools:v1";
 const customToolsStorageKey = "winkitbox:custom-tools:v1";
+const ignoredToolUpdatesStorageKey = "winkitbox:ignored-tool-updates:v1";
 const fallbackSettings: ToolPathSettings = {
   toolRootPath: "%LOCALAPPDATA%\\WinKitBox",
   defaultToolRootPath: "%LOCALAPPDATA%\\WinKitBox",
@@ -371,6 +389,25 @@ function parseDnsText(value: string) {
     .filter(Boolean);
 }
 
+function getAiResponseText(payload: unknown) {
+  if (payload && typeof payload === "object" && "aiResponse" in payload) {
+    const response = (payload as { aiResponse?: unknown }).aiResponse;
+    if (typeof response === "string" && response.trim()) {
+      return response;
+    }
+  }
+
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload ?? "");
+  }
+}
+
+function createTaskId(kind: string, target: string) {
+  return `${kind}-${target}-${Date.now()}`;
+}
+
 export function App() {
   const [customTools, setCustomTools] = useState<Tool[]>(() =>
     loadCustomTools(),
@@ -395,8 +432,10 @@ export function App() {
   });
   const [activeView, setActiveView] = useState<ActiveView>("catalog");
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>("all");
+  const [failedOnly, setFailedOnly] = useState(false);
   const [installedOnly, setInstalledOnly] = useState(false);
   const [selectedOnly, setSelectedOnly] = useState(false);
+  const [updatableOnly, setUpdatableOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([
     {
@@ -407,6 +446,9 @@ export function App() {
   ]);
   const logsRef = useRef<LogEntry[]>(logs);
   const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
+  const [aiLog, setAiLog] = useState<AiLogEntry[]>([]);
+  const [taskQueue, setTaskQueue] = useState<TaskQueueItem[]>([]);
+  const taskQueueRef = useRef<TaskQueueItem[]>([]);
   const [logsViewFocus, setLogsViewFocus] = useState<LogsViewFocus>({
     nonce: 0,
   });
@@ -419,6 +461,24 @@ export function App() {
     createEmptyInstallProgress(),
   );
   const [toolUpdateResults, setToolUpdateResults] = useState<Record<string, ToolUpdateCheckResult>>({});
+  const [ignoredToolUpdateVersions, setIgnoredToolUpdateVersions] = useState<Record<string, string>>(
+    () => {
+      try {
+        const parsed = JSON.parse(
+          localStorage.getItem(ignoredToolUpdatesStorageKey) || "{}",
+        );
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? Object.fromEntries(
+              Object.entries(parsed).filter(
+                ([, value]) => typeof value === "string" && value,
+              ),
+            ) as Record<string, string>
+          : {};
+      } catch {
+        return {};
+      }
+    },
+  );
   const [isCheckingToolUpdates, setIsCheckingToolUpdates] = useState(false);
   const [settings, setSettings] = useState<ToolPathSettings>(fallbackSettings);
   const [toolRootDraft, setToolRootDraft] = useState(
@@ -431,6 +491,7 @@ export function App() {
   const [editingCategoryName, setEditingCategoryName] = useState("");
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState("");
+  const [detailToolId, setDetailToolId] = useState<string>();
 
   const allTools = useMemo(() => {
     const applyCategoryOverrides = (tools: Tool[]) =>
@@ -510,6 +571,18 @@ export function App() {
     () => allTools.filter((tool) => toolStates[tool.id]?.status === "installed"),
     [allTools, toolStates],
   );
+  const failedToolCount = useMemo(
+    () => allTools.filter((tool) => toolStates[tool.id]?.status === "failed").length,
+    [allTools, toolStates],
+  );
+  const updatableToolCount = useMemo(
+    () =>
+      allTools.filter((tool) => {
+        const status = toolUpdateResults[tool.id]?.status;
+        return status === "available" || status === "reinstall";
+      }).length,
+    [allTools, toolUpdateResults],
+  );
   const dashboardStats = useMemo(
     () =>
       createDashboardStats({
@@ -524,26 +597,40 @@ export function App() {
     () => getActivityLogStats(activityLog),
     [activityLog],
   );
+  const taskQueueStats = useMemo(
+    () => getTaskQueueStats(taskQueue),
+    [taskQueue],
+  );
+  const detailTool = useMemo(
+    () => allTools.find((tool) => tool.id === detailToolId),
+    [allTools, detailToolId],
+  );
 
   const visibleTools = useMemo(() => {
     return getVisibleCatalogTools(allTools, {
       activeCategory,
       customCategories: settings.customCategories,
+      failedOnly,
       installedOnly,
       selectedIds,
       selectedOnly,
       query,
       toolStates,
+      toolUpdateResults,
+      updatableOnly,
     });
   }, [
     allTools,
     activeCategory,
+    failedOnly,
     installedOnly,
     query,
     selectedIds,
     selectedOnly,
     settings.customCategories,
     toolStates,
+    toolUpdateResults,
+    updatableOnly,
   ]);
   const currentTheme = useMemo(
     () => getThemeDefinition(settings.themeId),
@@ -618,6 +705,7 @@ export function App() {
 
   useEffect(() => {
     void loadActivityLog();
+    void loadAiLog();
   }, []);
 
   useEffect(() => {
@@ -652,10 +740,19 @@ export function App() {
   }, [customTools]);
 
   useEffect(() => {
+    localStorage.setItem(
+      ignoredToolUpdatesStorageKey,
+      JSON.stringify(ignoredToolUpdateVersions),
+    );
+  }, [ignoredToolUpdateVersions]);
+
+  useEffect(() => {
     if (!categoryNavigation.includes(activeCategory)) {
       setActiveCategory("all");
+      setFailedOnly(false);
       setInstalledOnly(false);
       setSelectedOnly(false);
+      setUpdatableOnly(false);
     }
   }, [activeCategory, categoryNavigation]);
 
@@ -671,15 +768,17 @@ export function App() {
 
   function toggleQuickFilter(filter: CatalogQuickFilter) {
     const nextFilter = toggleCatalogQuickFilter(
-      { installedOnly, selectedOnly },
+      { failedOnly, installedOnly, selectedOnly, updatableOnly },
       filter,
     );
 
     setActiveView("catalog");
     setActiveCategory("all");
     setQuery("");
+    setFailedOnly(nextFilter.failedOnly);
     setInstalledOnly(nextFilter.installedOnly);
     setSelectedOnly(nextFilter.selectedOnly);
+    setUpdatableOnly(nextFilter.updatableOnly);
   }
 
   async function loadActivityLog() {
@@ -747,6 +846,37 @@ export function App() {
     }
   }
 
+  async function loadAiLog() {
+    if (!window.winKitBox) {
+      return;
+    }
+
+    try {
+      const entries = await window.winKitBox.getAiLog();
+      setAiLog(normalizeAiLog(entries));
+    } catch {
+      appendLog("warning", "读取 AI 日志失败，本次会保留实时日志。");
+    }
+  }
+
+  async function recordAiLog(input: AiLogInput) {
+    if (!input.title) {
+      return;
+    }
+
+    if (!window.winKitBox) {
+      setAiLog((current) => addAiLogEntry(current, input));
+      return;
+    }
+
+    try {
+      const entries = await window.winKitBox.addAiLog(input);
+      setAiLog(normalizeAiLog(entries));
+    } catch {
+      setAiLog((current) => addAiLogEntry(current, input));
+    }
+  }
+
   async function clearActivityLog() {
     if (window.winKitBox) {
       try {
@@ -763,6 +893,71 @@ export function App() {
     }
 
     setActivityLog([]);
+  }
+
+  async function clearAiLog() {
+    if (window.winKitBox) {
+      try {
+        const entries = await window.winKitBox.clearAiLog();
+        setAiLog(normalizeAiLog(entries));
+        appendLog("success", "AI 日志已清空。");
+        return;
+      } catch (error) {
+        appendLog(
+          "error",
+          error instanceof Error ? error.message : "清空 AI 日志失败。",
+        );
+      }
+    }
+
+    setAiLog([]);
+  }
+
+  async function refreshLogs() {
+    await Promise.all([loadActivityLog(), loadAiLog()]);
+  }
+
+  function setTaskQueueState(
+    updater: (current: readonly TaskQueueItem[]) => TaskQueueItem[],
+  ) {
+    setTaskQueue((current) => {
+      const next = updater(current);
+      taskQueueRef.current = next;
+      return next;
+    });
+  }
+
+  function createTask(
+    input: {
+      id: string;
+      kind: TaskQueueKind;
+      title: string;
+      toolId?: string;
+      toolName?: string;
+      retryable?: boolean;
+      retryKey?: string;
+    },
+  ) {
+    setTaskQueueState((current) => addTaskQueueItem(current, input));
+  }
+
+  function startTask(taskId: string) {
+    setTaskQueueState((current) => startTaskQueueItem(current, taskId));
+  }
+
+  function finishTask(
+    taskId: string,
+    status: Exclude<TaskQueueStatus, "queued" | "running" | "error">,
+    message?: string,
+    exitCode?: number | null,
+  ) {
+    setTaskQueueState((current) =>
+      completeTaskQueueItem(current, taskId, { status, message, exitCode }),
+    );
+  }
+
+  function failTask(taskId: string, message: string) {
+    setTaskQueueState((current) => failTaskQueueItem(current, taskId, message));
   }
 
   function openLogsView(focus: Omit<LogsViewFocus, "nonce"> = {}) {
@@ -812,6 +1007,39 @@ export function App() {
     anchor.click();
     URL.revokeObjectURL(url);
     appendLog("success", `已导出 ${visibleCount} 条日志。`);
+  }
+
+  async function exportAiLogFile(
+    content: string,
+    format: "json" | "txt",
+    visibleCount: number,
+  ) {
+    const fileName = `winkitbox-ai-logs-${new Date()
+      .toISOString()
+      .slice(0, 10)}.${format}`;
+
+    if (window.winKitBox?.saveLogFile) {
+      const result = await window.winKitBox.saveLogFile({
+        content,
+        fileName,
+        format,
+      });
+      if (!result.canceled) {
+        appendLog("success", `AI 日志已导出：${result.filePath}`);
+      }
+      return;
+    }
+
+    const blob = new Blob([content], {
+      type: format === "json" ? "application/json" : "text/plain",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    appendLog("success", `已导出 ${visibleCount} 条 AI 日志。`);
   }
 
   function showToolFromLog(toolId: string) {
@@ -1542,6 +1770,19 @@ export function App() {
         toolName: customTool.name,
         source: getToolActivitySource(customTool),
       });
+      await recordAiLog({
+        kind: "tool-analysis",
+        status: "success",
+        title: `AI 添加工具：${customTool.name}`,
+        prompt: context.htmlUrl,
+        response: candidate.description || candidate.summary || "AI 已生成工具候选。",
+        structured: { candidate, context, categoryId },
+        model: settings.aiModel,
+        source: "添加工具",
+        toolId: customTool.id,
+        toolName: customTool.name,
+        repoUrl: context.htmlUrl,
+      });
       setSelectedIds((current) => new Set([...current, customTool.id]));
       await refreshToolStates([customTool]);
     } catch (error) {
@@ -1554,6 +1795,17 @@ export function App() {
         status: "error",
         title: "AI 添加工具失败",
         detail: error instanceof Error ? error.message : "AI 添加工具失败。",
+      });
+      await recordAiLog({
+        kind: "tool-analysis",
+        status: "error",
+        title: "AI 添加工具失败",
+        prompt: context.htmlUrl,
+        response: error instanceof Error ? error.message : "AI 添加工具失败。",
+        structured: { candidate, context, categoryId },
+        model: settings.aiModel,
+        source: "添加工具",
+        repoUrl: context.htmlUrl,
       });
     }
   }
@@ -1704,6 +1956,19 @@ export function App() {
         toolName: tool.name,
         source: getToolActivitySource(fixedTool),
       });
+      await recordAiLog({
+        kind: "repair",
+        status: "success",
+        title: `AI 修复工具：${tool.name}`,
+        prompt: errorMessage || "安装失败",
+        response: getAiResponseText(result),
+        structured: result.candidate,
+        model: settings.aiModel,
+        source: "AI 修复",
+        toolId: tool.id,
+        toolName: tool.name,
+        repoUrl: tool.repoUrl ?? tool.homepage,
+      });
       await refreshToolStates([fixedTool]);
     } catch (error) {
       appendLog(
@@ -1718,6 +1983,18 @@ export function App() {
         toolId: tool.id,
         toolName: tool.name,
         source: getToolActivitySource(tool),
+      });
+      await recordAiLog({
+        kind: "repair",
+        status: "error",
+        title: `AI 修复失败：${tool.name}`,
+        prompt: errorMessage || "安装失败",
+        response: error instanceof Error ? error.message : "AI 修复工具失败。",
+        model: settings.aiModel,
+        source: "AI 修复",
+        toolId: tool.id,
+        toolName: tool.name,
+        repoUrl: tool.repoUrl ?? tool.homepage,
       });
     }
   }
@@ -1751,6 +2028,16 @@ export function App() {
       prompt,
     });
     appendLog("success", "AI 已返回 GitHub 项目推荐。");
+    await recordAiLog({
+      kind: "recommendation",
+      status: "success",
+      title: "AI 已返回 GitHub 项目推荐",
+      prompt,
+      response: getAiResponseText(result),
+      structured: result,
+      model: settings.aiModel,
+      source: "GitHub AI 助手",
+    });
     return result;
   }
 
@@ -1770,14 +2057,25 @@ export function App() {
     }
 
     setIsRunning(true);
+    const taskId = createTaskId("install-plan", "selected");
+    createTask({
+      id: taskId,
+      kind: "install",
+      title: `批量安装 ${installPlan.readyCount} 个工具`,
+      retryable: true,
+      retryKey: "install-plan:selected",
+    });
+    startTask(taskId);
     appendLog("info", "开始执行安装计划。");
 
     try {
       const result = await window.winKitBox.runPowerShell(script);
       if (result.code === 0) {
         appendLog("success", "安装计划执行完成。");
+        finishTask(taskId, "success", "安装计划执行完成。", result.code);
       } else {
         appendLog("error", `安装计划结束，退出码 ${result.code ?? "未知"}。`);
+        failTask(taskId, `安装计划结束，退出码 ${result.code ?? "未知"}。`);
       }
       await recordActivity({
         kind: "install",
@@ -1799,6 +2097,10 @@ export function App() {
         detail: error instanceof Error ? error.message : "执行安装计划失败。",
         source: "install-plan",
       });
+      failTask(
+        taskId,
+        error instanceof Error ? error.message : "执行安装计划失败。",
+      );
     } finally {
       await refreshToolStates(selectedTools, plannerOptions, {
         preserveActive: false,
@@ -1823,14 +2125,25 @@ export function App() {
     }
 
     setIsRunning(true);
+    const taskId = createTaskId("uninstall-plan", "selected");
+    createTask({
+      id: taskId,
+      kind: "uninstall",
+      title: `批量卸载 ${uninstallPlan.readyCount} 个工具`,
+      retryable: true,
+      retryKey: "uninstall-plan:selected",
+    });
+    startTask(taskId);
     appendLog("info", "开始执行卸载计划。");
 
     try {
       const result = await window.winKitBox.runPowerShell(uninstallScript);
       if (result.code === 0) {
         appendLog("success", "卸载计划执行完成。");
+        finishTask(taskId, "success", "卸载计划执行完成。", result.code);
       } else {
         appendLog("error", `卸载计划结束，退出码 ${result.code ?? "未知"}。`);
+        failTask(taskId, `卸载计划结束，退出码 ${result.code ?? "未知"}。`);
       }
       await recordActivity({
         kind: "uninstall",
@@ -1852,6 +2165,10 @@ export function App() {
         detail: error instanceof Error ? error.message : "执行卸载计划失败。",
         source: "uninstall-plan",
       });
+      failTask(
+        taskId,
+        error instanceof Error ? error.message : "执行卸载计划失败。",
+      );
     } finally {
       await refreshToolStates(selectedInstalledTools, plannerOptions, {
         preserveActive: false,
@@ -1868,10 +2185,66 @@ export function App() {
     }
   }
 
+  async function retryTask(task: TaskQueueItem) {
+    if (!task.retryKey) {
+      appendLog("warning", "这个任务没有可重试动作。");
+      return;
+    }
+
+    if (task.retryKey === "install-plan:selected") {
+      await runInstallPlan();
+      return;
+    }
+
+    if (task.retryKey === "uninstall-plan:selected") {
+      await runUninstallPlan();
+      return;
+    }
+
+    if (task.retryKey === "update-check:all") {
+      await checkInstalledToolUpdates();
+      return;
+    }
+
+    const [action, toolId] = task.retryKey.split(":");
+    const tool = allTools.find((item) => item.id === toolId);
+    if (!tool) {
+      appendLog("warning", `没有找到可重试的工具：${toolId}。`);
+      return;
+    }
+
+    if (action === "install") {
+      await installTool(tool);
+    } else if (action === "uninstall") {
+      await uninstallTool(tool);
+    } else if (action === "update") {
+      await updateTool(tool);
+    } else {
+      appendLog("warning", "未知的任务重试类型。");
+    }
+  }
+
+  function clearFinishedTasks() {
+    setTaskQueueState((current) =>
+      current.filter((task) => task.status === "queued" || task.status === "running"),
+    );
+  }
+
   async function installTool(tool: Tool) {
     const installCommand = buildInstallCommand(tool, plannerOptions);
+    const taskId = createTaskId("install", tool.id);
+    createTask({
+      id: taskId,
+      kind: "install",
+      title: `安装 ${tool.name}`,
+      toolId: tool.id,
+      toolName: tool.name,
+      retryable: true,
+      retryKey: `install:${tool.id}`,
+    });
 
     if (installCommand.skipReason) {
+      finishTask(taskId, "skipped", installCommand.skipReason);
       appendLog("info", `${tool.name} ${installCommand.skipReason}`);
       await recordActivity({
         kind: "install",
@@ -1886,6 +2259,7 @@ export function App() {
     }
 
     if (!installCommand.command) {
+      finishTask(taskId, "warning", "需要手动下载。");
       appendLog("warning", `${tool.name} 需要手动下载，已打开来源页面。`);
       await recordActivity({
         kind: "install",
@@ -1901,6 +2275,7 @@ export function App() {
     }
 
     if (!window.winKitBox) {
+      finishTask(taskId, "skipped", "浏览器预览模式不能安装。");
       appendLog(
         "warning",
         `浏览器预览不能直接安装 ${tool.name}，请用桌面版运行 WinKitBox。`,
@@ -1909,42 +2284,76 @@ export function App() {
     }
 
     appendLog("info", `开始安装 ${tool.name}。`);
+    startTask(taskId);
     const singlePlan = createInstallPlan(
       [tool],
       new Set([tool.id]),
       plannerOptions,
     );
-    const result = await window.winKitBox.runPowerShell(
-      buildPowerShellScript(singlePlan),
-    );
-    await refreshToolStates([tool], plannerOptions, {
-      preserveActive: false,
-    });
 
-    if (result.code === 0) {
-      appendLog("success", `${tool.name} 安装命令已完成，可以点击打开试试。`);
-    } else {
+    try {
+      const result = await window.winKitBox.runPowerShell(
+        buildPowerShellScript(singlePlan),
+      );
+      await refreshToolStates([tool], plannerOptions, {
+        preserveActive: false,
+      });
+
+      if (result.code === 0) {
+        appendLog("success", `${tool.name} 安装命令已完成，可以点击打开试试。`);
+        finishTask(taskId, "success", "安装命令已完成。", result.code);
+      } else {
+        appendLog(
+          "error",
+          `${tool.name} 安装命令结束，退出码 ${result.code ?? "未知"}。`,
+        );
+        failTask(taskId, `安装命令结束，退出码 ${result.code ?? "未知"}。`);
+      }
+      await recordActivity({
+        kind: "install",
+        status: getActivityStatusFromExitCode(result.code),
+        title: result.code === 0 ? `${tool.name} 安装完成` : `${tool.name} 安装失败`,
+        detail: formatExitCode(result.code),
+        toolId: tool.id,
+        toolName: tool.name,
+        exitCode: result.code,
+        source: getToolActivitySource(tool),
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : `${tool.name} 安装失败。`;
       appendLog(
         "error",
-        `${tool.name} 安装命令结束，退出码 ${result.code ?? "未知"}。`,
+        message,
       );
+      failTask(taskId, message);
+      await recordActivity({
+        kind: "install",
+        status: "error",
+        title: `${tool.name} 安装失败`,
+        detail: message,
+        toolId: tool.id,
+        toolName: tool.name,
+        source: getToolActivitySource(tool),
+      });
     }
-    await recordActivity({
-      kind: "install",
-      status: getActivityStatusFromExitCode(result.code),
-      title: result.code === 0 ? `${tool.name} 安装完成` : `${tool.name} 安装失败`,
-      detail: formatExitCode(result.code),
-      toolId: tool.id,
-      toolName: tool.name,
-      exitCode: result.code,
-      source: getToolActivitySource(tool),
-    });
   }
 
   async function uninstallTool(tool: Tool) {
     const uninstallCommand = buildUninstallCommand(tool, plannerOptions);
+    const taskId = createTaskId("uninstall", tool.id);
+    createTask({
+      id: taskId,
+      kind: "uninstall",
+      title: `卸载 ${tool.name}`,
+      toolId: tool.id,
+      toolName: tool.name,
+      retryable: true,
+      retryKey: `uninstall:${tool.id}`,
+    });
 
     if (uninstallCommand.skipReason) {
+      finishTask(taskId, "skipped", uninstallCommand.skipReason);
       appendLog("info", `${tool.name} ${uninstallCommand.skipReason}`);
       await recordActivity({
         kind: "uninstall",
@@ -1959,6 +2368,7 @@ export function App() {
     }
 
     if (!uninstallCommand.command) {
+      finishTask(taskId, "warning", "需要手动卸载。");
       appendLog("warning", `${tool.name} 没有可执行卸载命令，已打开来源页面。`);
       await recordActivity({
         kind: "uninstall",
@@ -1974,6 +2384,7 @@ export function App() {
     }
 
     if (!window.winKitBox) {
+      finishTask(taskId, "skipped", "浏览器预览模式不能卸载。");
       appendLog(
         "warning",
         `浏览器预览不能直接卸载 ${tool.name}，请用桌面版运行 WinKitBox。`,
@@ -1986,41 +2397,64 @@ export function App() {
     );
 
     if (!confirmed) {
+      finishTask(taskId, "skipped", "用户取消卸载。");
       appendLog("info", `已取消卸载 ${tool.name}。`);
       return;
     }
 
     appendLog("info", `开始卸载 ${tool.name}。`);
+    startTask(taskId);
     const singlePlan = createUninstallPlan(
       [tool],
       new Set([tool.id]),
       plannerOptions,
     );
-    const result = await window.winKitBox.runPowerShell(
-      buildUninstallPowerShellScript(singlePlan),
-    );
-    await refreshToolStates([tool], plannerOptions, {
-      preserveActive: false,
-    });
+    try {
+      const result = await window.winKitBox.runPowerShell(
+        buildUninstallPowerShellScript(singlePlan),
+      );
+      await refreshToolStates([tool], plannerOptions, {
+        preserveActive: false,
+      });
 
-    if (result.code === 0) {
-      appendLog("success", `${tool.name} 卸载命令已完成。`);
-    } else {
+      if (result.code === 0) {
+        appendLog("success", `${tool.name} 卸载命令已完成。`);
+        finishTask(taskId, "success", "卸载命令已完成。", result.code);
+      } else {
+        appendLog(
+          "error",
+          `${tool.name} 卸载命令结束，退出码 ${result.code ?? "未知"}。`,
+        );
+        failTask(taskId, `卸载命令结束，退出码 ${result.code ?? "未知"}。`);
+      }
+      await recordActivity({
+        kind: "uninstall",
+        status: getActivityStatusFromExitCode(result.code),
+        title: result.code === 0 ? `${tool.name} 卸载完成` : `${tool.name} 卸载失败`,
+        detail: formatExitCode(result.code),
+        toolId: tool.id,
+        toolName: tool.name,
+        exitCode: result.code,
+        source: getToolActivitySource(tool),
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : `${tool.name} 卸载失败。`;
       appendLog(
         "error",
-        `${tool.name} 卸载命令结束，退出码 ${result.code ?? "未知"}。`,
+        message,
       );
+      failTask(taskId, message);
+      await recordActivity({
+        kind: "uninstall",
+        status: "error",
+        title: `${tool.name} 卸载失败`,
+        detail: message,
+        toolId: tool.id,
+        toolName: tool.name,
+        source: getToolActivitySource(tool),
+      });
     }
-    await recordActivity({
-      kind: "uninstall",
-      status: getActivityStatusFromExitCode(result.code),
-      title: result.code === 0 ? `${tool.name} 卸载完成` : `${tool.name} 卸载失败`,
-      detail: formatExitCode(result.code),
-      toolId: tool.id,
-      toolName: tool.name,
-      exitCode: result.code,
-      source: getToolActivitySource(tool),
-    });
   }
 
   async function checkInstalledToolUpdates() {
@@ -2030,6 +2464,15 @@ export function App() {
     }
 
     const targets = installedTools.length > 0 ? installedTools : allTools;
+    const taskId = createTaskId("update-check", "all");
+    createTask({
+      id: taskId,
+      kind: "update-check",
+      title: `检测 ${targets.length} 个工具更新`,
+      retryable: true,
+      retryKey: "update-check:all",
+    });
+    startTask(taskId);
     setIsCheckingToolUpdates(true);
     appendLog("info", `开始检测 ${targets.length} 个工具的更新状态。`);
 
@@ -2045,6 +2488,11 @@ export function App() {
       ).length;
       appendLog("success", `工具更新检测完成，${availableCount} 个工具可更新或可刷新。`);
       const failedCount = results.filter((result) => result.status === "unknown").length;
+      finishTask(
+        taskId,
+        failedCount > 0 ? "warning" : "success",
+        `${availableCount} 个可更新或可刷新，${failedCount} 个无法判断。`,
+      );
       await recordActivity({
         kind: "update-check",
         status: failedCount > 0 ? "warning" : "success",
@@ -2064,15 +2512,49 @@ export function App() {
         detail: error instanceof Error ? error.message : "工具更新检测失败。",
         source: "tool-update-center",
       });
+      failTask(
+        taskId,
+        error instanceof Error ? error.message : "工具更新检测失败。",
+      );
     } finally {
       setIsCheckingToolUpdates(false);
     }
   }
 
+  function ignoreToolUpdate(toolId: string, version: string) {
+    setIgnoredToolUpdateVersions((current) => ({
+      ...current,
+      [toolId]: version,
+    }));
+    const tool = allTools.find((item) => item.id === toolId);
+    appendLog("info", `已忽略 ${tool?.name ?? toolId} 的 ${version} 版本。`);
+  }
+
+  function clearIgnoredToolUpdate(toolId: string) {
+    setIgnoredToolUpdateVersions((current) => {
+      const next = { ...current };
+      delete next[toolId];
+      return next;
+    });
+    const tool = allTools.find((item) => item.id === toolId);
+    appendLog("info", `已取消忽略 ${tool?.name ?? toolId} 的更新。`);
+  }
+
   async function updateTool(tool: Tool) {
     const updateCommand = buildToolUpdateCommand(tool, plannerOptions);
+    const taskId = createTaskId("update", tool.id);
+    createTask({
+      id: taskId,
+      kind: "update",
+      title: `更新 ${tool.name}`,
+      toolId: tool.id,
+      toolName: tool.name,
+      retryable: true,
+      retryKey: `update:${tool.id}`,
+    });
 
     if (updateCommand.skipReason) {
+      finishTask(taskId, "skipped", updateCommand.skipReason);
       appendLog("info", `${tool.name} ${updateCommand.skipReason}`);
       await recordActivity({
         kind: "update",
@@ -2087,6 +2569,7 @@ export function App() {
     }
 
     if (!updateCommand.command) {
+      finishTask(taskId, "warning", "需要手动更新。");
       appendLog("warning", `${tool.name} 需要手动更新，已打开来源页面。`);
       await recordActivity({
         kind: "update",
@@ -2102,6 +2585,7 @@ export function App() {
     }
 
     if (!window.winKitBox) {
+      finishTask(taskId, "skipped", "浏览器预览模式不能更新。");
       appendLog("warning", `浏览器预览不能更新 ${tool.name}，请用桌面版运行 WinKitBox。`);
       return;
     }
@@ -2109,6 +2593,7 @@ export function App() {
     const confirmed = window.confirm(`将更新 ${tool.name}。是否继续？`);
 
     if (!confirmed) {
+      finishTask(taskId, "skipped", "用户取消更新。");
       appendLog("info", `已取消更新 ${tool.name}。`);
       return;
     }
@@ -2124,6 +2609,7 @@ export function App() {
 
     setIsRunning(true);
     appendLog("info", `开始更新 ${tool.name}。`);
+    startTask(taskId);
 
     try {
       const result = await window.winKitBox.runPowerShell(buildPowerShellScript(plan));
@@ -2133,6 +2619,7 @@ export function App() {
 
       if (result.code === 0) {
         appendLog("success", `${tool.name} 更新命令已完成。`);
+        finishTask(taskId, "success", "更新命令已完成。", result.code);
         await recordActivity({
           kind: "update",
           status: "success",
@@ -2146,6 +2633,7 @@ export function App() {
         void checkInstalledToolUpdates();
       } else {
         appendLog("error", `${tool.name} 更新命令结束，退出码 ${result.code ?? "未知"}。`);
+        failTask(taskId, `更新命令结束，退出码 ${result.code ?? "未知"}。`);
         await recordActivity({
           kind: "update",
           status: "error",
@@ -2171,6 +2659,10 @@ export function App() {
         toolName: tool.name,
         source: getToolActivitySource(tool),
       });
+      failTask(
+        taskId,
+        error instanceof Error ? error.message : `${tool.name} 更新失败。`,
+      );
     } finally {
       setIsRunning(false);
     }
@@ -2278,6 +2770,85 @@ export function App() {
 
           <div className="nav-section">
             <div className="section-title">
+              <ListChecks size={15} />
+              快捷
+            </div>
+            <button
+              className={`category-button ${
+                activeView === "catalog" &&
+                activeCategory === "all" &&
+                !selectedOnly &&
+                !installedOnly &&
+                !failedOnly &&
+                !updatableOnly
+                  ? "active"
+                  : ""
+              }`}
+              type="button"
+              onClick={() => {
+                setActiveView("catalog");
+                setActiveCategory("all");
+                setQuery("");
+                setFailedOnly(false);
+                setInstalledOnly(false);
+                setSelectedOnly(false);
+                setUpdatableOnly(false);
+              }}
+            >
+              <span>
+                <ListChecks size={16} />
+                全部工具
+              </span>
+              <strong>{allTools.length}</strong>
+            </button>
+            <button
+              className={`category-button ${selectedOnly ? "active" : ""}`}
+              type="button"
+              onClick={() => toggleQuickFilter("selected")}
+            >
+              <span>
+                <Check size={16} />
+                已选择
+              </span>
+              <strong>{dashboardStats.selectedCount}</strong>
+            </button>
+            <button
+              className={`category-button ${installedOnly ? "active" : ""}`}
+              type="button"
+              onClick={() => toggleQuickFilter("installed")}
+            >
+              <span>
+                <DownloadCloud size={16} />
+                已安装
+              </span>
+              <strong>{dashboardStats.installedCount}</strong>
+            </button>
+            <button
+              className={`category-button ${updatableOnly ? "active" : ""}`}
+              type="button"
+              onClick={() => toggleQuickFilter("updatable")}
+            >
+              <span>
+                <RotateCcw size={16} />
+                可更新
+              </span>
+              <strong>{updatableToolCount}</strong>
+            </button>
+            <button
+              className={`category-button ${failedOnly ? "active" : ""}`}
+              type="button"
+              onClick={() => toggleQuickFilter("failed")}
+            >
+              <span>
+                <ShieldAlert size={16} />
+                安装失败
+              </span>
+              <strong>{failedToolCount}</strong>
+            </button>
+          </div>
+
+          <div className="nav-section">
+            <div className="section-title">
               <Filter size={15} />
               分类
             </div>
@@ -2317,8 +2888,10 @@ export function App() {
                       onClick={() => {
                         setActiveView("catalog");
                         setActiveCategory(category);
+                        setFailedOnly(false);
                         setInstalledOnly(false);
                         setSelectedOnly(false);
+                        setUpdatableOnly(false);
                       }}
                     >
                       <span>
@@ -2577,6 +3150,10 @@ export function App() {
             onOpenLogs={() =>
               openLogsView({ kind: "system", quick: "system" })
             }
+            onCreateTask={createTask}
+            onStartTask={startTask}
+            onFinishTask={finishTask}
+            onFailTask={failTask}
           />
         </section>
       )}
@@ -2586,10 +3163,13 @@ export function App() {
           <ToolUpdatesView
             tools={installedTools.length > 0 ? installedTools : allTools}
             results={toolUpdateResults}
+            ignoredVersions={ignoredToolUpdateVersions}
             isChecking={isCheckingToolUpdates}
             isRunning={isRunning}
             onCheck={checkInstalledToolUpdates}
             onUpdate={updateTool}
+            onIgnore={ignoreToolUpdate}
+            onClearIgnore={clearIgnoredToolUpdate}
             onOpen={openUrl}
             onViewLogs={(toolId) =>
               openLogsView({ toolId, kind: "update", quick: "failed" })
@@ -2613,6 +3193,7 @@ export function App() {
             onOpenSettings={() => setActiveView("settings")}
             onOpenUrl={openUrl}
             onLog={appendLog}
+            onRecordAiLog={recordAiLog}
           />
         </section>
       )}
@@ -2622,10 +3203,13 @@ export function App() {
           <LogsView
             logs={logs}
             activityLog={activityLog}
+            aiLog={aiLog}
             focus={logsViewFocus}
-            onRefresh={loadActivityLog}
+            onRefresh={refreshLogs}
             onClearActivityLog={clearActivityLog}
+            onClearAiLog={clearAiLog}
             onExportActivityLog={exportActivityLogFile}
+            onExportAiLog={exportAiLogFile}
             onLog={appendLog}
             onShowTool={showToolFromLog}
             onFixTool={fixToolFromLog}
@@ -2711,7 +3295,7 @@ export function App() {
             />
           </div>
 
-          {(selectedOnly || installedOnly) && (
+          {(selectedOnly || installedOnly || failedOnly || updatableOnly) && (
             <div className="active-filter-bar">
               {selectedOnly && (
                 <span className="active-filter-chip">
@@ -2734,6 +3318,32 @@ export function App() {
                     type="button"
                     onClick={() => setInstalledOnly(false)}
                     aria-label="清除已安装筛选"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              )}
+              {updatableOnly && (
+                <span className="active-filter-chip">
+                  仅显示可更新工具
+                  <button
+                    className="icon-button tiny"
+                    type="button"
+                    onClick={() => setUpdatableOnly(false)}
+                    aria-label="清除可更新筛选"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              )}
+              {failedOnly && (
+                <span className="active-filter-chip">
+                  仅显示安装失败工具
+                  <button
+                    className="icon-button tiny"
+                    type="button"
+                    onClick={() => setFailedOnly(false)}
+                    aria-label="清除安装失败筛选"
                   >
                     <X size={12} />
                   </button>
@@ -2788,6 +3398,7 @@ export function App() {
                   onViewLogs={() =>
                     openLogsView({ toolId: tool.id, quick: "failed" })
                   }
+                  onShowDetails={() => setDetailToolId(tool.id)}
                   onSetCategory={(categoryId) =>
                     saveToolCategory(tool.id, categoryId)
                   }
@@ -2903,6 +3514,44 @@ export function App() {
           )}
         </aside>
       )}
+
+      {taskQueue.length > 0 && (
+        <TaskQueuePanel
+          tasks={taskQueue}
+          stats={taskQueueStats}
+          onRetry={retryTask}
+          onOpenLogs={() => openLogsView({ quick: "failed" })}
+          onClearFinished={clearFinishedTasks}
+        />
+      )}
+
+      {detailTool && (
+        <ToolDetailDrawer
+          tool={detailTool}
+          toolState={toolStates[detailTool.id] ?? { status: "unknown" }}
+          selected={selectedIds.has(detailTool.id)}
+          isCustom={customTools.some((item) => item.id === detailTool.id)}
+          updateResult={toolUpdateResults[detailTool.id]}
+          recentActivities={activityLog
+            .filter((entry) => entry.toolId === detailTool.id)
+            .slice(0, 5)}
+          recentAiLogs={aiLog
+            .filter((entry) => entry.toolId === detailTool.id)
+            .slice(0, 3)}
+          categoryName={getCategoryName(detailTool.category, settings.customCategories)}
+          onClose={() => setDetailToolId(undefined)}
+          onToggle={() => toggleTool(detailTool.id)}
+          onInstall={() => installTool(detailTool)}
+          onUninstall={() => uninstallTool(detailTool)}
+          onLaunch={() => launchTool(detailTool)}
+          onOpen={() => openUrl(detailTool.repoUrl ?? detailTool.homepage)}
+          onAiFix={() => fixToolWithAi(detailTool)}
+          onViewLogs={() =>
+            openLogsView({ toolId: detailTool.id, quick: "failed" })
+          }
+          onRemove={() => removeCustomToolFromCard(detailTool)}
+        />
+      )}
     </main>
   );
 }
@@ -2972,6 +3621,86 @@ function InstallProgressCard({
   );
 }
 
+function TaskQueuePanel({
+  tasks,
+  stats,
+  onRetry,
+  onOpenLogs,
+  onClearFinished,
+}: {
+  tasks: TaskQueueItem[];
+  stats: TaskQueueStats;
+  onRetry: (task: TaskQueueItem) => Promise<void>;
+  onOpenLogs: () => void;
+  onClearFinished: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleTasks = expanded ? tasks.slice(0, 10) : tasks.slice(0, 4);
+  const activeCount = stats.running + stats.queued;
+
+  return (
+    <aside className={`task-queue-panel ${expanded ? "expanded" : ""}`}>
+      <div className="task-queue-head">
+        <div>
+          <p className="eyebrow">任务中心</p>
+          <h3>
+            {activeCount > 0
+              ? `${activeCount} 个任务进行中`
+              : `${stats.total} 个最近任务`}
+          </h3>
+        </div>
+        <button
+          className="icon-button"
+          type="button"
+          aria-label={expanded ? "收起任务中心" : "展开任务中心"}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
+        </button>
+      </div>
+      <div className="task-queue-stats">
+        <span>完成 {stats.success}</span>
+        <span>失败 {stats.error}</span>
+        <span>等待 {stats.queued}</span>
+      </div>
+      <div className="task-queue-list">
+        {visibleTasks.map((task) => (
+          <div className={`task-queue-row ${task.status}`} key={task.id}>
+            <span className={`logs-entry-status ${task.status === "error" ? "error" : task.status === "warning" ? "warning" : task.status === "success" ? "success" : "info"}`} />
+            <div>
+              <strong>{task.title}</strong>
+              <small>
+                {task.progressLabel}
+                {task.message ? ` · ${task.message}` : ""}
+              </small>
+            </div>
+            {task.status === "error" && task.retryable && (
+              <button
+                className="mini-action"
+                type="button"
+                onClick={() => void onRetry(task)}
+              >
+                <RotateCcw size={13} />
+                重试
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="task-queue-actions">
+        <button className="text-button" type="button" onClick={onOpenLogs}>
+          <Terminal size={14} />
+          日志
+        </button>
+        <button className="text-button" type="button" onClick={onClearFinished}>
+          <Trash2 size={14} />
+          清理完成项
+        </button>
+      </div>
+    </aside>
+  );
+}
+
 function Metric({
   label,
   value,
@@ -3015,30 +3744,85 @@ function Metric({
 function ToolUpdatesView({
   tools,
   results,
+  ignoredVersions,
   isChecking,
   isRunning,
   onCheck,
   onUpdate,
+  onIgnore,
+  onClearIgnore,
   onOpen,
   onViewLogs,
 }: {
   tools: Tool[];
   results: Record<string, ToolUpdateCheckResult>;
+  ignoredVersions: Record<string, string>;
   isChecking: boolean;
   isRunning: boolean;
   onCheck: () => Promise<void>;
   onUpdate: (tool: Tool) => Promise<void>;
+  onIgnore: (toolId: string, version: string) => void;
+  onClearIgnore: (toolId: string) => void;
   onOpen: (url: string) => Promise<void>;
   onViewLogs: (toolId: string) => void;
 }) {
+  const [filter, setFilter] = useState<"all" | "available" | "current" | "unknown" | "ignored">("all");
   const resultList = tools.map((tool) => results[tool.id]).filter(Boolean);
   const availableCount = resultList.filter(
-    (result) => result.status === "available" || result.status === "reinstall",
+    (result) =>
+      (result.status === "available" || result.status === "reinstall") &&
+      ignoredVersions[result.toolId] !== result.latestVersion,
   ).length;
   const currentCount = resultList.filter((result) => result.status === "current").length;
+  const unknownCount = tools.filter((tool) => {
+    const status = results[tool.id]?.status ?? "unknown";
+    return status === "unknown";
+  }).length;
+  const ignoredCount = resultList.filter(
+    (result) =>
+      result.latestVersion && ignoredVersions[result.toolId] === result.latestVersion,
+  ).length;
   const skippedCount = resultList.filter(
     (result) => result.status === "skipped" || result.status === "not-installed",
   ).length;
+  const visibleTools = tools.filter((tool) => {
+    const result = results[tool.id];
+    const status = result?.status ?? "unknown";
+    const ignored = Boolean(
+      result?.latestVersion && ignoredVersions[tool.id] === result.latestVersion,
+    );
+
+    if (filter === "available") {
+      return !ignored && (status === "available" || status === "reinstall");
+    }
+
+    if (filter === "current") {
+      return status === "current";
+    }
+
+    if (filter === "unknown") {
+      return status === "unknown";
+    }
+
+    if (filter === "ignored") {
+      return ignored;
+    }
+
+    return true;
+  });
+  const batchTargets = visibleTools.filter((tool) => {
+    const result = results[tool.id];
+    const ignored = Boolean(
+      result?.latestVersion && ignoredVersions[tool.id] === result.latestVersion,
+    );
+    return !ignored && (result?.status === "available" || result?.status === "reinstall");
+  });
+
+  async function updateVisibleTools() {
+    for (const tool of batchTargets) {
+      await onUpdate(tool);
+    }
+  }
 
   return (
     <div className="updates-page">
@@ -3052,22 +3836,53 @@ function ToolUpdatesView({
             <h2>工具更新中心</h2>
           </div>
         </div>
-        <button
-          className="primary-button"
-          type="button"
-          disabled={isChecking || isRunning}
-          onClick={() => void onCheck()}
-        >
-          <RotateCcw size={16} className={isChecking ? "spin" : ""} />
-          {isChecking ? "检测中" : "只检测更新"}
-        </button>
+        <div className="top-actions">
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={isChecking || isRunning || batchTargets.length === 0}
+            onClick={() => void updateVisibleTools()}
+          >
+            <Download size={16} />
+            批量更新 {batchTargets.length}
+          </button>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={isChecking || isRunning}
+            onClick={() => void onCheck()}
+          >
+            <RotateCcw size={16} className={isChecking ? "spin" : ""} />
+            {isChecking ? "检测中" : "只检测更新"}
+          </button>
+        </div>
       </header>
 
       <div className="stats-row compact-stats">
         <Metric label="待检测工具" value={tools.length} tone="blue" icon={ListChecks} />
         <Metric label="可更新/刷新" value={availableCount} tone="amber" icon={Download} />
         <Metric label="已是最新" value={currentCount} tone="green" icon={Check} />
+        <Metric label="未知" value={unknownCount} tone="blue" icon={Info} />
         <Metric label="跳过" value={skippedCount} tone="teal" icon={Inbox} />
+      </div>
+
+      <div className="update-filter-row">
+        {[
+          ["all", `全部 ${tools.length}`],
+          ["available", `可更新 ${availableCount}`],
+          ["current", `已最新 ${currentCount}`],
+          ["unknown", `未知 ${unknownCount}`],
+          ["ignored", `已忽略 ${ignoredCount}`],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            className={filter === id ? "active" : ""}
+            type="button"
+            onClick={() => setFilter(id as typeof filter)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="update-tool-list">
@@ -3078,14 +3893,24 @@ function ToolUpdatesView({
             description="先在工具列表里安装或添加一些工具，再回来检测更新。"
             compact
           />
+        ) : visibleTools.length === 0 ? (
+          <EmptyState
+            icon={Inbox}
+            title="当前筛选下没有工具"
+            description="切换筛选或重新检测更新后再查看。"
+            compact
+          />
         ) : (
-          tools.map((tool) => {
+          visibleTools.map((tool) => {
             const result = results[tool.id];
             const status = result?.status ?? "unknown";
-            const canUpdate = status === "available" || status === "reinstall";
+            const ignored = Boolean(
+              result?.latestVersion && ignoredVersions[tool.id] === result.latestVersion,
+            );
+            const canUpdate = !ignored && (status === "available" || status === "reinstall");
 
             return (
-              <article className={`update-tool-row status-${status}`} key={tool.id}>
+              <article className={`update-tool-row status-${ignored ? "ignored" : status}`} key={tool.id}>
                 <div className="update-tool-main">
                   <strong>{tool.name}</strong>
                   <span>{result?.message ?? describeUpdateStrategy(tool)}</span>
@@ -3095,10 +3920,13 @@ function ToolUpdatesView({
                       {result.latestVersion ? ` · 最新 ${result.latestVersion}` : ""}
                     </em>
                   )}
+                  {result?.releaseUrl && (
+                    <small>Release：{result.releaseUrl}</small>
+                  )}
                 </div>
                 <div className="update-tool-actions">
                   <span className={`tool-status-pill ${mapUpdateStatusTone(status)}`}>
-                    {getUpdateStatusLabel(status)}
+                    {ignored ? "已忽略" : getUpdateStatusLabel(status)}
                   </span>
                   {canUpdate && (
                     <button
@@ -3110,6 +3938,27 @@ function ToolUpdatesView({
                       <Download size={14} />
                       {status === "available" ? "更新" : "重装刷新"}
                     </button>
+                  )}
+                  {result?.latestVersion && (status === "available" || status === "reinstall") && (
+                    ignored ? (
+                      <button
+                        className="mini-action"
+                        type="button"
+                        onClick={() => onClearIgnore(tool.id)}
+                      >
+                        <RotateCcw size={14} />
+                        取消忽略
+                      </button>
+                    ) : (
+                      <button
+                        className="mini-action"
+                        type="button"
+                        onClick={() => onIgnore(tool.id, result.latestVersion!)}
+                      >
+                        <X size={14} />
+                        忽略本版
+                      </button>
+                    )
                   )}
                   {status === "unknown" && (
                     <button
@@ -3239,10 +4088,31 @@ function SystemView({
   onLog,
   onRecordActivity,
   onOpenLogs,
+  onCreateTask,
+  onStartTask,
+  onFinishTask,
+  onFailTask,
 }: {
   onLog: (level: LogEntry["level"], message: string) => void;
   onRecordActivity: (input: ActivityLogInput) => Promise<void>;
   onOpenLogs: () => void;
+  onCreateTask: (input: {
+    id: string;
+    kind: TaskQueueKind;
+    title: string;
+    toolId?: string;
+    toolName?: string;
+    retryable?: boolean;
+    retryKey?: string;
+  }) => void;
+  onStartTask: (taskId: string) => void;
+  onFinishTask: (
+    taskId: string,
+    status: Exclude<TaskQueueStatus, "queued" | "running" | "error">,
+    message?: string,
+    exitCode?: number | null,
+  ) => void;
+  onFailTask: (taskId: string, message: string) => void;
 }) {
   const [info, setInfo] = useState<SystemInfo>();
   const [selectedAdapterId, setSelectedAdapterId] = useState("");
@@ -3508,6 +4378,14 @@ function SystemView({
       return false;
     }
 
+    const taskId = createTaskId("environment-utf8", enabled ? "enable" : "disable");
+    onCreateTask({
+      id: taskId,
+      kind: "environment",
+      title: enabled ? "开启 UTF-8 beta" : "关闭 UTF-8 beta",
+      retryable: false,
+    });
+    onStartTask(taskId);
     setIsSettingUtf8(true);
     try {
       const result = await window.winKitBox.setSystemUtf8Beta({ enabled });
@@ -3526,6 +4404,12 @@ function SystemView({
           exitCode: result.code,
           source: "Windows 环境体检",
         });
+        onFinishTask(
+          taskId,
+          "success",
+          enabled ? "UTF-8 beta 开关已开启。" : "UTF-8 beta 开关已关闭。",
+          result.code,
+        );
       } else {
         onLog("warning", `UTF-8 设置命令结束，退出码 ${result.code ?? "未知"}。`);
         await onRecordActivity({
@@ -3536,6 +4420,12 @@ function SystemView({
           exitCode: result.code,
           source: "Windows 环境体检",
         });
+        onFinishTask(
+          taskId,
+          "warning",
+          `退出码 ${result.code ?? "未知"}。`,
+          result.code,
+        );
       }
       if (options.refreshAfter !== false) {
         await refreshSystemInfo();
@@ -3553,6 +4443,10 @@ function SystemView({
         detail: error instanceof Error ? error.message : "修改 UTF-8 设置失败。",
         source: "Windows 环境体检",
       });
+      onFailTask(
+        taskId,
+        error instanceof Error ? error.message : "修改 UTF-8 设置失败。",
+      );
       return false;
     } finally {
       setIsSettingUtf8(false);
@@ -3589,6 +4483,14 @@ function SystemView({
       return false;
     }
 
+    const taskId = createTaskId("environment", action.id);
+    onCreateTask({
+      id: taskId,
+      kind: "environment",
+      title: action.label,
+      retryable: false,
+    });
+    onStartTask(taskId);
     setRepairingEnvironmentActionId(action.id);
     try {
       onLog("info", `开始处理：${action.label}。`);
@@ -3606,6 +4508,7 @@ function SystemView({
           source: "Windows 环境体检",
         });
         onLog("info", `已打开：${action.label}。`);
+        onFinishTask(taskId, "success", "已打开修复入口。");
         return true;
       }
 
@@ -3629,6 +4532,12 @@ function SystemView({
         exitCode: result.code,
         source: "Windows 环境体检",
       });
+      onFinishTask(
+        taskId,
+        ok ? "success" : "warning",
+        ok ? `${action.label} 已执行完成。` : `退出码 ${result.code ?? "未知"}。`,
+        result.code,
+      );
       if (options.refreshAfter !== false) {
         await refreshSystemInfo();
       }
@@ -3643,6 +4552,7 @@ function SystemView({
         detail: message,
         source: "Windows 环境体检",
       });
+      onFailTask(taskId, message);
       return false;
     } finally {
       setRepairingEnvironmentActionId("");
@@ -3810,6 +4720,11 @@ function SystemView({
                     </span>
                   </div>
                   <span>{check.detail}</span>
+                  <div className="environment-impact-row">
+                    {check.impact.map((impact) => (
+                      <small key={impact}>{impact}</small>
+                    ))}
+                  </div>
                   {check.action && <em>{check.action}</em>}
                   {check.repair ? (
                     <button
@@ -4870,6 +5785,185 @@ function getActivityKindLabel(kind: ActivityLogEntry["kind"]) {
   return labels[kind];
 }
 
+function ToolDetailDrawer({
+  tool,
+  toolState,
+  selected,
+  isCustom,
+  updateResult,
+  recentActivities,
+  recentAiLogs,
+  categoryName,
+  onClose,
+  onToggle,
+  onInstall,
+  onUninstall,
+  onLaunch,
+  onOpen,
+  onAiFix,
+  onViewLogs,
+  onRemove,
+}: {
+  tool: Tool;
+  toolState: ToolRuntimeState;
+  selected: boolean;
+  isCustom: boolean;
+  updateResult?: ToolUpdateCheckResult;
+  recentActivities: ActivityLogEntry[];
+  recentAiLogs: AiLogEntry[];
+  categoryName: string;
+  onClose: () => void;
+  onToggle: () => void;
+  onInstall: () => void;
+  onUninstall: () => void;
+  onLaunch: () => void;
+  onOpen: () => void;
+  onAiFix: () => void;
+  onViewLogs: () => void;
+  onRemove: () => void;
+}) {
+  const canOpen =
+    toolState.status !== "installing" &&
+    toolState.status !== "uninstalling" &&
+    toolState.status !== "opening" &&
+    toolState.status !== "checking" &&
+    toolState.status !== "not-installed" &&
+    toolState.launcherFound !== false;
+  const canUninstall = !tool.collectionOnly && toolState.status === "installed";
+  const canInstall =
+    !tool.collectionOnly &&
+    toolState.status !== "installing" &&
+    toolState.status !== "uninstalling" &&
+    toolState.status !== "checking";
+
+  return (
+    <div className="tool-detail-backdrop" role="presentation" onClick={onClose}>
+      <aside
+        className="tool-detail-drawer"
+        aria-label={`${tool.name} 详情`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="tool-detail-head">
+          <div>
+            <p className="eyebrow">工具详情</p>
+            <h2>{tool.name}</h2>
+            <span>{tool.summary}</span>
+          </div>
+          <button className="icon-button" type="button" aria-label="关闭详情" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <p className="tool-detail-description">{tool.description}</p>
+
+        <div className="tool-detail-actions">
+          <button className={selected ? "secondary-button" : "primary-button"} type="button" onClick={onToggle}>
+            <Check size={15} />
+            {selected ? "取消选择" : "加入选择"}
+          </button>
+          <button className="secondary-button" type="button" disabled={!canInstall} onClick={onInstall}>
+            <Download size={15} />
+            安装
+          </button>
+          <button className="secondary-button" type="button" disabled={!canOpen} onClick={onLaunch}>
+            <Play size={15} />
+            打开
+          </button>
+          <button className="secondary-button danger" type="button" disabled={!canUninstall} onClick={onUninstall}>
+            <Trash2 size={15} />
+            卸载
+          </button>
+        </div>
+
+        <dl className="tool-detail-grid">
+          <dt>状态</dt>
+          <dd>{getStatusLabel(toolState.status)}{toolState.message ? ` · ${toolState.message}` : ""}</dd>
+          <dt>分类</dt>
+          <dd>{categoryName}</dd>
+          <dt>来源</dt>
+          <dd>{sourceLabels[tool.source]}</dd>
+          <dt>许可证</dt>
+          <dd>{tool.license}</dd>
+          <dt>风险</dt>
+          <dd>{riskLabels[tool.risk]}{tool.requiresAdmin ? " · 需要管理员" : ""}</dd>
+          <dt>主页</dt>
+          <dd>{tool.repoUrl ?? tool.homepage}</dd>
+          <dt>安装方式</dt>
+          <dd>{describeUpdateStrategy(tool)}</dd>
+          {updateResult && (
+            <>
+              <dt>更新</dt>
+              <dd>
+                {getUpdateStatusLabel(updateResult.status)}
+                {updateResult.latestVersion ? ` · 最新 ${updateResult.latestVersion}` : ""}
+              </dd>
+            </>
+          )}
+        </dl>
+
+        <div className="tool-detail-button-row">
+          <button className="secondary-button" type="button" onClick={onOpen}>
+            <ExternalLink size={14} />
+            打开来源
+          </button>
+          <button className="secondary-button" type="button" onClick={onViewLogs}>
+            <Terminal size={14} />
+            相关日志
+          </button>
+          {toolState.status === "failed" && (
+            <button className="primary-button" type="button" onClick={onAiFix}>
+              <Sparkles size={14} />
+              AI 修复
+            </button>
+          )}
+          {isCustom && (
+            <button className="secondary-button danger" type="button" onClick={onRemove}>
+              <X size={14} />
+              移除
+            </button>
+          )}
+        </div>
+
+        <section className="tool-detail-section">
+          <div className="section-title">
+            <Terminal size={15} />
+            最近操作
+          </div>
+          {recentActivities.length === 0 ? (
+            <p className="empty-text">暂无该工具的操作历史。</p>
+          ) : (
+            recentActivities.map((entry) => (
+              <div className={`tool-detail-log ${entry.status}`} key={entry.id}>
+                <strong>{entry.title}</strong>
+                <span>
+                  {new Date(entry.createdAt).toLocaleString()} · {getActivityKindLabel(entry.kind)}
+                </span>
+              </div>
+            ))
+          )}
+        </section>
+
+        <section className="tool-detail-section">
+          <div className="section-title">
+            <Sparkles size={15} />
+            AI 记录
+          </div>
+          {recentAiLogs.length === 0 ? (
+            <p className="empty-text">暂无该工具的 AI 记录。</p>
+          ) : (
+            recentAiLogs.map((entry) => (
+              <div className={`tool-detail-log ${entry.status}`} key={entry.id}>
+                <strong>{entry.title}</strong>
+                <span>{entry.response || entry.prompt || "无详情"}</span>
+              </div>
+            ))
+          )}
+        </section>
+      </aside>
+    </div>
+  );
+}
+
 
 function ToolCard({
   tool,
@@ -4884,6 +5978,7 @@ function ToolCard({
   onOpen,
   onAiFix,
   onViewLogs,
+  onShowDetails,
   onSetCategory,
   onRemove,
 }: {
@@ -4899,6 +5994,7 @@ function ToolCard({
   onOpen: () => void;
   onAiFix: () => void;
   onViewLogs: () => void;
+  onShowDetails: () => void;
   onSetCategory: (categoryId: string) => void;
   onRemove: () => void;
 }) {
@@ -5056,6 +6152,14 @@ function ToolCard({
               : toolState.status === "uninstalling"
                 ? "卸载中"
                 : "卸载"}
+          </button>
+          <button
+            className="mini-action"
+            type="button"
+            onClick={onShowDetails}
+          >
+            <Info size={14} />
+            详情
           </button>
           <button
             className="icon-button"

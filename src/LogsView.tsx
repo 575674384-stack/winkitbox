@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Bot,
   Check,
   Clipboard,
   Download,
@@ -33,6 +34,16 @@ import {
   type ActivityLogQuickFilter,
   type ActivityLogTimeRange,
 } from "./core/activityLogFilters";
+import {
+  exportAiLogAsText,
+  filterAiLogEntries,
+  getAiLogKindLabel,
+  getAiLogStatusLabel,
+  type AiLogEntry,
+  type AiLogFilters,
+  type AiLogKind,
+  type AiLogStatus,
+} from "./core/aiLog";
 
 export type RuntimeLogEntry = {
   id: number;
@@ -42,7 +53,7 @@ export type RuntimeLogEntry = {
 
 export type LogsViewFocus = {
   nonce: number;
-  tab?: "history" | "realtime";
+  tab?: "history" | "realtime" | "ai";
   toolId?: string;
   kind?: ActivityKind | "all";
   status?: ActivityStatus | "all";
@@ -52,20 +63,30 @@ export type LogsViewFocus = {
 export function LogsView({
   logs,
   activityLog,
+  aiLog,
   focus,
   onRefresh,
   onClearActivityLog,
+  onClearAiLog,
   onExportActivityLog,
+  onExportAiLog,
   onLog,
   onShowTool,
   onFixTool,
 }: {
   logs: RuntimeLogEntry[];
   activityLog: ActivityLogEntry[];
+  aiLog: AiLogEntry[];
   focus: LogsViewFocus;
   onRefresh: () => Promise<void>;
   onClearActivityLog: () => Promise<void>;
+  onClearAiLog: () => Promise<void>;
   onExportActivityLog: (
+    content: string,
+    format: "json" | "txt",
+    visibleCount: number,
+  ) => Promise<void>;
+  onExportAiLog: (
     content: string,
     format: "json" | "txt",
     visibleCount: number,
@@ -74,7 +95,7 @@ export function LogsView({
   onShowTool: (toolId: string) => void;
   onFixTool: (toolId: string) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<"history" | "realtime">("history");
+  const [activeTab, setActiveTab] = useState<"history" | "realtime" | "ai">("history");
   const [filters, setFilters] = useState<ActivityLogFilters>({
     status: "all",
     kind: "all",
@@ -82,7 +103,13 @@ export function LogsView({
     quick: "all",
     query: "",
   });
+  const [aiFilters, setAiFilters] = useState<AiLogFilters>({
+    kind: "all",
+    status: "all",
+    query: "",
+  });
   const [selectedEntryId, setSelectedEntryId] = useState("");
+  const [selectedAiEntryId, setSelectedAiEntryId] = useState("");
   const stats = useMemo(() => getActivityLogStats(activityLog), [activityLog]);
   const filterOptions = useMemo(
     () => createActivityLogFilterOptions(activityLog),
@@ -95,6 +122,13 @@ export function LogsView({
   const selectedEntry =
     visibleEntries.find((entry) => entry.id === selectedEntryId) ??
     visibleEntries[0];
+  const visibleAiEntries = useMemo(
+    () => filterAiLogEntries(aiLog, aiFilters),
+    [aiLog, aiFilters],
+  );
+  const selectedAiEntry =
+    visibleAiEntries.find((entry) => entry.id === selectedAiEntryId) ??
+    visibleAiEntries[0];
 
   useEffect(() => {
     if (!focus.nonce) {
@@ -110,7 +144,20 @@ export function LogsView({
       toolId: focus.toolId,
       query: "",
     }));
+    setAiFilters((current) => ({
+      ...current,
+      toolId: focus.toolId,
+      status:
+        focus.status === "success" ||
+        focus.status === "warning" ||
+        focus.status === "error" ||
+        focus.status === "info"
+          ? focus.status
+          : "all",
+      query: "",
+    }));
     setSelectedEntryId("");
+    setSelectedAiEntryId("");
   }, [focus]);
 
   useEffect(() => {
@@ -124,15 +171,47 @@ export function LogsView({
     }
   }, [selectedEntryId, visibleEntries]);
 
-  async function clearHistory() {
-    if (!window.confirm("将清空所有操作历史，实时输出不受影响。是否继续？")) {
+  useEffect(() => {
+    if (visibleAiEntries.length === 0) {
+      setSelectedAiEntryId("");
       return;
     }
 
-    await onClearActivityLog();
+    if (!visibleAiEntries.some((entry) => entry.id === selectedAiEntryId)) {
+      setSelectedAiEntryId(visibleAiEntries[0].id);
+    }
+  }, [selectedAiEntryId, visibleAiEntries]);
+
+  async function clearHistory() {
+    const isAiTab = activeTab === "ai";
+    if (
+      !window.confirm(
+        isAiTab
+          ? "将清空所有 AI 日志，操作历史和实时输出不受影响。是否继续？"
+          : "将清空所有操作历史，实时输出不受影响。是否继续？",
+      )
+    ) {
+      return;
+    }
+
+    if (isAiTab) {
+      await onClearAiLog();
+    } else {
+      await onClearActivityLog();
+    }
   }
 
   async function exportVisible(format: "json" | "txt") {
+    if (activeTab === "ai") {
+      const content =
+        format === "json"
+          ? JSON.stringify(visibleAiEntries, null, 2)
+          : exportAiLogAsText(visibleAiEntries);
+
+      await onExportAiLog(content, format, visibleAiEntries.length);
+      return;
+    }
+
     const content =
       format === "json"
         ? exportActivityLogAsJson(visibleEntries)
@@ -159,6 +238,11 @@ export function LogsView({
     onLog("success", "错误信息已复制。");
   }
 
+  async function copyAiEntry(entry: AiLogEntry) {
+    await navigator.clipboard.writeText(exportAiLogAsText([entry]));
+    onLog("success", "AI 日志详情已复制。");
+  }
+
   function setQuick(quick: ActivityLogQuickFilter) {
     setFilters((current) => ({ ...current, quick }));
   }
@@ -173,6 +257,20 @@ export function LogsView({
     });
     setSelectedEntryId("");
   }
+
+  function resetAiFilters() {
+    setAiFilters({
+      kind: "all",
+      status: "all",
+      query: "",
+    });
+    setSelectedAiEntryId("");
+  }
+
+  const visibleExportCount =
+    activeTab === "ai" ? visibleAiEntries.length : visibleEntries.length;
+  const clearDisabled =
+    activeTab === "ai" ? aiLog.length === 0 : activityLog.length === 0;
 
   return (
     <div className="logs-page">
@@ -202,7 +300,7 @@ export function LogsView({
           <button
             className="ghost-button"
             type="button"
-            disabled={visibleEntries.length === 0}
+            disabled={visibleExportCount === 0}
             onClick={() => void exportVisible("json")}
           >
             <Download size={16} />
@@ -211,7 +309,7 @@ export function LogsView({
           <button
             className="ghost-button"
             type="button"
-            disabled={visibleEntries.length === 0}
+            disabled={visibleExportCount === 0}
             onClick={() => void exportVisible("txt")}
           >
             <Download size={16} />
@@ -220,17 +318,18 @@ export function LogsView({
           <button
             className="ghost-button danger"
             type="button"
-            disabled={activityLog.length === 0}
+            disabled={clearDisabled}
             onClick={() => void clearHistory()}
           >
             <Trash2 size={16} />
-            清空日志
+            {activeTab === "ai" ? "清空 AI" : "清空日志"}
           </button>
         </div>
       </header>
 
       <div className="logs-stats-grid">
         <LogStat label="总记录" value={stats.total} />
+        <LogStat label="AI 日志" value={aiLog.length} />
         <LogStat label="失败" value={stats.failed} tone="error" />
         <LogStat label="警告" value={stats.warnings} tone="warning" />
         <LogStat
@@ -261,6 +360,13 @@ export function LogsView({
           onClick={() => setActiveTab("realtime")}
         >
           实时输出
+        </button>
+        <button
+          className={activeTab === "ai" ? "active" : ""}
+          type="button"
+          onClick={() => setActiveTab("ai")}
+        >
+          AI 日志
         </button>
       </div>
 
@@ -420,6 +526,132 @@ export function LogsView({
             }
             onShowTool={onShowTool}
             onFixTool={onFixTool}
+          />
+        </div>
+      ) : activeTab === "ai" ? (
+        <div className="logs-layout ai-logs-layout">
+          <aside className="logs-filter-panel">
+            <div className="section-title">
+              <Bot size={15} />
+              AI 筛选
+            </div>
+            <label className="field-label">
+              搜索
+              <div className="logs-search-box">
+                <Search size={14} />
+                <input
+                  value={aiFilters.query ?? ""}
+                  onChange={(event) =>
+                    setAiFilters((current) => ({
+                      ...current,
+                      query: event.target.value,
+                    }))
+                  }
+                  placeholder="回复、项目、工具、链接"
+                />
+              </div>
+            </label>
+            <label className="field-label">
+              类型
+              <select
+                value={aiFilters.kind ?? "all"}
+                onChange={(event) =>
+                  setAiFilters((current) => ({
+                    ...current,
+                    kind: event.target.value as AiLogKind | "all",
+                  }))
+                }
+              >
+                <option value="all">全部类型</option>
+                {aiKindOptions.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {getAiLogKindLabel(kind)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field-label">
+              状态
+              <select
+                value={aiFilters.status ?? "all"}
+                onChange={(event) =>
+                  setAiFilters((current) => ({
+                    ...current,
+                    status: event.target.value as AiLogStatus | "all",
+                  }))
+                }
+              >
+                <option value="all">全部状态</option>
+                <option value="success">成功</option>
+                <option value="warning">警告</option>
+                <option value="error">失败</option>
+                <option value="info">信息</option>
+              </select>
+            </label>
+            {aiFilters.toolId && (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() =>
+                  setAiFilters((current) => ({ ...current, toolId: undefined }))
+                }
+              >
+                <X size={14} />
+                取消工具限定
+              </button>
+            )}
+            <button className="text-button" type="button" onClick={resetAiFilters}>
+              清除筛选
+            </button>
+          </aside>
+
+          <section className="logs-list-panel">
+            <div className="logs-list-head">
+              <strong>
+                {visibleAiEntries.length} / {aiLog.length} 条 AI 日志
+              </strong>
+              {aiFilters.toolId && <span>工具：{aiFilters.toolId}</span>}
+            </div>
+            {visibleAiEntries.length === 0 ? (
+              <div className="activity-empty logs-empty">
+                还没有匹配的 AI 日志。AI 推荐、链接分析、本地分析和修复结果会显示在这里。
+              </div>
+            ) : (
+              <div className="logs-entry-list">
+                {visibleAiEntries.map((entry) => (
+                  <button
+                    className={`logs-entry-row ${entry.status} ${
+                      selectedAiEntry?.id === entry.id ? "active" : ""
+                    }`}
+                    key={entry.id}
+                    type="button"
+                    onClick={() => setSelectedAiEntryId(entry.id)}
+                  >
+                    <span className={`logs-entry-status ${entry.status}`} />
+                    <div>
+                      <strong>{entry.title}</strong>
+                      <span>
+                        {formatActivityLogDateTime(entry.createdAt)}
+                        {" · "}
+                        {getAiLogKindLabel(entry.kind)}
+                        {entry.toolName ? ` · ${entry.toolName}` : ""}
+                      </span>
+                      {entry.response && <p>{entry.response}</p>}
+                    </div>
+                    <em>{getAiLogStatusLabel(entry.status)}</em>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <AiLogDetail
+            entry={selectedAiEntry}
+            onCopy={copyAiEntry}
+            onFilterTool={(toolId) =>
+              setAiFilters((current) => ({ ...current, toolId }))
+            }
+            onShowTool={onShowTool}
           />
         </div>
       ) : (
@@ -588,6 +820,112 @@ function ActivityLogDetail({
     </aside>
   );
 }
+
+function AiLogDetail({
+  entry,
+  onCopy,
+  onFilterTool,
+  onShowTool,
+}: {
+  entry?: AiLogEntry;
+  onCopy: (entry: AiLogEntry) => Promise<void>;
+  onFilterTool: (toolId: string) => void;
+  onShowTool: (toolId: string) => void;
+}) {
+  if (!entry) {
+    return (
+      <aside className="logs-detail-panel">
+        <div className="activity-empty">选择一条 AI 日志查看详情。</div>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className={`logs-detail-panel ${entry.status}`}>
+      <div className="logs-detail-head">
+        <span className={`status-pill ${mapStatusToPill(entry.status)}`}>
+          {getAiLogStatusLabel(entry.status)}
+        </span>
+        <strong>{entry.title}</strong>
+      </div>
+      <dl className="logs-detail-grid">
+        <dt>时间</dt>
+        <dd>{formatActivityLogDateTime(entry.createdAt)}</dd>
+        <dt>类型</dt>
+        <dd>{getAiLogKindLabel(entry.kind)}</dd>
+        <dt>状态</dt>
+        <dd>{getAiLogStatusLabel(entry.status)}</dd>
+        {entry.model && (
+          <>
+            <dt>模型</dt>
+            <dd>{entry.model}</dd>
+          </>
+        )}
+        {entry.source && (
+          <>
+            <dt>来源</dt>
+            <dd>{entry.source}</dd>
+          </>
+        )}
+        {entry.toolName && (
+          <>
+            <dt>工具</dt>
+            <dd>{entry.toolName}</dd>
+          </>
+        )}
+        {entry.repoUrl && (
+          <>
+            <dt>链接</dt>
+            <dd>{entry.repoUrl}</dd>
+          </>
+        )}
+      </dl>
+      <div className="logs-detail-block">
+        <strong>用户输入</strong>
+        <p>{entry.prompt || "没有记录用户输入。"}</p>
+      </div>
+      <div className="logs-detail-block">
+        <strong>AI 回复</strong>
+        {entry.response ? <pre>{entry.response}</pre> : <p>没有记录回复正文。</p>}
+      </div>
+      <div className="logs-detail-block">
+        <strong>结构化结果</strong>
+        {entry.structured !== undefined ? (
+          <pre>{JSON.stringify(entry.structured, null, 2)}</pre>
+        ) : (
+          <p>没有结构化结果。</p>
+        )}
+      </div>
+      <div className="logs-detail-actions">
+        <button className="secondary-button" type="button" onClick={() => void onCopy(entry)}>
+          <Clipboard size={14} />
+          复制详情
+        </button>
+        {entry.toolId && (
+          <>
+            <button className="secondary-button" type="button" onClick={() => onFilterTool(entry.toolId!)}>
+              <Filter size={14} />
+              只看该工具
+            </button>
+            <button className="secondary-button" type="button" onClick={() => onShowTool(entry.toolId!)}>
+              <Search size={14} />
+              跳到工具
+            </button>
+          </>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+const aiKindOptions: AiLogKind[] = [
+  "recommendation",
+  "tool-analysis",
+  "local-analysis",
+  "repair",
+  "model",
+  "other",
+];
 
 const activityKindOptions: ActivityKind[] = [
   "install",

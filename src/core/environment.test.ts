@@ -34,6 +34,9 @@ describe("environment checks", () => {
     expect(checks.find((check) => check.id === "dotnet")?.detail).toBe(
       "已检测到 8.0.6"
     );
+    expect(checks.find((check) => check.id === "dotnet")?.impact).toContain(
+      "WPF/WinForms 桌面工具启动",
+    );
   });
 
   it("surfaces actionable warnings for missing optional runtime support", () => {
@@ -95,6 +98,9 @@ describe("environment checks", () => {
     });
 
     expect(checks.find((check) => check.id === "winget")?.repair?.kind).toBe("url");
+    expect(checks.find((check) => check.id === "winget")?.impact).toContain(
+      "工具安装",
+    );
     expect(checks.find((check) => check.id === "dotnet")?.repair?.disabledReason).toBe(
       "需要先修复 winget。",
     );

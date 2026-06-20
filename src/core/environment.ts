@@ -37,6 +37,7 @@ export type EnvironmentCheck = {
   label: string;
   status: "ok" | "warning" | "danger";
   detail: string;
+  impact: string[];
   action?: string;
   repair?: EnvironmentRepairAction;
 };
@@ -59,6 +60,7 @@ export function createEnvironmentChecks(snapshot: EnvironmentSnapshot): Environm
       id: "winget",
       label: "winget 软件包管理器",
       status: wingetAvailable ? "ok" : "danger",
+      impact: ["工具安装", "工具更新中心", "部分环境修复"],
       detail: wingetAvailable
         ? `可用${snapshot.wingetVersion ? ` · ${snapshot.wingetVersion}` : ""}`
         : "不可用，安装和更新中心会受到影响。",
@@ -79,6 +81,7 @@ export function createEnvironmentChecks(snapshot: EnvironmentSnapshot): Environm
       id: "powershell",
       label: "Windows PowerShell",
       status: snapshot.powershellVersion ? "ok" : "danger",
+      impact: ["安装脚本执行", "卸载脚本执行", "系统修复操作"],
       detail: snapshot.powershellVersion
         ? `版本 ${snapshot.powershellVersion}`
         : "无法读取 PowerShell 版本，脚本执行可能异常。",
@@ -87,6 +90,7 @@ export function createEnvironmentChecks(snapshot: EnvironmentSnapshot): Environm
       id: "dotnet",
       label: ".NET Desktop Runtime",
       status: desktopRuntimeVersions.length > 0 ? "ok" : "warning",
+      impact: ["WPF/WinForms 桌面工具启动", "部分系统工具运行"],
       detail:
         desktopRuntimeVersions.length > 0
           ? `已检测到 ${formatRuntimeVersionList(desktopRuntimeVersions)}`
@@ -108,6 +112,7 @@ export function createEnvironmentChecks(snapshot: EnvironmentSnapshot): Environm
       id: "vcredist",
       label: "VC++ 运行库",
       status: snapshot.vcredistInstalled ? "ok" : "warning",
+      impact: ["C/C++ 桌面工具启动", "游戏和图形工具运行"],
       detail: snapshot.vcredistInstalled
         ? "已检测到 Microsoft Visual C++ Redistributable。"
         : "未检测到常见 VC++ 2015-2022 运行库。",
@@ -127,6 +132,7 @@ export function createEnvironmentChecks(snapshot: EnvironmentSnapshot): Environm
       id: "webview2",
       label: "WebView2 Runtime",
       status: snapshot.webView2Installed ? "ok" : "warning",
+      impact: ["网页壳桌面应用", "Electron 辅助组件"],
       detail: snapshot.webView2Installed
         ? "已检测到 Microsoft Edge WebView2 Runtime。"
         : "未检测到 WebView2 Runtime，部分 Electron/网页壳工具可能无法启动。",
@@ -146,6 +152,7 @@ export function createEnvironmentChecks(snapshot: EnvironmentSnapshot): Environm
       id: "long-paths",
       label: "Windows 长路径",
       status: snapshot.longPathsEnabled ? "ok" : "warning",
+      impact: ["ZIP 解压", "开发工具", "深层目录软件"],
       detail: snapshot.longPathsEnabled
         ? "已开启，深层目录解压更稳。"
         : "未开启，深层 ZIP 解压或开发工具可能遇到路径过长。",
@@ -167,6 +174,7 @@ export function createEnvironmentChecks(snapshot: EnvironmentSnapshot): Environm
       id: "utf8",
       label: "UTF-8 beta",
       status: snapshot.utf8BetaEnabled ? "ok" : "warning",
+      impact: ["跨语言软件乱码", "旧版非 Unicode 程序"],
       detail: snapshot.utf8BetaEnabled
         ? "已开启。"
         : "未开启，跨语言软件遇到乱码时可以尝试开启。",

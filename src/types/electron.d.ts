@@ -83,6 +83,11 @@ declare global {
         entry: import("../core/activityLog").ActivityLogInput,
       ) => Promise<import("../core/activityLog").ActivityLogEntry[]>;
       clearActivityLog: () => Promise<import("../core/activityLog").ActivityLogEntry[]>;
+      getAiLog: () => Promise<import("../core/aiLog").AiLogEntry[]>;
+      addAiLog: (
+        entry: import("../core/aiLog").AiLogInput,
+      ) => Promise<import("../core/aiLog").AiLogEntry[]>;
+      clearAiLog: () => Promise<import("../core/aiLog").AiLogEntry[]>;
       selectToolRoot: (currentPath?: string) => Promise<string | undefined>;
       selectLocalLauncher: (currentPath?: string) => Promise<string | undefined>;
       selectLocalPackage: (currentPath?: string) => Promise<string | undefined>;
@@ -218,13 +223,14 @@ declare global {
       }) => Promise<{
         candidate: import("../core/aiTool").AiToolCandidate;
         context: import("../core/aiTool").AiToolGitHubContext;
+        aiResponse?: string;
       }>;
       recommendAiRepos: (request: {
         baseUrl: string;
         apiKey: string;
         model: string;
         prompt: string;
-      }) => Promise<unknown>;
+      }) => Promise<unknown & { aiResponse?: string }>;
       fixAiTool: (request: {
         baseUrl: string;
         apiKey: string;
@@ -233,6 +239,7 @@ declare global {
         errorMessage?: string;
       }) => Promise<{
         candidate: import("../core/aiTool").AiToolCandidate;
+        aiResponse?: string;
       }>;
       analyzeLocalFile: (request: {
         baseUrl: string;
@@ -243,6 +250,7 @@ declare global {
         categoryId?: string;
         remark?: string;
       }) => Promise<{
+        aiResponse?: string;
         candidate: {
           mode?: "collect" | "local-installer" | "local-archive" | "command";
           name?: string;
