@@ -78,6 +78,12 @@ declare global {
         customCategories: import("../core/catalog").CategoryDefinition[];
         toolCategoryOverrides: Record<string, string>;
       }>;
+      getConfigBackups: () => Promise<import("../core/configBackups").ConfigBackupEntry[]>;
+      createConfigBackup: () => Promise<import("../core/configBackups").ConfigBackupEntry[]>;
+      restoreConfigBackup: (fileName: string) => Promise<{
+        settings: Awaited<ReturnType<NonNullable<Window["winKitBox"]>["getSettings"]>>;
+        backups: import("../core/configBackups").ConfigBackupEntry[];
+      }>;
       getActivityLog: () => Promise<import("../core/activityLog").ActivityLogEntry[]>;
       addActivityLog: (
         entry: import("../core/activityLog").ActivityLogInput,
@@ -119,6 +125,9 @@ declare global {
       checkToolUpdates: (
         descriptors: import("../core/toolUpdates").ToolUpdateDescriptor[],
       ) => Promise<import("../core/toolUpdates").ToolUpdateCheckResult[]>;
+      checkToolSources: (
+        descriptors: import("../core/toolSourceHealth").ToolSourceHealthDescriptor[],
+      ) => Promise<import("../core/toolSourceHealth").ToolSourceHealthResult[]>;
       downloadUpdate: (request: {
         downloadUrl: string;
         fileName: string;

@@ -153,6 +153,16 @@ Before packaging and publishing a release:
 
 ## Release Notes
 
+### v0.6.1
+
+- Added a Tool Update Center source-health check that separately probes winget packages, GitHub Release assets, and direct download links without installing or updating.
+- Added update strategy labels so tools clearly show whether they use winget precise updates, reinstall refresh, manual updates, or toolbox-only behavior.
+- Added selected-tool batch category movement from the catalog page and clearer task-center status details with duration, exit code, retry, and log actions.
+- Added local settings backup and restore support, including Electron IPC, preload/type bridge, and Settings UI for recent snapshots.
+- Polished the sidebar navigation groups, removed the extra “装机工具箱” text from the version line, and added a GitHub developer credit with the provided avatar.
+- Improved the Add Tool entry selection cards and Windows environment-health repair guidance.
+- Updated the README for current logs, AI add, source-health, backup, and categorization behavior.
+
 ### v0.5.3
 
 - Added live validation for AI-generated install sources before custom tools are saved.

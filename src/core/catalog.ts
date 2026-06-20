@@ -39,6 +39,7 @@ export type Tool = {
     executable: string;
     fileName?: string;
     sevenZipDownloadUrl?: string;
+    sha256?: string;
   };
   installer?: {
     downloadUrl?: string;
@@ -47,6 +48,7 @@ export type Tool = {
     targetDirName: string;
     fileName: string;
     args?: string[];
+    sha256?: string;
   };
   customInstallCommand?: string;
   customUninstallCommand?: string;

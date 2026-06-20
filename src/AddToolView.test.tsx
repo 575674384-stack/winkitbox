@@ -69,7 +69,7 @@ describe("AddToolView", () => {
     });
 
     await act(async () => {
-      findButton(container, "手动添加").dispatchEvent(
+      findButton(container, "手动收纳").dispatchEvent(
         new MouseEvent("click", { bubbles: true }),
       );
     });

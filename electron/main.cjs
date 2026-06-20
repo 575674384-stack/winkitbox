@@ -7,7 +7,7 @@ const https = require("node:https");
 const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { validateAiToolCandidate } = require("./aiCandidateValidation.cjs");
+const { validateAiToolCandidate, validateDownloadUrl } = require("./aiCandidateValidation.cjs");
 const { createTrayMenuTemplate, getTrayIconPath } = require("./trayController.cjs");
 const {
   buildDetectToolsScript,
@@ -164,6 +164,24 @@ ipcMain.handle("settings-set", async (_event, settings) => {
   return readSettings();
 });
 
+ipcMain.handle("config-backups-get", async () => {
+  return readConfigBackups();
+});
+
+ipcMain.handle("config-backup-create", async () => {
+  createConfigBackup();
+  return readConfigBackups();
+});
+
+ipcMain.handle("config-backup-restore", async (_event, fileName) => {
+  restoreConfigBackup(fileName);
+  await applyStoredProxy();
+  return {
+    settings: readSettings(),
+    backups: readConfigBackups()
+  };
+});
+
 ipcMain.handle("activity-log-get", async () => {
   return readActivityLog();
 });
@@ -282,6 +300,10 @@ ipcMain.handle("check-updates", async () => {
 
 ipcMain.handle("check-tool-updates", async (_event, descriptors) => {
   return checkToolUpdates(Array.isArray(descriptors) ? descriptors : []);
+});
+
+ipcMain.handle("check-tool-sources", async (_event, descriptors) => {
+  return checkToolSources(Array.isArray(descriptors) ? descriptors : []);
 });
 
 ipcMain.handle("download-update", async (event, request) => {
@@ -2137,6 +2159,10 @@ function getSettingsPath() {
   return path.join(app.getPath("userData"), "settings.json");
 }
 
+function getConfigBackupsDir() {
+  return path.join(app.getPath("userData"), "config-backups");
+}
+
 function getActivityLogPath() {
   return path.join(app.getPath("userData"), "activity-log.json");
 }
@@ -2185,6 +2211,79 @@ function writeSettings(settings) {
       2
     )
   );
+}
+
+function readConfigBackups() {
+  const backupDir = getConfigBackupsDir();
+  try {
+    ensureDirectory(backupDir);
+    return fs.readdirSync(backupDir)
+      .filter((fileName) => /^settings-\d{8}-\d{6}\.json$/i.test(fileName))
+      .map((fileName) => {
+        const filePath = path.join(backupDir, fileName);
+        const stat = fs.statSync(filePath);
+        return {
+          id: fileName,
+          fileName,
+          createdAt: stat.mtime.toISOString(),
+          sizeBytes: stat.size
+        };
+      })
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, 5);
+  } catch {
+    return [];
+  }
+}
+
+function createConfigBackup() {
+  const settingsPath = getSettingsPath();
+  const backupDir = getConfigBackupsDir();
+  ensureDirectory(backupDir);
+
+  if (!fs.existsSync(settingsPath)) {
+    writeSettings(readSettings());
+  }
+
+  const now = new Date();
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+    "-",
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+    String(now.getSeconds()).padStart(2, "0")
+  ].join("");
+  fs.copyFileSync(settingsPath, path.join(backupDir, `settings-${stamp}.json`));
+  pruneConfigBackups();
+}
+
+function restoreConfigBackup(fileName) {
+  const safeName = path.basename(String(fileName ?? ""));
+  if (!/^settings-\d{8}-\d{6}\.json$/i.test(safeName)) {
+    throw new Error("备份文件名无效。");
+  }
+
+  const backupPath = path.join(getConfigBackupsDir(), safeName);
+  if (!fs.existsSync(backupPath)) {
+    throw new Error("备份文件不存在。");
+  }
+
+  const parsed = JSON.parse(fs.readFileSync(backupPath, "utf8"));
+  writeSettings(normalizeSettings(parsed));
+}
+
+function pruneConfigBackups() {
+  const backupDir = getConfigBackupsDir();
+  const backups = readConfigBackups();
+  const keep = new Set(backups.map((backup) => backup.fileName));
+
+  for (const fileName of fs.readdirSync(backupDir)) {
+    if (/^settings-\d{8}-\d{6}\.json$/i.test(fileName) && !keep.has(fileName)) {
+      fs.rmSync(path.join(backupDir, fileName), { force: true });
+    }
+  }
 }
 
 function readActivityLog() {
@@ -2734,6 +2833,224 @@ async function checkToolUpdates(descriptors) {
   }
 
   return results;
+}
+
+async function checkToolSources(descriptors) {
+  await applyStoredProxy();
+  const results = [];
+  const nameById = new Map();
+
+  for (const rawTool of descriptors.slice(0, 200)) {
+    const tool = {
+      id: String(rawTool?.id ?? ""),
+      name: String(rawTool?.name ?? ""),
+      kind: String(rawTool?.kind ?? "manual"),
+      updateStrategy: String(rawTool?.updateStrategy ?? "manual"),
+      wingetId: String(rawTool?.wingetId ?? "").trim(),
+      url: String(rawTool?.url ?? "").trim(),
+      releaseApiUrl: String(rawTool?.releaseApiUrl ?? "").trim(),
+      assetPattern: String(rawTool?.assetPattern ?? "").trim(),
+      checksum: String(rawTool?.checksum ?? "").trim(),
+      homepage: String(rawTool?.homepage ?? "").trim()
+    };
+
+    if (!tool.id) {
+      continue;
+    }
+    nameById.set(tool.id, tool.name || tool.id);
+
+    if (tool.kind === "collection") {
+      results.push({
+        toolId: tool.id,
+        status: "skipped",
+        kind: "collection",
+        message: "只收纳到工具箱，无需检查安装源。"
+      });
+      continue;
+    }
+
+    if (tool.kind === "local") {
+      results.push({
+        toolId: tool.id,
+        status: "skipped",
+        kind: "local",
+        message: "本地文件来源，不进行网络健康检查。"
+      });
+      continue;
+    }
+
+    if (tool.kind === "custom-command") {
+      results.push({
+        toolId: tool.id,
+        status: "skipped",
+        kind: "custom-command",
+        message: "自定义命令来源，需由用户确认命令有效性。"
+      });
+      continue;
+    }
+
+    if (tool.kind === "winget" && tool.wingetId) {
+      results.push(await checkWingetToolSource(tool));
+      continue;
+    }
+
+    if (tool.kind === "github-release" && tool.releaseApiUrl) {
+      results.push(await checkReleaseToolSource(tool));
+      continue;
+    }
+
+    if (tool.kind === "direct-download" && tool.url) {
+      results.push(await checkDirectDownloadToolSource(tool));
+      continue;
+    }
+
+    results.push({
+      toolId: tool.id,
+      status: "unknown",
+      kind: tool.kind,
+      message: "没有可自动检查的安装源。"
+    });
+  }
+
+  return results.map((result) => ({
+    name: nameById.get(result.toolId) || result.toolId,
+    ...result
+  }));
+}
+
+async function checkWingetToolSource(tool) {
+  const escapedWingetId = escapePowerShellSingleQuoted(tool.wingetId);
+  const script = [
+    "$ErrorActionPreference = 'Continue'",
+    "$ProgressPreference = 'SilentlyContinue'",
+    `$showOutput = (& winget show --id '${escapedWingetId}' --exact --source winget --accept-source-agreements --disable-interactivity 2>&1 | Out-String)`,
+    "$showCode = $LASTEXITCODE",
+    "[PSCustomObject]@{",
+    "  showCode = $showCode",
+    "  showOutput = [string]$showOutput",
+    "} | ConvertTo-Json -Compress"
+  ].join("\n");
+  const result = await runPowerShellCapture(script);
+  const payload = parseWingetCheckPayload(result.stdout, result.stderr);
+
+  if (payload.showCode === 0 && parseWingetShowLatestVersion(payload.showOutput)) {
+    return {
+      toolId: tool.id,
+      status: "healthy",
+      kind: "winget",
+      message: `winget 包 ${tool.wingetId} 可读取。`
+    };
+  }
+
+  return {
+    toolId: tool.id,
+    status: "broken",
+    kind: "winget",
+    message: cleanWingetFailureMessage(payload.showOutput, `winget 包 ${tool.wingetId} 无法读取。`)
+  };
+}
+
+async function checkReleaseToolSource(tool) {
+  try {
+    const response = await net.fetch(tool.releaseApiUrl, {
+      headers: {
+        "User-Agent": "WinKitBox/0.1",
+        Accept: "application/vnd.github+json"
+      }
+    });
+
+    if (!response.ok) {
+      return {
+        toolId: tool.id,
+        status: "broken",
+        kind: "github-release",
+        httpStatus: response.status,
+        message: `Release API 不可用：HTTP ${response.status}`
+      };
+    }
+
+    const release = await response.json();
+    const assets = Array.isArray(release?.assets) ? release.assets : [];
+
+    if (!tool.assetPattern) {
+      return {
+        toolId: tool.id,
+        status: "warning",
+        kind: "github-release",
+        message: `Release 可读取，但未配置资产匹配规则。${formatChecksumMessage(tool.checksum)}`
+      };
+    }
+
+    let matcher;
+    try {
+      matcher = new RegExp(tool.assetPattern, "i");
+    } catch (error) {
+      return {
+        toolId: tool.id,
+        status: "broken",
+        kind: "github-release",
+        message: `资产匹配规则无效：${error.message}`
+      };
+    }
+
+    const asset = assets.find((item) => matcher.test(String(item?.name ?? "")));
+    const downloadUrl = String(asset?.browser_download_url ?? "").trim();
+    if (!downloadUrl) {
+      return {
+        toolId: tool.id,
+        status: "broken",
+        kind: "github-release",
+        message: `Release 可读取，但没有匹配 ${tool.assetPattern} 的资产。`
+      };
+    }
+
+    const probe = await validateDownloadUrl(downloadUrl, (url, options) =>
+      net.fetch(url, options)
+    );
+
+    return {
+      toolId: tool.id,
+      status: probe.ok ? "healthy" : "broken",
+      kind: "github-release",
+      checkedUrl: downloadUrl,
+      checksum: tool.checksum || undefined,
+      httpStatus: probe.status,
+      contentType: probe.contentType,
+      message: probe.ok
+        ? `Release 资产可下载：${String(asset.name)}。${formatChecksumMessage(tool.checksum)}`
+        : `Release 资产不可用：${probe.message}`
+    };
+  } catch (error) {
+    return {
+      toolId: tool.id,
+      status: "broken",
+      kind: "github-release",
+      message: error instanceof Error ? error.message : "Release 来源检查失败。"
+    };
+  }
+}
+
+async function checkDirectDownloadToolSource(tool) {
+  const probe = await validateDownloadUrl(tool.url, (url, options) =>
+    net.fetch(url, options)
+  );
+
+  return {
+    toolId: tool.id,
+    status: probe.ok ? "healthy" : "broken",
+    kind: "direct-download",
+    checkedUrl: tool.url,
+    checksum: tool.checksum || undefined,
+    httpStatus: probe.status,
+    contentType: probe.contentType,
+    message: probe.ok
+      ? `直链可下载。${formatChecksumMessage(tool.checksum)}`
+      : `直链不可用：${probe.message}`
+  };
+}
+
+function formatChecksumMessage(checksum) {
+  return checksum ? "已记录 SHA256。" : "未配置校验值。";
 }
 
 async function checkWingetToolUpdate(tool) {

@@ -41,6 +41,8 @@ import { AddToolView, type AddToolFocus } from "./AddToolView";
 import { DiscoverView } from "./DiscoverView";
 import { LogsView, type LogsViewFocus } from "./LogsView";
 import winkitboxIconUrl from "../assets/icon/winkitbox-icon.png";
+import developerAvatarUrl from "../assets/developer/avatar.jpg";
+import assistantWorkbenchUrl from "../assets/decor/assistant-workbench.png";
 import {
   categoryLabels,
   customAddCategoryId,
@@ -83,6 +85,11 @@ import {
   parseImportedConfig,
   type CustomToolInput,
 } from "./core/config";
+import {
+  getConfigBackupLabel,
+  normalizeConfigBackups,
+  type ConfigBackupEntry,
+} from "./core/configBackups";
 import { createDashboardStats } from "./core/dashboardStats";
 import {
   getVisibleCatalogTools,
@@ -130,12 +137,22 @@ import { parseRunEventLine, type RunEvent } from "./core/runEvents";
 import {
   buildToolUpdateCommand,
   createToolUpdateDescriptors,
+  getToolUpdateStrategy,
   type ToolUpdateCheckResult,
 } from "./core/toolUpdates";
+import {
+  createToolSourceHealthDescriptors,
+  getToolSourceKindLabel,
+  getToolUpdateStrategyDescription,
+  getToolUpdateStrategyLabel,
+  summarizeToolSourceHealth,
+  type ToolSourceHealthResult,
+} from "./core/toolSourceHealth";
 import {
   addTaskQueueItem,
   completeTaskQueueItem,
   failTaskQueueItem,
+  getTaskStatusLabel,
   getTaskQueueStats,
   startTaskQueueItem,
   type TaskQueueItem,
@@ -313,6 +330,7 @@ const fallbackSettings: ToolPathSettings = {
   toolCategoryOverrides: {},
 };
 const releasePageUrl = "https://github.com/575674384-stack/winkitbox/releases";
+const developerGitHubUrl = "https://github.com/575674384-stack";
 
 function getCategoryLabel(category: CategoryFilter, categories: CategoryDefinition[]) {
   return category === "all" ? "全部工具" : getCategoryName(category, categories);
@@ -419,6 +437,21 @@ function createTaskId(kind: string, target: string) {
   return `${kind}-${target}-${Date.now()}`;
 }
 
+function formatTaskDuration(durationMs: number) {
+  if (durationMs < 1000) {
+    return `${durationMs}ms`;
+  }
+
+  const totalSeconds = Math.round(durationMs / 1000);
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}m${seconds ? `${seconds}s` : ""}`;
+}
+
 export function App() {
   const [customTools, setCustomTools] = useState<Tool[]>(() =>
     normalizeStoredCustomTools(loadCustomTools()),
@@ -458,6 +491,7 @@ export function App() {
   const logsRef = useRef<LogEntry[]>(logs);
   const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
   const [aiLog, setAiLog] = useState<AiLogEntry[]>([]);
+  const [configBackups, setConfigBackups] = useState<ConfigBackupEntry[]>([]);
   const [taskQueue, setTaskQueue] = useState<TaskQueueItem[]>([]);
   const taskQueueRef = useRef<TaskQueueItem[]>([]);
   const [logsViewFocus, setLogsViewFocus] = useState<LogsViewFocus>({
@@ -472,6 +506,7 @@ export function App() {
     createEmptyInstallProgress(),
   );
   const [toolUpdateResults, setToolUpdateResults] = useState<Record<string, ToolUpdateCheckResult>>({});
+  const [toolSourceHealthResults, setToolSourceHealthResults] = useState<Record<string, ToolSourceHealthResult>>({});
   const [ignoredToolUpdateVersions, setIgnoredToolUpdateVersions] = useState<Record<string, string>>(
     () => {
       try {
@@ -491,6 +526,8 @@ export function App() {
     },
   );
   const [isCheckingToolUpdates, setIsCheckingToolUpdates] = useState(false);
+  const [isCheckingToolSources, setIsCheckingToolSources] = useState(false);
+  const [batchCategoryId, setBatchCategoryId] = useState(customAddCategoryId);
   const [settings, setSettings] = useState<ToolPathSettings>(fallbackSettings);
   const [toolRootDraft, setToolRootDraft] = useState(
     fallbackSettings.toolRootPath,
@@ -697,6 +734,8 @@ export function App() {
         setCustomTools(storedCustomTools);
         setSettings(normalizedSettings);
         setToolRootDraft(normalizedSettings.toolRootPath);
+        const backups = await window.winKitBox.getConfigBackups();
+        setConfigBackups(normalizeConfigBackups(backups));
         await refreshToolStates([...catalogTools, ...storedCustomTools], {
           managedRootPath: normalizedSettings.toolRootPath,
         });
@@ -1405,6 +1444,49 @@ export function App() {
     }
   }
 
+  async function moveSelectedToolsToCategory(categoryId: string) {
+    if (selectedIds.size === 0) {
+      appendLog("warning", "请先选择要移动分类的工具。");
+      return;
+    }
+
+    try {
+      const selectedIdList = Array.from(selectedIds);
+      const selectedSet = new Set(selectedIdList);
+      const nextCustomTools = customTools.map((tool) =>
+        selectedSet.has(tool.id) ? { ...tool, category: categoryId } : tool,
+      );
+      const nextOverrides = { ...settings.toolCategoryOverrides };
+
+      for (const toolId of selectedIdList) {
+        const catalogTool = catalogTools.find((tool) => tool.id === toolId);
+        const isCustom = customTools.some((tool) => tool.id === toolId);
+        if (isCustom) {
+          delete nextOverrides[toolId];
+        } else if (catalogTool && categoryId === catalogTool.category) {
+          delete nextOverrides[toolId];
+        } else {
+          nextOverrides[toolId] = categoryId;
+        }
+      }
+
+      await persistSettings({
+        ...settings,
+        customTools: nextCustomTools,
+        toolCategoryOverrides: nextOverrides,
+      });
+      appendLog(
+        "success",
+        `已将 ${selectedIds.size} 个已选工具移动到 ${getCategoryName(categoryId, settings.customCategories)}。`,
+      );
+    } catch (error) {
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "批量移动分类失败。",
+      );
+    }
+  }
+
   function startToolDrag(event: DragEvent<HTMLElement>, tool: Tool) {
     setDraggedToolId(tool.id);
     event.dataTransfer.effectAllowed = "move";
@@ -1878,6 +1960,66 @@ export function App() {
       };
       input.click();
     });
+  }
+
+  async function createSettingsBackup() {
+    if (!window.winKitBox) {
+      reportSettingsFeedback("warning", "浏览器预览模式不能创建本机配置备份。");
+      return;
+    }
+
+    try {
+      const backups = await window.winKitBox.createConfigBackup();
+      setConfigBackups(normalizeConfigBackups(backups));
+      reportSettingsFeedback("success", "已创建配置备份。");
+      await recordActivity({
+        kind: "config",
+        status: "success",
+        title: "已创建配置备份",
+        source: "配置备份",
+      });
+    } catch (error) {
+      reportSettingsFeedback(
+        "error",
+        error instanceof Error ? error.message : "创建配置备份失败。",
+      );
+    }
+  }
+
+  async function restoreSettingsBackup(fileName: string) {
+    if (!window.winKitBox) {
+      reportSettingsFeedback("warning", "浏览器预览模式不能恢复本机配置备份。");
+      return;
+    }
+
+    if (!window.confirm("恢复配置备份会覆盖当前工具目录、分类、自定义工具和设置。是否继续？")) {
+      return;
+    }
+
+    try {
+      const result = await window.winKitBox.restoreConfigBackup(fileName);
+      const nextSettings = result.settings;
+      const nextCustomTools = normalizeStoredCustomTools(nextSettings.customTools);
+      setSettings(nextSettings);
+      setCustomTools(nextCustomTools);
+      setToolRootDraft(nextSettings.toolRootPath);
+      setConfigBackups(normalizeConfigBackups(result.backups));
+      reportSettingsFeedback("success", "已恢复配置备份。");
+      await recordActivity({
+        kind: "config",
+        status: "success",
+        title: "已恢复配置备份",
+        source: "配置备份",
+      });
+      await refreshToolStates([...catalogTools, ...nextCustomTools], {
+        managedRootPath: nextSettings.toolRootPath,
+      });
+    } catch (error) {
+      reportSettingsFeedback(
+        "error",
+        error instanceof Error ? error.message : "恢复配置备份失败。",
+      );
+    }
   }
 
   async function addAiGeneratedTool(
@@ -2672,6 +2814,50 @@ export function App() {
     }
   }
 
+  async function checkToolSources() {
+    if (!window.winKitBox) {
+      appendLog("warning", "浏览器预览模式不能检查工具源健康。");
+      return;
+    }
+
+    setIsCheckingToolSources(true);
+    try {
+      const results = await window.winKitBox.checkToolSources(
+        createToolSourceHealthDescriptors(allTools),
+      );
+      setToolSourceHealthResults(
+        Object.fromEntries(results.map((result) => [result.toolId, result])),
+      );
+      const summary = summarizeToolSourceHealth(results);
+      const level = summary.broken > 0 ? "warning" : "success";
+      appendLog(
+        level,
+        `工具源体检完成：正常 ${summary.healthy}，异常 ${summary.broken}，需关注 ${summary.warning}。`,
+      );
+      await recordActivity({
+        kind: "update-check",
+        status: level,
+        title: "工具源体检完成",
+        detail: `正常 ${summary.healthy}，异常 ${summary.broken}，需关注 ${summary.warning}，跳过 ${summary.skipped}。`,
+        source: "工具源健康",
+      });
+    } catch (error) {
+      appendLog(
+        "error",
+        error instanceof Error ? error.message : "工具源体检失败。",
+      );
+      await recordActivity({
+        kind: "update-check",
+        status: "error",
+        title: "工具源体检失败",
+        detail: error instanceof Error ? error.message : "工具源体检失败。",
+        source: "工具源健康",
+      });
+    } finally {
+      setIsCheckingToolSources(false);
+    }
+  }
+
   function ignoreToolUpdate(toolId: string, version: string) {
     setIgnoredToolUpdateVersions((current) => ({
       ...current,
@@ -2897,7 +3083,7 @@ export function App() {
             </div>
             <div>
               <h1>WinKitBox</h1>
-              <p>v{__APP_VERSION__} 装机工具箱</p>
+              <p>v{__APP_VERSION__}</p>
             </div>
           </div>
 
@@ -3216,6 +3402,18 @@ export function App() {
 
         <div className="sidebar-bottom">
           <button
+            className="developer-credit"
+            type="button"
+            onClick={() => void openUrl(developerGitHubUrl)}
+            aria-label="打开开发者 GitHub 主页"
+          >
+            <span className="developer-github-mark">
+              <Github size={14} />
+            </span>
+            <span>Dev by</span>
+            <img src={developerAvatarUrl} alt="" />
+          </button>
+          <button
             className={`category-button ${activeView === "settings" ? "active" : ""}`}
             type="button"
             onClick={() => setActiveView("settings")}
@@ -3263,10 +3461,13 @@ export function App() {
           <ToolUpdatesView
             tools={installedTools.length > 0 ? installedTools : allTools}
             results={toolUpdateResults}
+            sourceResults={toolSourceHealthResults}
             ignoredVersions={ignoredToolUpdateVersions}
             isChecking={isCheckingToolUpdates}
+            isCheckingSources={isCheckingToolSources}
             isRunning={isRunning}
             onCheck={checkInstalledToolUpdates}
+            onCheckSources={checkToolSources}
             onUpdate={updateTool}
             onIgnore={ignoreToolUpdate}
             onClearIgnore={clearIgnoredToolUpdate}
@@ -3340,6 +3541,9 @@ export function App() {
             onLog={appendLog}
             onExportConfig={exportConfig}
             onImportConfig={importConfig}
+            configBackups={configBackups}
+            onCreateBackup={createSettingsBackup}
+            onRestoreBackup={restoreSettingsBackup}
           />
         </section>
       )}
@@ -3460,6 +3664,46 @@ export function App() {
               placeholder="搜索工具名称、标签、来源..."
             />
           </div>
+
+          {selectedIds.size > 0 && (
+            <div className="catalog-batch-bar">
+              <div>
+                <strong>已选择 {selectedIds.size} 个工具</strong>
+                <span>可批量移动分类，或切到仅看已选工具后继续整理。</span>
+              </div>
+              <label>
+                <span>目标分类</span>
+                <select
+                  value={batchCategoryId}
+                  onChange={(event) => setBatchCategoryId(event.target.value)}
+                >
+                  {activeCategoryDefinitions
+                    .filter((category) => category.id !== "all")
+                    .map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void moveSelectedToolsToCategory(batchCategoryId)}
+              >
+                <FolderKanban size={15} />
+                移动分类
+              </button>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => setSelectedOnly((value) => !value)}
+              >
+                <ListChecks size={15} />
+                {selectedOnly ? "显示全部" : "仅看已选"}
+              </button>
+            </div>
+          )}
 
           {visibleTools.length === 0 ? (
             <EmptyState
@@ -3760,6 +4004,7 @@ function TaskQueuePanel({
         <span>完成 {stats.success}</span>
         <span>失败 {stats.error}</span>
         <span>等待 {stats.queued}</span>
+        {stats.retryableFailures > 0 && <span>可重试 {stats.retryableFailures}</span>}
       </div>
       <div className="task-queue-list">
         {visibleTasks.map((task) => (
@@ -3768,20 +4013,34 @@ function TaskQueuePanel({
             <div>
               <strong>{task.title}</strong>
               <small>
-                {task.progressLabel}
+                {getTaskStatusLabel(task.status)}
+                {task.durationMs !== undefined ? ` · ${formatTaskDuration(task.durationMs)}` : ""}
+                {task.exitCode !== undefined && task.exitCode !== null ? ` · 退出码 ${task.exitCode}` : ""}
                 {task.message ? ` · ${task.message}` : ""}
               </small>
             </div>
-            {task.status === "error" && task.retryable && (
-              <button
-                className="mini-action"
-                type="button"
-                onClick={() => void onRetry(task)}
-              >
-                <RotateCcw size={13} />
-                重试
-              </button>
-            )}
+            <div className="task-queue-row-actions">
+              {task.status === "error" && task.retryable && (
+                <button
+                  className="mini-action"
+                  type="button"
+                  onClick={() => void onRetry(task)}
+                >
+                  <RotateCcw size={13} />
+                  重试
+                </button>
+              )}
+              {task.status === "error" && (
+                <button
+                  className="mini-action"
+                  type="button"
+                  onClick={onOpenLogs}
+                >
+                  <Terminal size={13} />
+                  日志
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>
@@ -3842,10 +4101,13 @@ function Metric({
 function ToolUpdatesView({
   tools,
   results,
+  sourceResults,
   ignoredVersions,
   isChecking,
+  isCheckingSources,
   isRunning,
   onCheck,
+  onCheckSources,
   onUpdate,
   onIgnore,
   onClearIgnore,
@@ -3854,10 +4116,13 @@ function ToolUpdatesView({
 }: {
   tools: Tool[];
   results: Record<string, ToolUpdateCheckResult>;
+  sourceResults: Record<string, ToolSourceHealthResult>;
   ignoredVersions: Record<string, string>;
   isChecking: boolean;
+  isCheckingSources: boolean;
   isRunning: boolean;
   onCheck: () => Promise<void>;
+  onCheckSources: () => Promise<void>;
   onUpdate: (tool: Tool) => Promise<void>;
   onIgnore: (toolId: string, version: string) => void;
   onClearIgnore: (toolId: string) => void;
@@ -3866,6 +4131,11 @@ function ToolUpdatesView({
 }) {
   const [filter, setFilter] = useState<"all" | "available" | "current" | "unknown" | "ignored">("all");
   const resultList = tools.map((tool) => results[tool.id]).filter(Boolean);
+  const sourceResultList = tools.map((tool) => sourceResults[tool.id]).filter(Boolean);
+  const sourceSummary = summarizeToolSourceHealth(sourceResultList);
+  const sourceIssueResults = sourceResultList
+    .filter((result) => result.status === "broken" || result.status === "warning")
+    .slice(0, 6);
   const availableCount = resultList.filter(
     (result) =>
       (result.status === "available" || result.status === "reinstall") &&
@@ -3945,6 +4215,15 @@ function ToolUpdatesView({
             批量更新 {batchTargets.length}
           </button>
           <button
+            className="secondary-button"
+            type="button"
+            disabled={isCheckingSources}
+            onClick={() => void onCheckSources()}
+          >
+            <ShieldAlert size={16} className={isCheckingSources ? "spin" : ""} />
+            {isCheckingSources ? "检查来源中" : "检查工具源"}
+          </button>
+          <button
             className="primary-button"
             type="button"
             disabled={isChecking || isRunning}
@@ -3963,6 +4242,46 @@ function ToolUpdatesView({
         <Metric label="未知" value={unknownCount} tone="blue" icon={Info} />
         <Metric label="跳过" value={skippedCount} tone="teal" icon={Inbox} />
       </div>
+
+      <section className="source-health-panel">
+        <div className="source-health-copy">
+          <div className="section-title">
+            <ShieldAlert size={15} />
+            工具源健康
+          </div>
+          <h3>把“还能不能下载”和“有没有新版本”分开看</h3>
+          <p>
+            来源检查只探测 winget 包、GitHub Release 和直接下载链接，不会执行安装或更新。
+          </p>
+          <div className="source-health-stats">
+            <span className="ok">正常 {sourceSummary.healthy}</span>
+            <span className="warning">关注 {sourceSummary.warning}</span>
+            <span className="danger">异常 {sourceSummary.broken}</span>
+            <span>跳过 {sourceSummary.skipped}</span>
+            <span>未测 {Math.max(0, tools.length - sourceResultList.length)}</span>
+          </div>
+        </div>
+        <img src={assistantWorkbenchUrl} alt="" />
+      </section>
+
+      {sourceIssueResults.length > 0 && (
+        <div className="source-issue-list">
+          {sourceIssueResults.map((result) => (
+            <button
+              className={`source-issue-item ${result.status}`}
+              key={result.toolId}
+              type="button"
+              onClick={() => result.checkedUrl && void onOpen(result.checkedUrl)}
+            >
+              <span>
+                <strong>{result.name}</strong>
+                <small>{getToolSourceKindLabel(result.kind)} · {result.message}</small>
+              </span>
+              <ExternalLink size={14} />
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="update-filter-row">
         {[
@@ -4001,22 +4320,40 @@ function ToolUpdatesView({
         ) : (
           visibleTools.map((tool) => {
             const result = results[tool.id];
+            const sourceResult = sourceResults[tool.id];
             const status = result?.status ?? "unknown";
             const ignored = Boolean(
               result?.latestVersion && ignoredVersions[tool.id] === result.latestVersion,
             );
             const canUpdate = !ignored && (status === "available" || status === "reinstall");
+            const strategy = result?.strategy ?? getToolUpdateStrategy(tool);
 
             return (
               <article className={`update-tool-row status-${ignored ? "ignored" : status}`} key={tool.id}>
                 <div className="update-tool-main">
-                  <strong>{tool.name}</strong>
+                  <div className="update-tool-title-line">
+                    <strong>{tool.name}</strong>
+                    <span className="strategy-badge" title={getToolUpdateStrategyDescription(strategy)}>
+                      {getToolUpdateStrategyLabel(strategy)}
+                    </span>
+                    {sourceResult && (
+                      <span className={`source-status-badge ${sourceResult.status}`}>
+                        {getToolSourceHealthStatusLabel(sourceResult.status)}
+                      </span>
+                    )}
+                  </div>
                   <span>{result?.message ?? describeUpdateStrategy(tool)}</span>
+                  <small>{getToolUpdateStrategyDescription(strategy)}</small>
                   {(result?.currentVersion || result?.latestVersion) && (
                     <em>
                       {result.currentVersion ? `当前 ${result.currentVersion}` : "当前未知"}
                       {result.latestVersion ? ` · 最新 ${result.latestVersion}` : ""}
                     </em>
+                  )}
+                  {sourceResult && (
+                    <small>
+                      来源：{getToolSourceKindLabel(sourceResult.kind)} · {sourceResult.message}
+                    </small>
                   )}
                   {result?.releaseUrl && (
                     <small>Release：{result.releaseUrl}</small>
@@ -4133,6 +4470,18 @@ function mapUpdateStatusTone(status: ToolUpdateCheckResult["status"] | "unknown"
   }
 
   return "unknown";
+}
+
+function getToolSourceHealthStatusLabel(status: ToolSourceHealthResult["status"]) {
+  const labels: Record<ToolSourceHealthResult["status"], string> = {
+    healthy: "来源正常",
+    warning: "需关注",
+    broken: "来源异常",
+    skipped: "已跳过",
+    unknown: "未检测",
+  };
+
+  return labels[status];
 }
 
 function getEnvironmentStatusLabel(status: "ok" | "warning" | "danger") {
@@ -4805,6 +5154,13 @@ function SystemView({
               </div>
             </div>
 
+            <div className="environment-repair-note">
+              <Wrench size={15} />
+              <span>
+                可一键处理的项目会直接显示修复按钮；需要人工确认、重启或外部安装器的项目会保留说明，不会静默修改系统。
+              </span>
+            </div>
+
             <div className="environment-check-grid">
               {environmentChecks.map((check) => (
                 <div
@@ -5204,6 +5560,9 @@ export function SettingsView({
   onLog,
   onExportConfig,
   onImportConfig,
+  configBackups,
+  onCreateBackup,
+  onRestoreBackup,
 }: {
   settings: ToolPathSettings;
   toolRootDraft: string;
@@ -5232,6 +5591,9 @@ export function SettingsView({
   onLog: (level: LogEntry["level"], message: string) => void;
   onExportConfig: () => Promise<void>;
   onImportConfig: () => Promise<void>;
+  configBackups: ConfigBackupEntry[];
+  onCreateBackup: () => Promise<void>;
+  onRestoreBackup: (fileName: string) => Promise<void>;
 }) {
   const [aiDraft, setAiDraft] = useState({
     aiBaseUrl: settings.aiBaseUrl,
@@ -5809,6 +6171,43 @@ export function SettingsView({
               <Upload size={15} />
               导入配置
             </button>
+          </div>
+          <div className="config-backup-panel">
+            <div className="config-backup-head">
+              <div>
+                <strong>本机备份与回滚</strong>
+                <span>保留最近 5 份设置快照。</span>
+              </div>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={onCreateBackup}
+              >
+                <Save size={14} />
+                创建备份
+              </button>
+            </div>
+            {configBackups.length === 0 ? (
+              <p className="settings-note">还没有本机配置备份。</p>
+            ) : (
+              <div className="config-backup-list">
+                {configBackups.map((backup) => (
+                  <div className="config-backup-item" key={backup.fileName}>
+                    <span>
+                      {getConfigBackupLabel(backup)}
+                      <small>{formatBytes(backup.sizeBytes)}</small>
+                    </span>
+                    <button
+                      className="text-button"
+                      type="button"
+                      onClick={() => onRestoreBackup(backup.fileName)}
+                    >
+                      恢复
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 

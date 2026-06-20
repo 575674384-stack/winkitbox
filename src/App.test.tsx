@@ -63,6 +63,9 @@ async function renderSettingsView(extraProps: Record<string, unknown> = {}) {
         onLog={onLog}
         onExportConfig={vi.fn().mockResolvedValue(undefined)}
         onImportConfig={vi.fn().mockResolvedValue(undefined)}
+        configBackups={[]}
+        onCreateBackup={vi.fn().mockResolvedValue(undefined)}
+        onRestoreBackup={vi.fn().mockResolvedValue(undefined)}
         {...extraProps}
       />,
     );

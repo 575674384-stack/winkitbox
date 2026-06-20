@@ -435,8 +435,13 @@ export function AddToolView({
             type="button"
             onClick={() => setActiveTab(tab.id)}
           >
-            <tab.icon size={16} />
-            {tab.label}
+            <span className="add-tool-tab-icon">
+              <tab.icon size={17} />
+            </span>
+            <span>
+              <strong>{tab.label}</strong>
+              <small>{tab.description}</small>
+            </span>
           </button>
         ))}
       </div>
@@ -932,11 +937,12 @@ function DraftPreview({
 const addToolTabs: {
   id: AddToolTab;
   label: string;
+  description: string;
   icon: typeof FilePlus2;
 }[] = [
-  { id: "local", label: "本地文件", icon: FilePlus2 },
-  { id: "link", label: "链接添加", icon: Link },
-  { id: "manual", label: "手动添加", icon: Gauge },
+  { id: "local", label: "本地文件", description: "exe / msi / zip 自动分析", icon: FilePlus2 },
+  { id: "link", label: "链接添加", description: "GitHub 或网页交给 AI 识别", icon: Link },
+  { id: "manual", label: "手动收纳", description: "只放进工具箱或自定义命令", icon: Gauge },
 ];
 
 function describeCustomTool(tool: Tool) {
