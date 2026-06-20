@@ -19,6 +19,7 @@ import {
   ListChecks,
   MonitorOff,
   Network,
+  NotebookPen,
   PackageOpen,
   Pencil,
   Play,
@@ -41,8 +42,6 @@ import { AddToolView, type AddToolFocus } from "./AddToolView";
 import { DiscoverView } from "./DiscoverView";
 import { LogsView, type LogsViewFocus } from "./LogsView";
 import winkitboxIconUrl from "../assets/icon/winkitbox-icon.png";
-import developerAvatarUrl from "../assets/developer/avatar.jpg";
-import assistantWorkbenchUrl from "../assets/decor/assistant-workbench.png";
 import {
   categoryLabels,
   customAddCategoryId,
@@ -112,7 +111,14 @@ import {
   type EnvironmentSnapshot,
   type EnvironmentRepairAction,
 } from "./core/environment";
+import { normalizeGpuInfo } from "./core/hardware";
 import { createLaunchDescriptor, getToolLogoUrl } from "./core/launcher";
+import {
+  createNotebookEntry,
+  normalizeNotebookEntries,
+  updateNotebookEntry,
+  type NotebookEntry,
+} from "./core/notebook";
 import {
   customDnsDomainId,
   dnsTestDomains,
@@ -182,7 +188,11 @@ import {
   type ThemeId,
 } from "./core/themes";
 import { findSetupAsset, type UpdateInfo } from "./core/update";
-import type { ProxyMode } from "./core/github";
+import {
+  normalizeAiRepoRecommendations,
+  type AiRepoRecommendation,
+  type ProxyMode,
+} from "./core/github";
 
 type CategoryFilter = "all" | ToolCategory;
 type ActiveView =
@@ -191,6 +201,7 @@ type ActiveView =
   | "system"
   | "updates"
   | "addTool"
+  | "notes"
   | "logs"
   | "settings";
 
@@ -263,6 +274,7 @@ type SystemInfo = {
   gpus: {
     name: string;
     adapterRamGb?: number;
+    dedicatedMemoryGb?: number;
     driverVersion: string;
   }[];
   environment?: EnvironmentSnapshot;
@@ -312,6 +324,7 @@ let logCounter = 0;
 const selectionStorageKey = "winkitbox:selected-tools:v1";
 const customToolsStorageKey = "winkitbox:custom-tools:v1";
 const ignoredToolUpdatesStorageKey = "winkitbox:ignored-tool-updates:v1";
+const notebookStorageKey = "winkitbox:notebooks:v1";
 const fallbackSettings: ToolPathSettings = {
   toolRootPath: "%LOCALAPPDATA%\\WinKitBox",
   defaultToolRootPath: "%LOCALAPPDATA%\\WinKitBox",
@@ -330,7 +343,6 @@ const fallbackSettings: ToolPathSettings = {
   toolCategoryOverrides: {},
 };
 const releasePageUrl = "https://github.com/575674384-stack/winkitbox/releases";
-const developerGitHubUrl = "https://github.com/575674384-stack";
 
 function getCategoryLabel(category: CategoryFilter, categories: CategoryDefinition[]) {
   return category === "all" ? "全部工具" : getCategoryName(category, categories);
@@ -507,6 +519,20 @@ export function App() {
   );
   const [toolUpdateResults, setToolUpdateResults] = useState<Record<string, ToolUpdateCheckResult>>({});
   const [toolSourceHealthResults, setToolSourceHealthResults] = useState<Record<string, ToolSourceHealthResult>>({});
+  const [toolAiRecommendations, setToolAiRecommendations] = useState<AiRepoRecommendation[]>([]);
+  const [toolAiRecommendationMessage, setToolAiRecommendationMessage] = useState("");
+  const [isRecommendingTools, setIsRecommendingTools] = useState(false);
+  const [addingRecommendedRepo, setAddingRecommendedRepo] = useState("");
+  const [notebookEntries, setNotebookEntries] = useState<NotebookEntry[]>(() => {
+    try {
+      return normalizeNotebookEntries(
+        JSON.parse(localStorage.getItem(notebookStorageKey) || "[]"),
+      );
+    } catch {
+      return [];
+    }
+  });
+  const [activeNoteId, setActiveNoteId] = useState<string>();
   const [ignoredToolUpdateVersions, setIgnoredToolUpdateVersions] = useState<Record<string, string>>(
     () => {
       try {
@@ -792,6 +818,25 @@ export function App() {
   useEffect(() => {
     localStorage.setItem(customToolsStorageKey, JSON.stringify(customTools));
   }, [customTools]);
+
+  useEffect(() => {
+    localStorage.setItem(notebookStorageKey, JSON.stringify(notebookEntries));
+  }, [notebookEntries]);
+
+  useEffect(() => {
+    if (!activeNoteId && notebookEntries.length > 0) {
+      setActiveNoteId(notebookEntries[0].id);
+      return;
+    }
+
+    if (
+      activeNoteId &&
+      notebookEntries.length > 0 &&
+      !notebookEntries.some((entry) => entry.id === activeNoteId)
+    ) {
+      setActiveNoteId(notebookEntries[0].id);
+    }
+  }, [activeNoteId, notebookEntries]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -2334,6 +2379,108 @@ export function App() {
     return result;
   }
 
+  async function recommendToolsFromSelection() {
+    if (selectedTools.length === 0) {
+      setToolAiRecommendationMessage("请先选择一个或多个工具。");
+      return;
+    }
+
+    const toolSummary = selectedTools
+      .slice(0, 12)
+      .map((tool) => {
+        const categoryName = getCategoryName(tool.category, settings.customCategories);
+        const tags = tool.tags.length > 0 ? `；标签：${tool.tags.join("、")}` : "";
+        return `- ${tool.name}（${categoryName}）：${tool.summary}${tags}`;
+      })
+      .join("\n");
+    const prompt = `用户在 WinKitBox 中选择了这些 Windows 工具：\n${toolSummary}\n\n请推断用户的使用场景，推荐最多 5 个适合 Windows 桌面用户的 GitHub 开源项目。要求：不要重复已有工具；优先可安装、活跃、有明确 Windows 使用价值的项目；每项给出 repoUrl、summary、reason、language、stars、license、tags。`;
+
+    setIsRecommendingTools(true);
+    setToolAiRecommendationMessage("正在根据已选工具分析使用场景。");
+    try {
+      const result = await recommendDiscoverReposWithAi(prompt);
+      const recommendations = normalizeAiRepoRecommendations(result, 5);
+      setToolAiRecommendations(recommendations);
+      setToolAiRecommendationMessage(
+        recommendations.length > 0
+          ? `已推荐 ${recommendations.length} 个相关项目。`
+          : "AI 没有返回可用 GitHub 项目，可以换一组工具再试。",
+      );
+      await recordAiLog({
+        kind: "recommendation",
+        status: recommendations.length > 0 ? "success" : "warning",
+        title: "工具页 AI 推荐",
+        prompt,
+        response: getAiResponseText(result),
+        structured: recommendations,
+        model: settings.aiModel,
+        source: "工具页 AI 推荐",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI 推荐失败。";
+      setToolAiRecommendationMessage(message);
+      await recordAiLog({
+        kind: "recommendation",
+        status: "error",
+        title: "工具页 AI 推荐失败",
+        prompt,
+        response: message,
+        model: settings.aiModel,
+        source: "工具页 AI 推荐",
+      });
+    } finally {
+      setIsRecommendingTools(false);
+    }
+  }
+
+  async function addToolRecommendation(repo: AiRepoRecommendation) {
+    setAddingRecommendedRepo(repo.fullName);
+    try {
+      await addDiscoverRepoWithAi(repo.url, customAddCategoryId);
+      setToolAiRecommendationMessage(`已添加 ${repo.fullName} 到工具箱。`);
+    } catch (error) {
+      setToolAiRecommendationMessage(
+        error instanceof Error ? error.message : "添加推荐项目失败。",
+      );
+    } finally {
+      setAddingRecommendedRepo("");
+    }
+  }
+
+  async function repairToolSource(tool: Tool) {
+    const sourceResult = toolSourceHealthResults[tool.id];
+    appendLog(
+      "info",
+      `正在修复 ${tool.name} 的来源配置：${sourceResult?.message ?? "来源异常"}`,
+    );
+    await fixToolWithAi(tool);
+    await checkToolSources();
+  }
+
+  function createNotebook() {
+    const entry = createNotebookEntry();
+    setNotebookEntries((current) => normalizeNotebookEntries([entry, ...current]));
+    setActiveView("notes");
+    setActiveNoteId(entry.id);
+  }
+
+  function updateNotebook(id: string, patch: Partial<Pick<NotebookEntry, "title" | "content">>) {
+    setNotebookEntries((current) => updateNotebookEntry(current, id, patch));
+  }
+
+  function deleteNotebook(id: string) {
+    const entry = notebookEntries.find((item) => item.id === id);
+    if (entry && !window.confirm(`确定删除记事本“${entry.title}”吗？`)) {
+      return;
+    }
+
+    setNotebookEntries((current) => current.filter((item) => item.id !== id));
+    if (activeNoteId === id) {
+      const nextEntry = notebookEntries.find((item) => item.id !== id);
+      setActiveNoteId(nextEntry?.id);
+    }
+  }
+
   async function runInstallPlan() {
     if (!window.winKitBox) {
       appendLog("warning", "当前在浏览器预览模式，不能直接执行 PowerShell。");
@@ -3083,7 +3230,7 @@ export function App() {
             </div>
             <div>
               <h1>WinKitBox</h1>
-              <p>v{__APP_VERSION__}</p>
+              <p>Version: v{__APP_VERSION__}</p>
             </div>
           </div>
 
@@ -3363,6 +3510,17 @@ export function App() {
               <strong>{installedTools.length}</strong>
             </button>
             <button
+              className={`category-button ${activeView === "notes" ? "active" : ""}`}
+              type="button"
+              onClick={() => setActiveView("notes")}
+            >
+              <span>
+                <NotebookPen size={16} />
+                记事本
+              </span>
+              <strong>{notebookEntries.length}</strong>
+            </button>
+            <button
               className={`category-button ${activeView === "logs" ? "active" : ""}`}
               type="button"
               onClick={() => openLogsView()}
@@ -3401,18 +3559,6 @@ export function App() {
         </div>
 
         <div className="sidebar-bottom">
-          <button
-            className="developer-credit"
-            type="button"
-            onClick={() => void openUrl(developerGitHubUrl)}
-            aria-label="打开开发者 GitHub 主页"
-          >
-            <span className="developer-github-mark">
-              <Github size={14} />
-            </span>
-            <span>Dev by</span>
-            <img src={developerAvatarUrl} alt="" />
-          </button>
           <button
             className={`category-button ${activeView === "settings" ? "active" : ""}`}
             type="button"
@@ -3463,11 +3609,13 @@ export function App() {
             results={toolUpdateResults}
             sourceResults={toolSourceHealthResults}
             ignoredVersions={ignoredToolUpdateVersions}
+            themeBackgroundUrl={currentThemeBackground}
             isChecking={isCheckingToolUpdates}
             isCheckingSources={isCheckingToolSources}
             isRunning={isRunning}
             onCheck={checkInstalledToolUpdates}
             onCheckSources={checkToolSources}
+            onRepairSource={repairToolSource}
             onUpdate={updateTool}
             onIgnore={ignoreToolUpdate}
             onClearIgnore={clearIgnoredToolUpdate}
@@ -3495,6 +3643,19 @@ export function App() {
             onOpenUrl={openUrl}
             onLog={appendLog}
             onRecordAiLog={recordAiLog}
+          />
+        </section>
+      )}
+
+      {activeView === "notes" && (
+        <section className="workspace">
+          <NotesView
+            entries={notebookEntries}
+            activeNoteId={activeNoteId}
+            onCreate={createNotebook}
+            onSelect={setActiveNoteId}
+            onUpdate={updateNotebook}
+            onDelete={deleteNotebook}
           />
         </section>
       )}
@@ -3811,30 +3972,16 @@ export function App() {
                 </button>
               </div>
 
-              <div className="manual-list">
-                <div className="section-title">
-                  <ExternalLink size={15} />
-                  手动来源
-                </div>
-                {installPlan.commands.filter((item) => item.manualUrl)
-                  .length === 0 ? (
-                  <p className="empty-text">当前没有手动下载项。</p>
-                ) : (
-                  installPlan.commands
-                    .filter((item) => item.manualUrl)
-                    .map((item) => (
-                      <button
-                        className="manual-link"
-                        key={item.toolId}
-                        type="button"
-                        onClick={() => openUrl(item.manualUrl!)}
-                      >
-                        {item.label}
-                        <ExternalLink size={14} />
-                      </button>
-                    ))
-                )}
-              </div>
+              <ToolAiRecommendationPanel
+                selectedCount={selectedTools.length}
+                recommendations={toolAiRecommendations}
+                message={toolAiRecommendationMessage}
+                isLoading={isRecommendingTools}
+                addingRepo={addingRecommendedRepo}
+                onRecommend={recommendToolsFromSelection}
+                onAdd={addToolRecommendation}
+                onOpen={openUrl}
+              />
 
               {installPlan.skippedCount > 0 && (
                 <div className="manual-list">
@@ -3959,6 +4106,204 @@ function InstallProgressCard({
         <div className="progress-fill" style={{ width: `${percent}%` }} />
       </div>
       <p>{meta}</p>
+    </div>
+  );
+}
+
+function ToolAiRecommendationPanel({
+  selectedCount,
+  recommendations,
+  message,
+  isLoading,
+  addingRepo,
+  onRecommend,
+  onAdd,
+  onOpen,
+}: {
+  selectedCount: number;
+  recommendations: AiRepoRecommendation[];
+  message: string;
+  isLoading: boolean;
+  addingRepo: string;
+  onRecommend: () => Promise<void>;
+  onAdd: (repo: AiRepoRecommendation) => Promise<void>;
+  onOpen: (url: string) => Promise<void>;
+}) {
+  return (
+    <section className="tool-ai-recommendation-panel">
+      <div className="tool-ai-recommendation-head">
+        <div>
+          <div className="section-title">
+            <Sparkles size={15} />
+            AI 推荐
+          </div>
+          <p>
+            根据已选 {selectedCount} 个工具推断使用场景，推荐最多 5 个 Windows 开源项目。
+          </p>
+        </div>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={isLoading || selectedCount === 0}
+          onClick={() => void onRecommend()}
+        >
+          <Sparkles size={15} className={isLoading ? "spin" : ""} />
+          {isLoading ? "分析中" : "AI 推荐"}
+        </button>
+      </div>
+
+      {message && <p className="tool-ai-message">{message}</p>}
+
+      {recommendations.length > 0 ? (
+        <div className="tool-ai-recommendation-list">
+          {recommendations.map((repo) => (
+            <article className="tool-ai-recommendation-item" key={repo.fullName}>
+              <div>
+                <strong>{repo.fullName}</strong>
+                <span>{repo.description}</span>
+              </div>
+              <div className="tool-ai-recommendation-actions">
+                <button
+                  className="mini-action"
+                  type="button"
+                  onClick={() => void onOpen(repo.url)}
+                >
+                  <ExternalLink size={13} />
+                  GitHub
+                </button>
+                <button
+                  className="mini-action repair"
+                  type="button"
+                  disabled={addingRepo === repo.fullName}
+                  onClick={() => void onAdd(repo)}
+                >
+                  <Plus size={13} />
+                  {addingRepo === repo.fullName ? "添加中" : "添加"}
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="empty-text compact-empty">选择工具后点击 AI 推荐。</p>
+      )}
+    </section>
+  );
+}
+
+function NotesView({
+  entries,
+  activeNoteId,
+  onCreate,
+  onSelect,
+  onUpdate,
+  onDelete,
+}: {
+  entries: NotebookEntry[];
+  activeNoteId?: string;
+  onCreate: () => void;
+  onSelect: (id: string) => void;
+  onUpdate: (
+    id: string,
+    patch: Partial<Pick<NotebookEntry, "title" | "content">>,
+  ) => void;
+  onDelete: (id: string) => void;
+}) {
+  const activeEntry = entries.find((entry) => entry.id === activeNoteId) ?? entries[0];
+
+  return (
+    <div className="notes-page">
+      <header className="command-bar page-topbar">
+        <div className="command-bar-title">
+          <div className="command-bar-icon notes-icon">
+            <NotebookPen size={22} />
+          </div>
+          <div>
+            <p className="eyebrow">个人记录</p>
+            <h2>记事本</h2>
+          </div>
+        </div>
+        <div className="top-actions">
+          <button className="primary-button" type="button" onClick={onCreate}>
+            <Plus size={16} />
+            新建记事本
+          </button>
+        </div>
+      </header>
+
+      <div className="notes-layout">
+        <section className="notes-grid" aria-label="记事本列表">
+          {entries.length === 0 ? (
+            <EmptyState
+              icon={NotebookPen}
+              title="还没有记事本"
+              description="创建一个记事本，用来记录装机备注、命令、链接或临时想法。"
+              compact
+            />
+          ) : (
+            entries.map((entry) => (
+              <button
+                className={`note-card ${entry.id === activeEntry?.id ? "active" : ""}`}
+                key={entry.id}
+                type="button"
+                onClick={() => onSelect(entry.id)}
+              >
+                <strong>{entry.title}</strong>
+                <span>{entry.content || "空白记事本"}</span>
+                <small>{new Date(entry.updatedAt).toLocaleString()}</small>
+              </button>
+            ))
+          )}
+        </section>
+
+        <aside className="note-editor-panel">
+          {activeEntry ? (
+            <>
+              <div className="note-editor-head">
+                <div>
+                  <p className="eyebrow">编辑</p>
+                  <h3>{activeEntry.title}</h3>
+                </div>
+                <button
+                  className="secondary-button danger"
+                  type="button"
+                  onClick={() => onDelete(activeEntry.id)}
+                >
+                  <Trash2 size={14} />
+                  删除
+                </button>
+              </div>
+              <label className="field-label">
+                标题
+                <input
+                  value={activeEntry.title}
+                  onChange={(event) =>
+                    onUpdate(activeEntry.id, { title: event.target.value })
+                  }
+                  placeholder="记事本标题"
+                />
+              </label>
+              <label className="field-label note-content-field">
+                内容
+                <textarea
+                  value={activeEntry.content}
+                  onChange={(event) =>
+                    onUpdate(activeEntry.id, { content: event.target.value })
+                  }
+                  placeholder="记录你想保存的文本。"
+                />
+              </label>
+            </>
+          ) : (
+            <EmptyState
+              icon={NotebookPen}
+              title="选择或新建记事本"
+              description="左侧会以工具卡片大小展示所有记事本。"
+              compact
+            />
+          )}
+        </aside>
+      </div>
     </div>
   );
 }
@@ -4103,11 +4448,13 @@ function ToolUpdatesView({
   results,
   sourceResults,
   ignoredVersions,
+  themeBackgroundUrl,
   isChecking,
   isCheckingSources,
   isRunning,
   onCheck,
   onCheckSources,
+  onRepairSource,
   onUpdate,
   onIgnore,
   onClearIgnore,
@@ -4118,11 +4465,13 @@ function ToolUpdatesView({
   results: Record<string, ToolUpdateCheckResult>;
   sourceResults: Record<string, ToolSourceHealthResult>;
   ignoredVersions: Record<string, string>;
+  themeBackgroundUrl?: string;
   isChecking: boolean;
   isCheckingSources: boolean;
   isRunning: boolean;
   onCheck: () => Promise<void>;
   onCheckSources: () => Promise<void>;
+  onRepairSource: (tool: Tool) => Promise<void>;
   onUpdate: (tool: Tool) => Promise<void>;
   onIgnore: (toolId: string, version: string) => void;
   onClearIgnore: (toolId: string) => void;
@@ -4136,6 +4485,10 @@ function ToolUpdatesView({
   const sourceIssueResults = sourceResultList
     .filter((result) => result.status === "broken" || result.status === "warning")
     .slice(0, 6);
+  const toolById = useMemo(
+    () => new Map(tools.map((tool) => [tool.id, tool])),
+    [tools],
+  );
   const availableCount = resultList.filter(
     (result) =>
       (result.status === "available" || result.status === "reinstall") &&
@@ -4249,9 +4602,9 @@ function ToolUpdatesView({
             <ShieldAlert size={15} />
             工具源健康
           </div>
-          <h3>把“还能不能下载”和“有没有新版本”分开看</h3>
+          <h3>检查安装来源是否还能正常使用</h3>
           <p>
-            来源检查只探测 winget 包、GitHub Release 和直接下载链接，不会执行安装或更新。
+            这里会检查 winget 包、GitHub Release 和下载链接是否失效。异常项可以直接让 AI 重新分析来源，修复后再重新检查。
           </p>
           <div className="source-health-stats">
             <span className="ok">正常 {sourceSummary.healthy}</span>
@@ -4261,25 +4614,50 @@ function ToolUpdatesView({
             <span>未测 {Math.max(0, tools.length - sourceResultList.length)}</span>
           </div>
         </div>
-        <img src={assistantWorkbenchUrl} alt="" />
+        {themeBackgroundUrl && <img src={themeBackgroundUrl} alt="" />}
       </section>
 
       {sourceIssueResults.length > 0 && (
         <div className="source-issue-list">
-          {sourceIssueResults.map((result) => (
-            <button
-              className={`source-issue-item ${result.status}`}
-              key={result.toolId}
-              type="button"
-              onClick={() => result.checkedUrl && void onOpen(result.checkedUrl)}
-            >
-              <span>
-                <strong>{result.name}</strong>
-                <small>{getToolSourceKindLabel(result.kind)} · {result.message}</small>
-              </span>
-              <ExternalLink size={14} />
-            </button>
-          ))}
+          {sourceIssueResults.map((result) => {
+            const tool = toolById.get(result.toolId);
+
+            return (
+              <div
+                className={`source-issue-item ${result.status}`}
+                key={result.toolId}
+              >
+                <span>
+                  <strong>{result.name}</strong>
+                  <small>{getToolSourceKindLabel(result.kind)} · {result.message}</small>
+                </span>
+                <div className="source-issue-actions">
+                  {tool && (
+                    <button
+                      className="mini-action repair"
+                      type="button"
+                      onClick={() => void onRepairSource(tool)}
+                    >
+                      <Sparkles size={13} />
+                      AI 修复
+                    </button>
+                  )}
+                  {(result.checkedUrl || tool?.repoUrl || tool?.homepage) && (
+                    <button
+                      className="icon-button"
+                      type="button"
+                      aria-label={`打开 ${result.name} 来源`}
+                      onClick={() =>
+                        void onOpen(result.checkedUrl ?? tool?.repoUrl ?? tool?.homepage ?? "")
+                      }
+                    >
+                      <ExternalLink size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -4405,6 +4783,18 @@ function ToolUpdatesView({
                       日志
                     </button>
                   )}
+                  {sourceResult &&
+                    (sourceResult.status === "broken" || sourceResult.status === "warning") && (
+                      <button
+                        className="mini-action repair"
+                        type="button"
+                        disabled={isRunning}
+                        onClick={() => void onRepairSource(tool)}
+                      >
+                        <Sparkles size={14} />
+                        AI 修复
+                      </button>
+                    )}
                   <button
                     className="icon-button"
                     type="button"
@@ -4608,6 +4998,10 @@ function SystemView({
   const recommendedEnvironmentRepairs = useMemo(
     () => getRecommendedEnvironmentRepairs(environmentChecks),
     [environmentChecks],
+  );
+  const gpuRows = useMemo(
+    () => normalizeGpuInfo(info?.gpus ?? []),
+    [info?.gpus],
   );
 
   useEffect(() => {
@@ -5259,7 +5653,7 @@ function SystemView({
             显卡与编码
           </div>
           <div className="hardware-list">
-            {(info?.gpus ?? []).map((gpu) => (
+            {gpuRows.map((gpu) => (
               <div className="hardware-row" key={`${gpu.name}-${gpu.driverVersion}`}>
                 <div>
                   <strong>{gpu.name || "未知显卡"}</strong>
@@ -5270,7 +5664,7 @@ function SystemView({
                 </em>
               </div>
             ))}
-            {!info?.gpus?.length && (
+            {gpuRows.length === 0 && (
               <p className="empty-text">还没有读取到显卡信息。</p>
             )}
           </div>

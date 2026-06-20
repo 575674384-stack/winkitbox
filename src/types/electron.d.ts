@@ -158,6 +158,7 @@ declare global {
         gpus: {
           name: string;
           adapterRamGb?: number;
+          dedicatedMemoryGb?: number;
           driverVersion: string;
         }[];
         environment?: import("../core/environment").EnvironmentSnapshot;

@@ -1,8 +1,11 @@
 import azureRooftopBackgroundUrl from "../../assets/backgrounds/azure-rooftop.png";
 import amberStudioBackgroundUrl from "../../assets/backgrounds/amber-studio.png";
 import mintWorkbenchBackgroundUrl from "../../assets/backgrounds/mint-workbench.png";
+import violetFantasyBackgroundUrl from "../../assets/backgrounds/violet-fantasy.png";
+import roseStudioBackgroundUrl from "../../assets/backgrounds/rose-studio.png";
+import ninjaWorkshopBackgroundUrl from "../../assets/backgrounds/ninja-workshop.png";
 
-export type ThemeId = "azure" | "mint" | "amber";
+export type ThemeId = "azure" | "mint" | "amber" | "violet" | "rose" | "ninja";
 
 export type ThemeDefinition = {
   id: ThemeId;
@@ -49,6 +52,39 @@ export const themeDefinitions: ThemeDefinition[] = [
     background: "#fffbeb",
     imageBackground: amberStudioBackgroundUrl,
     defaultGlassOpacity: 0.70,
+    defaultGlassBlur: 18
+  },
+  {
+    id: "violet",
+    name: "浅紫幻想",
+    description: "浅紫色幻想工位，清雅通透",
+    accent: "#7c3aed",
+    accentSoft: "#ede9fe",
+    background: "#f5f3ff",
+    imageBackground: violetFantasyBackgroundUrl,
+    defaultGlassOpacity: 0.66,
+    defaultGlassBlur: 18
+  },
+  {
+    id: "rose",
+    name: "浅红蔷薇",
+    description: "浅红色优雅工位，柔和精致",
+    accent: "#e11d48",
+    accentSoft: "#ffe4e6",
+    background: "#fff1f2",
+    imageBackground: roseStudioBackgroundUrl,
+    defaultGlassOpacity: 0.66,
+    defaultGlassBlur: 18
+  },
+  {
+    id: "ninja",
+    name: "忍者工坊",
+    description: "橙色忍者风工位，轻快有活力",
+    accent: "#ea580c",
+    accentSoft: "#ffedd5",
+    background: "#fff7ed",
+    imageBackground: ninjaWorkshopBackgroundUrl,
+    defaultGlassOpacity: 0.68,
     defaultGlassBlur: 18
   }
 ];

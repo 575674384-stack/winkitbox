@@ -153,6 +153,17 @@ Before packaging and publishing a release:
 
 ## Release Notes
 
+### v0.6.2
+
+- Added repair actions to Tool Source Health so broken or suspicious sources can be sent through the existing AI repair workflow and then rechecked.
+- Reworded source-health copy for non-technical users and made its artwork follow the active theme instead of staying green.
+- Added three built-in anime-style themes: light purple fantasy, light red studio, and ninja workshop.
+- Added a Notes page before Log Center with multiple local notebooks shown as tool-card-sized entries and an editor for arbitrary text.
+- Added catalog-side AI recommendations based on selected tools, with up to five GitHub project suggestions, preview links, and AI add actions.
+- Auto-creates a local config snapshot on every app startup while preserving the existing recent-backup retention limit.
+- Fixed GPU display by filtering virtual display adapters and preferring dedicated VRAM data when available.
+- Polished typography, theme-aware top bars and metric cards, white PowerShell previews, equal plan action buttons, and removed the lower-left developer avatar.
+
 ### v0.6.1
 
 - Added a Tool Update Center source-health check that separately probes winget packages, GitHub Release assets, and direct download links without installing or updating.

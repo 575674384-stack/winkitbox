@@ -76,6 +76,11 @@ if (gotSingleInstanceLock) {
     await applyStoredProxy().catch((error) => {
       console.error("Failed to apply proxy settings on startup:", error);
     });
+    try {
+      createConfigBackup();
+    } catch (error) {
+      console.error("Failed to create startup config backup:", error);
+    }
   });
 
   app.on("second-instance", restoreMainWindow);
@@ -674,11 +679,34 @@ $physicalDisks = Get-CimInstance Win32_DiskDrive |
       sizeGb = [math]::Round(([double]$_.Size / 1GB), 1)
     }
   }
+$gpuMemoryByName = @{}
+Get-ChildItem 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Video' -ErrorAction SilentlyContinue |
+  ForEach-Object {
+    Get-ChildItem $_.PsPath -ErrorAction SilentlyContinue |
+      ForEach-Object {
+        $props = Get-ItemProperty $_.PsPath -ErrorAction SilentlyContinue
+        $driverDesc = [string]$props.DriverDesc
+        $memoryBytes = $props.'HardwareInformation.qwMemorySize'
+        if (-not [string]::IsNullOrWhiteSpace($driverDesc) -and $memoryBytes) {
+          $gpuMemoryByName[$driverDesc.ToLowerInvariant()] = [math]::Round(([double]$memoryBytes / 1GB), 1)
+        }
+      }
+  }
 $gpus = Get-CimInstance Win32_VideoController |
   ForEach-Object {
+    $name = [string]$_.Name
+    $nameKey = $name.ToLowerInvariant()
+    $dedicatedMemoryGb = $null
+    foreach ($key in $gpuMemoryByName.Keys) {
+      if ($nameKey -eq $key -or $nameKey.Contains($key) -or $key.Contains($nameKey)) {
+        $dedicatedMemoryGb = $gpuMemoryByName[$key]
+        break
+      }
+    }
     [PSCustomObject]@{
-      name = [string]$_.Name
+      name = $name
       adapterRamGb = if ($_.AdapterRAM) { [math]::Round(([double]$_.AdapterRAM / 1GB), 1) } else { $null }
+      dedicatedMemoryGb = $dedicatedMemoryGb
       driverVersion = [string]$_.DriverVersion
     }
   }

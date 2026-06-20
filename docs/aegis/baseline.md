@@ -1,7 +1,7 @@
 # WinKitBox Project Baseline
 
 Updated: 2026-06-20  
-Current release at last update: v0.5.3
+Current release at last update: v0.6.2
 
 ## Product Intent
 
@@ -49,21 +49,26 @@ $env:Path='C:\Program Files\nodejs;'+$env:Path; npm test
 - Add Tool page owns local file, link-based, and manual custom-tool creation.
 - Settings page should stay focused on global settings: tool directory, updates, proxy, theme, sync/config, and AI model settings.
 - Log Center owns operation history, realtime output, and AI logs.
+- Notes owns lightweight local notebooks for arbitrary user text.
 - GitHub Discover owns rankings plus AI-assisted project recommendation and direct AI add.
 - Windows system page owns local system info, network/DNS actions, and environment health checks.
 - Tool Update Center separates update detection from update execution.
+- Tool Source Health owns network/source probes and exposes user-triggered repair actions through the existing AI repair workflow.
 
 ## Source Of Truth
 
 - `src/core/catalog.ts`: built-in tool definitions, categories, tool shape, custom category constants.
 - `src/core/planner.ts`: install/uninstall PowerShell generation.
 - `src/core/toolUpdates.ts`: update strategy and update command generation.
+- `src/core/toolSourceHealth.ts`: install-source descriptor, status, and summary model.
 - `src/core/launcher.ts` and `electron/windowsTools.cjs`: launcher and detection behavior.
 - `src/core/aiTool.ts`: renderer-side trust boundary for AI-generated tool candidates.
 - `electron/aiCandidateValidation.cjs`: main-process live validation for AI-generated install sources.
 - `src/core/config.ts`: export/import and custom-tool normalization.
 - `src/core/activityLog.ts`, `src/core/aiLog.ts`, `src/core/taskQueue.ts`: persistent operation, AI, and task state models.
 - `src/core/environment.ts`: Windows environment health model and repair action mapping.
+- `src/core/hardware.ts`: renderer-side hardware normalization such as virtual GPU filtering.
+- `src/core/notebook.ts`: local note normalization and mutation helpers.
 - `electron/main.cjs`: Electron main process, IPC handlers, PowerShell execution, settings, update checks, AI requests, proxy behavior.
 - `electron/preload.cjs` and `src/types/electron.d.ts`: renderer bridge contract. Keep these synchronized for new IPC.
 
@@ -154,4 +159,3 @@ Before release:
 - Old image assets may remain in `assets/backgrounds/`; the active built-in theme set is controlled by code, not file presence alone.
 - Do not commit generated packages, logs, local signing certificates, `node_modules`, `dist`, or `release`.
 - If a token appears in chat or logs, treat it as exposed and rotate it.
-
