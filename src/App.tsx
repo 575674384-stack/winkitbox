@@ -155,6 +155,11 @@ type LogEntry = {
   message: string;
 };
 
+export type PageFeedback = {
+  level: LogEntry["level"];
+  message: string;
+};
+
 type ToolPathSettings = {
   toolRootPath: string;
   defaultToolRootPath: string;
@@ -421,6 +426,7 @@ export function App() {
   );
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo>();
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [settingsFeedback, setSettingsFeedback] = useState<PageFeedback>();
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCategoryName, setEditingCategoryName] = useState("");
   const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -706,6 +712,11 @@ export function App() {
       logsRef.current = next;
       return next;
     });
+  }
+
+  function reportSettingsFeedback(level: LogEntry["level"], message: string) {
+    setSettingsFeedback({ level, message });
+    appendLog(level, message);
   }
 
   async function recordActivity(input: ActivityLogInput) {
@@ -1002,7 +1013,7 @@ export function App() {
     const nextPath = path.trim();
 
     if (!nextPath) {
-      appendLog("warning", "工具目录不能为空。");
+      reportSettingsFeedback("warning", "工具目录不能为空。");
       return;
     }
 
@@ -1011,12 +1022,15 @@ export function App() {
         ...settings,
         toolRootPath: nextPath,
       });
-      appendLog("success", `工具目录已切换到 ${savedSettings.toolRootPath}。`);
+      reportSettingsFeedback(
+        "success",
+        `工具目录已切换到 ${savedSettings.toolRootPath}。`,
+      );
       await refreshToolStates(allTools, {
         managedRootPath: savedSettings.toolRootPath,
       });
     } catch (error) {
-      appendLog(
+      reportSettingsFeedback(
         "error",
         error instanceof Error ? error.message : "保存工具目录失败。",
       );
@@ -1025,7 +1039,7 @@ export function App() {
 
   async function chooseToolRootPath() {
     if (!window.winKitBox) {
-      appendLog("warning", "浏览器预览模式不能打开本机目录选择器。");
+      reportSettingsFeedback("warning", "浏览器预览模式不能打开本机目录选择器。");
       return;
     }
 
@@ -1044,14 +1058,14 @@ export function App() {
   async function saveUpdateOnStartup(updateOnStartup: boolean) {
     try {
       await persistSettings({ ...settings, updateOnStartup });
-      appendLog(
+      reportSettingsFeedback(
         "success",
         updateOnStartup
           ? "已开启启动时自动检测更新。"
           : "已关闭启动时自动检测更新。",
       );
     } catch (error) {
-      appendLog(
+      reportSettingsFeedback(
         "error",
         error instanceof Error ? error.message : "保存更新设置失败。",
       );
@@ -1065,9 +1079,9 @@ export function App() {
   }) {
     try {
       await persistSettings({ ...settings, ...aiSettings });
-      appendLog("success", "AI 模型配置已保存。");
+      reportSettingsFeedback("success", "AI 模型配置已保存。");
     } catch (error) {
-      appendLog(
+      reportSettingsFeedback(
         "error",
         error instanceof Error ? error.message : "保存 AI 配置失败。",
       );
@@ -1080,9 +1094,9 @@ export function App() {
   }) {
     try {
       await persistSettings({ ...settings, ...proxy });
-      appendLog("success", "代理设置已保存并生效。");
+      reportSettingsFeedback("success", "代理设置已保存并生效。");
     } catch (error) {
-      appendLog(
+      reportSettingsFeedback(
         "error",
         error instanceof Error ? error.message : "保存代理设置失败。",
       );
@@ -1234,12 +1248,12 @@ export function App() {
     };
     try {
       await persistSettings(nextSettings);
-      appendLog(
+      reportSettingsFeedback(
         "success",
         `已切换到 ${themeDefinitions.find((theme) => theme.id === themeId)?.name ?? themeId} 主题。`,
       );
     } catch (error) {
-      appendLog(
+      reportSettingsFeedback(
         "error",
         error instanceof Error ? error.message : "保存主题失败。",
       );
@@ -1248,6 +1262,7 @@ export function App() {
 
   async function selectCustomThemeBackground(themeId: ThemeId) {
     if (!window.winKitBox) {
+      reportSettingsFeedback("warning", "浏览器预览模式不能上传自定义背景。");
       return;
     }
 
@@ -1266,9 +1281,9 @@ export function App() {
         },
       };
       await persistSettings(nextSettings);
-      appendLog("success", "已设置自定义主题背景。");
+      reportSettingsFeedback("success", "已设置自定义主题背景。");
     } catch (error) {
-      appendLog(
+      reportSettingsFeedback(
         "error",
         error instanceof Error ? error.message : "设置背景失败。",
       );
@@ -1277,6 +1292,7 @@ export function App() {
 
   async function clearCustomThemeBackground(themeId: ThemeId) {
     if (!window.winKitBox) {
+      reportSettingsFeedback("warning", "浏览器预览模式不能恢复默认背景。");
       return;
     }
 
@@ -1285,9 +1301,9 @@ export function App() {
       const nextBackgrounds = { ...settings.themeBackgrounds };
       delete nextBackgrounds[themeId];
       await persistSettings({ ...settings, themeBackgrounds: nextBackgrounds });
-      appendLog("success", "已恢复默认主题背景。");
+      reportSettingsFeedback("success", "已恢复默认主题背景。");
     } catch (error) {
-      appendLog(
+      reportSettingsFeedback(
         "error",
         error instanceof Error ? error.message : "清除背景失败。",
       );
@@ -1297,7 +1313,7 @@ export function App() {
   async function checkForUpdates(silent = false) {
     if (!window.winKitBox) {
       if (!silent) {
-        appendLog("warning", "浏览器预览模式不能检查桌面版更新。");
+        reportSettingsFeedback("warning", "浏览器预览模式不能检查桌面版更新。");
       }
       return;
     }
@@ -1313,22 +1329,28 @@ export function App() {
           "success",
           `发现新版 v${info.latestVersion}，可以打开发行页下载。`,
         );
+        if (!silent) {
+          setSettingsFeedback({
+            level: "success",
+            message: `发现新版 v${info.latestVersion}，可以打开发行页下载。`,
+          });
+        }
         return;
       }
 
       if (info.error) {
         if (!silent) {
-          appendLog("warning", info.error);
+          reportSettingsFeedback("warning", info.error);
         }
         return;
       }
 
       if (!silent) {
-        appendLog("success", `已是最新版本 v${info.currentVersion}。`);
+        reportSettingsFeedback("success", `已是最新版本 v${info.currentVersion}。`);
       }
     } catch (error) {
       if (!silent) {
-        appendLog(
+        reportSettingsFeedback(
           "error",
           error instanceof Error ? error.message : "检查更新失败。",
         );
@@ -1364,7 +1386,7 @@ export function App() {
           content: payload,
         });
         if (!result.canceled) {
-          appendLog("success", `配置已导出：${result.filePath}`);
+          reportSettingsFeedback("success", `配置已导出：${result.filePath}`);
           await recordActivity({
             kind: "config",
             status: "success",
@@ -1383,14 +1405,14 @@ export function App() {
       anchor.download = "winkitbox-config.json";
       anchor.click();
       URL.revokeObjectURL(url);
-      appendLog("success", "配置已导出。");
+      reportSettingsFeedback("success", "配置已导出。");
       await recordActivity({
         kind: "config",
         status: "success",
         title: "配置已导出",
       });
     } catch (error) {
-      appendLog(
+      reportSettingsFeedback(
         "error",
         error instanceof Error ? error.message : "导出配置失败。",
       );
@@ -1437,7 +1459,7 @@ export function App() {
       setCustomTools(nextCustomTools);
       setSelectedIds(new Set(nextSelectedIds));
       await persistSettings(nextSettings);
-      appendLog(
+      reportSettingsFeedback(
         "success",
         `配置已导入${opened.filePath ? `：${opened.filePath}` : ""}。`,
       );
@@ -1451,7 +1473,7 @@ export function App() {
         managedRootPath: nextSettings.toolRootPath,
       });
     } catch (error) {
-      appendLog(
+      reportSettingsFeedback(
         "error",
         error instanceof Error ? error.message : "导入配置失败。",
       );
@@ -1480,7 +1502,7 @@ export function App() {
 
         if (file.size > 1024 * 1024) {
           resolve(undefined);
-          appendLog("error", "配置文件超过 1MB，已拒绝导入。");
+          reportSettingsFeedback("error", "配置文件超过 1MB，已拒绝导入。");
           return;
         }
 
@@ -2628,6 +2650,7 @@ export function App() {
             saveAiSettings={saveAiSettings}
             saveProxySettings={saveProxySettings}
             saveTheme={saveTheme}
+            feedback={settingsFeedback}
             onSelectCustomThemeBackground={selectCustomThemeBackground}
             onClearCustomThemeBackground={clearCustomThemeBackground}
             onLog={appendLog}
@@ -4147,7 +4170,7 @@ function SystemView({
   );
 }
 
-function SettingsView({
+export function SettingsView({
   settings,
   toolRootDraft,
   setToolRootDraft,
@@ -4162,6 +4185,7 @@ function SettingsView({
   saveAiSettings,
   saveProxySettings,
   saveTheme,
+  feedback,
   onSelectCustomThemeBackground,
   onClearCustomThemeBackground,
   onLog,
@@ -4189,6 +4213,7 @@ function SettingsView({
     proxyManual: string;
   }) => Promise<void>;
   saveTheme: (themeId: ThemeId) => Promise<void>;
+  feedback?: PageFeedback;
   onSelectCustomThemeBackground: (themeId: ThemeId) => Promise<void>;
   onClearCustomThemeBackground: (themeId: ThemeId) => Promise<void>;
   onLog: (level: LogEntry["level"], message: string) => void;
@@ -4205,6 +4230,9 @@ function SettingsView({
   const [modelSearch, setModelSearch] = useState("");
   const [aiBusy, setAiBusy] = useState<
     "models" | "test" | "generate" | undefined
+  >();
+  const [aiConnectionStatus, setAiConnectionStatus] = useState<
+    { level: "success" | "error"; message: string } | undefined
   >();
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<
@@ -4271,6 +4299,7 @@ function SettingsView({
     }
 
     setAiBusy("models");
+    setAiConnectionStatus(undefined);
     try {
       const result = await window.winKitBox.listAiModels({
         baseUrl: aiDraft.aiBaseUrl,
@@ -4281,12 +4310,30 @@ function SettingsView({
       if (!aiDraft.aiModel && result.models[0]) {
         setAiDraft((current) => ({ ...current, aiModel: result.models[0] }));
       }
-      onLog("success", `已检测到 ${result.models.length} 个可用模型。`);
+      const message = `已检测到 ${result.models.length} 个可用模型。`;
+      setAiConnectionStatus({
+        level: "success",
+        message,
+      });
+      onLog("success", message);
     } catch (error) {
-      onLog("error", error instanceof Error ? error.message : "模型检测失败。");
+      const message = error instanceof Error ? error.message : "模型检测失败。";
+      setAiConnectionStatus({
+        level: "error",
+        message,
+      });
+      onLog("error", message);
     } finally {
       setAiBusy(undefined);
     }
+  }
+
+  function updateAiDraft(patch: Partial<typeof aiDraft>) {
+    setAiDraft((current) => ({
+      ...current,
+      ...patch,
+    }));
+    setAiConnectionStatus(undefined);
   }
 
   async function testAiConnection() {
@@ -4295,6 +4342,7 @@ function SettingsView({
     }
 
     setAiBusy("test");
+    setAiConnectionStatus(undefined);
     try {
       await window.winKitBox.testAiConnection({
         baseUrl: aiDraft.aiBaseUrl,
@@ -4306,11 +4354,21 @@ function SettingsView({
         aiApiKey: aiDraft.aiApiKey,
         aiModel: aiDraft.aiModel,
       });
+      setAiConnectionStatus({
+        level: "success",
+        message: "AI 接口连通性测试通过。",
+      });
       onLog("success", "AI 接口连通性测试通过。");
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "AI 连通性测试失败。";
+      setAiConnectionStatus({
+        level: "error",
+        message,
+      });
       onLog(
         "error",
-        error instanceof Error ? error.message : "AI 连通性测试失败。",
+        message,
       );
     } finally {
       setAiBusy(undefined);
@@ -4331,6 +4389,12 @@ function SettingsView({
           </div>
         </div>
       </header>
+
+      {feedback && (
+        <p className={`settings-status page-feedback ${feedback.level}`}>
+          {feedback.message}
+        </p>
+      )}
 
       <div className="settings-layout">
         <section className="settings-card full-span">
@@ -4569,10 +4633,7 @@ function SettingsView({
               <input
                 value={aiDraft.aiBaseUrl}
                 onChange={(event) =>
-                  setAiDraft((current) => ({
-                    ...current,
-                    aiBaseUrl: event.target.value,
-                  }))
+                  updateAiDraft({ aiBaseUrl: event.target.value })
                 }
                 placeholder="https://api.openai.com/v1"
               />
@@ -4582,10 +4643,7 @@ function SettingsView({
               <input
                 value={aiDraft.aiApiKey}
                 onChange={(event) =>
-                  setAiDraft((current) => ({
-                    ...current,
-                    aiApiKey: event.target.value,
-                  }))
+                  updateAiDraft({ aiApiKey: event.target.value })
                 }
                 placeholder="sk-..."
                 type="password"
@@ -4596,10 +4654,7 @@ function SettingsView({
               <input
                 value={aiDraft.aiModel}
                 onChange={(event) =>
-                  setAiDraft((current) => ({
-                    ...current,
-                    aiModel: event.target.value,
-                  }))
+                  updateAiDraft({ aiModel: event.target.value })
                 }
                 placeholder="可手填，例如 gpt-4.1-mini"
               />
@@ -4649,6 +4704,11 @@ function SettingsView({
               保存 AI 设置
             </button>
           </div>
+          {aiConnectionStatus && (
+            <p className={`settings-status ${aiConnectionStatus.level}`}>
+              {aiConnectionStatus.message}
+            </p>
+          )}
           <p className="settings-note">
             添加工具、GitHub AI 助手和 AI 修复会复用这里保存的模型配置。
           </p>
@@ -4694,6 +4754,7 @@ function SettingsView({
                       type="button"
                       onClick={() => {
                         setAiDraft((current) => ({ ...current, aiModel: model }));
+                        setAiConnectionStatus(undefined);
                         setShowModelList(false);
                       }}
                     >

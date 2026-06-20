@@ -42,6 +42,10 @@ export type AddToolFocus = {
 
 type AddToolTab = "local" | "link" | "manual";
 type LogLevel = "info" | "success" | "warning" | "error";
+type PageFeedback = {
+  level: LogLevel;
+  message: string;
+};
 
 type AddToolSettings = {
   toolRootPath: string;
@@ -100,6 +104,7 @@ export function AddToolView({
   const [showLocalAdvanced, setShowLocalAdvanced] = useState(false);
   const [showManualAdvanced, setShowManualAdvanced] = useState(true);
   const [busy, setBusy] = useState<"local-ai" | "link-ai" | "add" | undefined>();
+  const [feedback, setFeedback] = useState<PageFeedback>();
   const aiReady = Boolean(settings.aiBaseUrl && settings.aiApiKey && settings.aiModel);
 
   useEffect(() => {
@@ -120,6 +125,7 @@ export function AddToolView({
         ),
       );
       setLinkPreview(undefined);
+      setFeedback(undefined);
     }
   }, [focus]);
 
@@ -135,6 +141,7 @@ export function AddToolView({
 
   function updateDraft(tab: AddToolTab, patch: Partial<AddToolDraft>) {
     const updater = (current: AddToolDraft) => ({ ...current, ...patch });
+    setFeedback(undefined);
     if (tab === "link") {
       setLinkDraft(updater);
     } else if (tab === "manual") {
@@ -149,13 +156,18 @@ export function AddToolView({
       return true;
     }
 
-    onLog("warning", "请先在设置里保存 AI 接口 URL、API Key 和模型名称。");
+    showFeedback("warning", "请先在设置里保存 AI 接口 URL、API Key 和模型名称。");
     return false;
+  }
+
+  function showFeedback(level: LogLevel, message: string) {
+    setFeedback({ level, message });
+    onLog(level, message);
   }
 
   async function chooseLocalToolFile() {
     if (!window.winKitBox) {
-      onLog("warning", "浏览器预览模式不能选择本地文件。");
+      showFeedback("warning", "浏览器预览模式不能选择本地文件。");
       return;
     }
 
@@ -171,16 +183,20 @@ export function AddToolView({
       categoryId: current.categoryId,
       name: current.name || suggestion.name,
     }));
+    setFeedback({
+      level: "info",
+      message: `已选择本地文件：${getBaseName(filePath)}。`,
+    });
   }
 
   async function analyzeLocalFile() {
     if (!window.winKitBox) {
-      onLog("warning", "浏览器预览模式不能调用 AI 分析。");
+      showFeedback("warning", "浏览器预览模式不能调用 AI 分析。");
       return;
     }
 
     if (!localDraft.localPath) {
-      onLog("warning", "请先选择要分析的本地文件。");
+      showFeedback("warning", "请先选择要分析的本地文件。");
       return;
     }
 
@@ -189,6 +205,7 @@ export function AddToolView({
     }
 
     setBusy("local-ai");
+    setFeedback(undefined);
     try {
       const result = await window.winKitBox.analyzeLocalFile({
         baseUrl: settings.aiBaseUrl,
@@ -220,9 +237,9 @@ export function AddToolView({
           candidate.explanation || "AI 已分析该文件，请确认信息后添加到工具箱。",
       }));
       setShowLocalAdvanced(false);
-      onLog("success", "AI 文件分析完成。");
+      showFeedback("success", "AI 文件分析完成，请确认方案后添加到工具箱。");
     } catch (error) {
-      onLog(
+      showFeedback(
         "error",
         error instanceof Error ? error.message : "AI 分析本地文件失败。",
       );
@@ -233,12 +250,12 @@ export function AddToolView({
 
   async function analyzeLink() {
     if (!window.winKitBox) {
-      onLog("warning", "浏览器预览模式不能调用 AI 链接分析。");
+      showFeedback("warning", "浏览器预览模式不能调用 AI 链接分析。");
       return;
     }
 
     if (!linkDraft.sourceUrl.trim()) {
-      onLog("warning", "请先输入工具主页、下载页或 GitHub 链接。");
+      showFeedback("warning", "请先输入工具主页、下载页或 GitHub 链接。");
       return;
     }
 
@@ -248,6 +265,7 @@ export function AddToolView({
 
     setBusy("link-ai");
     setLinkPreview(undefined);
+    setFeedback(undefined);
     try {
       const result = await window.winKitBox.generateAiTool({
         baseUrl: settings.aiBaseUrl,
@@ -266,9 +284,9 @@ export function AddToolView({
           result.candidate.summary ||
           "AI 已生成候选方案，请确认后添加到工具箱。",
       }));
-      onLog("success", "AI 链接分析完成。");
+      showFeedback("success", "AI 链接分析完成，请确认候选方案后添加到工具箱。");
     } catch (error) {
-      onLog(
+      showFeedback(
         "error",
         error instanceof Error ? error.message : "AI 链接分析失败。",
       );
@@ -279,19 +297,29 @@ export function AddToolView({
 
   async function addLinkTool() {
     if (!linkPreview) {
-      onLog("warning", "请先用 AI 分析链接，确认候选方案后再添加。");
+      showFeedback("warning", "请先用 AI 分析链接，确认候选方案后再添加。");
       return;
     }
 
     setBusy("add");
+    setFeedback(undefined);
     try {
       await onAddAiTool(
         linkPreview.candidate,
         linkPreview.context,
         linkDraft.categoryId,
       );
+      setFeedback({
+        level: "success",
+        message: `${linkPreview.candidate.name} 已添加到工具箱。`,
+      });
       setLinkDraft(createDefaultAddToolDraft(linkDraft.categoryId));
       setLinkPreview(undefined);
+    } catch (error) {
+      showFeedback(
+        "error",
+        error instanceof Error ? error.message : "添加链接工具失败。",
+      );
     } finally {
       setBusy(undefined);
     }
@@ -300,16 +328,24 @@ export function AddToolView({
   async function addDraftTool(tab: "local" | "manual") {
     const draft = tab === "manual" ? manualDraft : localDraft;
     setBusy("add");
+    setFeedback(undefined);
     try {
       await onAddManualTool(toCustomToolInput(draft, settings.toolRootPath));
+      setFeedback({
+        level: "success",
+        message: `${draft.name || "工具"} 已添加到工具箱。`,
+      });
       const next = createDefaultAddToolDraft(draft.categoryId);
       if (tab === "manual") {
         setManualDraft(next);
       } else {
         setLocalDraft(next);
       }
-    } catch {
-      // The owner callback already logs the failure.
+    } catch (error) {
+      showFeedback(
+        "error",
+        error instanceof Error ? error.message : "添加工具失败。",
+      );
     } finally {
       setBusy(undefined);
     }
@@ -348,6 +384,12 @@ export function AddToolView({
           </button>
         ))}
       </div>
+
+      {feedback && (
+        <p className={`settings-status page-feedback ${feedback.level}`}>
+          {feedback.message}
+        </p>
+      )}
 
       <div className="add-tool-layout">
         <section className="settings-card full-span add-tool-workspace">

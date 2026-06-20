@@ -153,6 +153,13 @@ Before packaging and publishing a release:
 
 ## Release Notes
 
+### v0.4.1
+
+- Added in-page feedback to Settings actions so tool directory, update, proxy, theme, AI setting, and config import/export operations no longer rely only on realtime logs.
+- Added AI model panel feedback for model detection and connection testing, including success and error states.
+- Added in-page feedback to the Add Tool workflow for AI analysis, validation warnings, and successful local/link/manual additions.
+- Added React/Vitest coverage for Settings and Add Tool feedback behavior.
+
 ### v0.3.12
 
 - Fixed the AI model picker dialog so long model lists have a dedicated vertical scrollbar.
