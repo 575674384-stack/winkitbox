@@ -153,6 +153,14 @@ Before packaging and publishing a release:
 
 ## Release Notes
 
+### v0.5.3
+
+- Added live validation for AI-generated install sources before custom tools are saved.
+- AI add and AI repair now retry once with validation errors and fresh source context when a direct URL or release asset is unavailable.
+- Fixed WeChat Input updates by using Tencent.WeType's winget interactive force update path and removing stale AI repair overrides that pointed to the retired direct URL.
+- Simplified GitHub ranking cards by removing copy buttons and making AI Add run directly from the card.
+- Removed the sidebar quick filter block to reduce navigation noise.
+
 ### v0.5.2
 
 - Reworked tool card actions into three compact buttons, with installed-tool reinstall and uninstall actions grouped under a Manage menu.

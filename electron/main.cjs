@@ -7,6 +7,7 @@ const https = require("node:https");
 const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { validateAiToolCandidate } = require("./aiCandidateValidation.cjs");
 const { createTrayMenuTemplate, getTrayIconPath } = require("./trayController.cjs");
 const {
   buildDetectToolsScript,
@@ -1192,18 +1193,26 @@ async function generateToolWithAi(request) {
     model,
     buildAiToolMessages(context, categoryId)
   );
-  let candidate;
-  try {
-    candidate = parseJsonFromAi(content);
-  } catch (error) {
-    throw new Error(
-      `${error.message}（原始响应：${content.replace(/\s+/g, " ").slice(0, 200)}）`
-    );
-  }
+  const { candidate, aiResponse, validation } = await parseAndValidateAiCandidate({
+    content,
+    context,
+    baseUrl,
+    apiKey,
+    model,
+    buildRepairMessages: (failedCandidate, failedValidation) =>
+      buildAiCandidateValidationRepairMessages({
+        mode: "tool-generation",
+        context,
+        candidate: failedCandidate,
+        validation: failedValidation,
+        categoryId
+      })
+  });
 
   return {
     candidate,
-    aiResponse: content,
+    aiResponse,
+    validation,
     context: {
       owner: context.owner,
       repo: context.repo,
@@ -1230,22 +1239,154 @@ async function fixToolWithAi(request) {
     throw new Error("工具定义无效。");
   }
 
+  const context = await fetchToolRepairContext(tool);
   const content = await fetchAiContent(
     baseUrl,
     apiKey,
     model,
-    buildAiFixMessages(tool, errorMessage)
+    buildAiFixMessages(tool, errorMessage, context)
   );
-  let candidate;
-  try {
-    candidate = parseJsonFromAi(content);
-  } catch (error) {
+  const { candidate, aiResponse, validation } = await parseAndValidateAiCandidate({
+    content,
+    context,
+    baseUrl,
+    apiKey,
+    model,
+    buildRepairMessages: (failedCandidate, failedValidation) =>
+      buildAiCandidateValidationRepairMessages({
+        mode: "tool-repair",
+        context,
+        candidate: failedCandidate,
+        validation: failedValidation,
+        categoryId: String(tool.category ?? "custom-add") || "custom-add",
+        tool,
+        errorMessage
+      })
+  });
+
+  return { candidate, aiResponse, validation };
+}
+
+async function parseAndValidateAiCandidate({
+  content,
+  context,
+  baseUrl,
+  apiKey,
+  model,
+  buildRepairMessages
+}) {
+  const candidate = parseAiCandidateContent(content);
+  const validation = await validateAiCandidateWithNetwork(candidate, context);
+
+  if (validation.ok) {
+    return { candidate, aiResponse: content, validation };
+  }
+
+  const repairedContent = await fetchAiContent(
+    baseUrl,
+    apiKey,
+    model,
+    buildRepairMessages(candidate, validation)
+  );
+  const repairedCandidate = parseAiCandidateContent(repairedContent);
+  const repairedValidation = await validateAiCandidateWithNetwork(repairedCandidate, context);
+
+  if (!repairedValidation.ok) {
     throw new Error(
-      `${error.message}（原始响应：${content.replace(/\s+/g, " ").slice(0, 200)}）`
+      `AI 修复后的安装源仍不可用：${formatValidationIssues(repairedValidation)}`
     );
   }
 
-  return { candidate, aiResponse: content };
+  return {
+    candidate: repairedCandidate,
+    aiResponse: `${content}\n\n--- WinKitBox 安装源实时校验未通过，已要求 AI 重新生成 ---\n${repairedContent}`,
+    validation: repairedValidation
+  };
+}
+
+function parseAiCandidateContent(content) {
+  try {
+    return parseJsonFromAi(content);
+  } catch (error) {
+    throw new Error(
+      `${error.message}（原始响应：${String(content).replace(/\s+/g, " ").slice(0, 200)}）`
+    );
+  }
+}
+
+async function validateAiCandidateWithNetwork(candidate, context) {
+  return validateAiToolCandidate(candidate, context, (url, options) =>
+    net.fetch(url, options)
+  );
+}
+
+function formatValidationIssues(validation) {
+  const issues = Array.isArray(validation?.issues) ? validation.issues : [];
+  return issues.length > 0 ? issues.join("；") : "下载源实时校验失败。";
+}
+
+async function fetchToolRepairContext(tool) {
+  const sourceUrl = getToolSourceUrl(tool);
+  const fallbackContext = {
+    htmlUrl: sourceUrl,
+    description: String(tool.description ?? tool.summary ?? ""),
+    language: "",
+    topics: Array.isArray(tool.tags) ? tool.tags.map(String) : [],
+    stars: undefined,
+    license: String(tool.license ?? ""),
+    releaseApiUrl: "",
+    assets: [],
+    currentTool: buildToolRepairSnapshot(tool)
+  };
+
+  if (!sourceUrl) {
+    return fallbackContext;
+  }
+
+  try {
+    const repoRef = parseGitHubRepoUrl(sourceUrl);
+    const context = repoRef
+      ? await fetchGitHubToolContext(repoRef.owner, repoRef.repo)
+      : await fetchGenericToolContext(sourceUrl);
+
+    return {
+      ...context,
+      currentTool: buildToolRepairSnapshot(tool)
+    };
+  } catch (error) {
+    return {
+      ...fallbackContext,
+      contextError: error instanceof Error ? error.message : "实时来源上下文读取失败。"
+    };
+  }
+}
+
+function getToolSourceUrl(tool) {
+  const candidates = [
+    tool?.repoUrl,
+    tool?.homepage,
+    tool?.installer?.downloadUrl,
+    tool?.portable?.downloadUrl
+  ];
+
+  return String(candidates.find((value) => /^https?:\/\//i.test(String(value ?? ""))) ?? "").trim();
+}
+
+function buildToolRepairSnapshot(tool) {
+  return {
+    id: String(tool?.id ?? ""),
+    name: String(tool?.name ?? ""),
+    category: String(tool?.category ?? ""),
+    source: String(tool?.source ?? ""),
+    homepage: String(tool?.homepage ?? ""),
+    repoUrl: String(tool?.repoUrl ?? ""),
+    wingetId: String(tool?.wingetId ?? ""),
+    installer: tool?.installer ?? undefined,
+    portable: tool?.portable ?? undefined,
+    customInstallCommand: tool?.customInstallCommand ?? undefined,
+    customUpdateCommand: tool?.customUpdateCommand ?? undefined,
+    launch: tool?.launch ?? undefined
+  };
 }
 
 async function analyzeLocalFileWithAi(request) {
@@ -1322,7 +1463,7 @@ async function recommendGitHubReposWithAi(request) {
   }
 }
 
-function buildAiToolFixPrompt(tool, errorMessage) {
+function buildAiToolFixPrompt(tool, errorMessage, context) {
   return `Analyze this WinKitBox tool definition and its installation failure, then return a corrected install configuration.
 
 Tool definition:
@@ -1330,6 +1471,9 @@ ${JSON.stringify(tool, null, 2)}
 
 Installation error message:
 ${errorMessage || "No specific error message provided."}
+
+Live source context:
+${JSON.stringify(context, null, 2)}
 
 Return exactly one JSON object with this shape:
 {
@@ -1356,10 +1500,12 @@ Return exactly one JSON object with this shape:
 
 Rules:
 - Keep the same general purpose of the tool.
-- Prefer a direct Windows installer asset (.exe or .msi) from the official source.
+- Prefer a direct Windows installer asset (.exe or .msi) from the live source context.
 - Use portable only for .zip or .7z assets when the executable name is obvious.
 - Use winget only if you are confident about the winget package id.
 - Fix the install route based on the error message (e.g. wrong asset pattern, missing executable, outdated winget id).
+- Do not reuse a URL from the error log if it failed with 404, "file not exist", or a similar missing-file response.
+- Direct downloadUrl or matched release asset must be reachable by WinKitBox live validation.
 - Do not invent unsupported install types.
 - Do not return arbitrary PowerShell, shell scripts, browser-only instructions, or unsupported install types.
 - Return JSON only. No markdown, no explanations, no trailing commas.`;
@@ -1533,7 +1679,7 @@ function getLocalFileAnalysisExplanation(mode, extension) {
   return "已识别为可直接打开的本地工具，只加入工具箱。";
 }
 
-function buildAiFixMessages(tool, errorMessage) {
+function buildAiFixMessages(tool, errorMessage, context) {
   return [
     {
       role: "system",
@@ -1552,7 +1698,84 @@ function buildAiFixMessages(tool, errorMessage) {
     },
     {
       role: "user",
-      content: buildAiToolFixPrompt(tool, errorMessage)
+      content: buildAiToolFixPrompt(tool, errorMessage, context)
+    }
+  ];
+}
+
+function buildAiCandidateValidationRepairMessages({
+  mode,
+  context,
+  candidate,
+  validation,
+  categoryId,
+  tool,
+  errorMessage
+}) {
+  const prompt =
+    mode === "tool-repair"
+      ? `The previous AI repair candidate failed WinKitBox live installation-source validation.
+
+Original tool definition:
+${JSON.stringify(tool ?? {}, null, 2)}
+
+Original installation/update error:
+${errorMessage || "No specific error message provided."}
+`
+      : "The previous AI-generated tool candidate failed WinKitBox live installation-source validation.";
+
+  return [
+    {
+      role: "system",
+      content:
+        "You correct WinKitBox Windows software install configurations. CRITICAL: your entire response must be one valid JSON object, starting with { and ending with }. Do not write any introduction, explanation, reasoning, or conclusion. Do not wrap in markdown. Do not add trailing commas. Any non-JSON output will be rejected."
+    },
+    {
+      role: "user",
+      content: `${prompt}
+
+Validation issues:
+${formatValidationIssues(validation)}
+
+Failed candidate:
+${JSON.stringify(candidate, null, 2)}
+
+Live source context:
+${JSON.stringify(context, null, 2)}
+
+Return exactly one corrected JSON object with this shape:
+{
+  "name": "display name",
+  "category": "${categoryId || "custom-add"}",
+  "summary": "short Chinese summary, <= 30 chars",
+  "description": "Chinese description, <= 90 chars",
+  "license": "license id or Unknown",
+  "tags": ["Chinese tag"],
+  "risk": "low|medium|high",
+  "install": {
+    "type": "winget|installer|portable",
+    "wingetId": "only when type is winget",
+    "assetPattern": "regex matching a Windows release asset, only when type is installer or portable",
+    "downloadUrl": "direct official Windows download URL, only when not using assetPattern",
+    "archive": "zip|7z, only when portable",
+    "executable": "relative exe path inside extracted archive, only when portable",
+    "fileName": "installer file name, only when installer"
+  },
+  "launch": {
+    "startMenuNames": ["possible Start Menu names"],
+    "commands": ["possible executable command names"]
+  }
+}
+
+Rules:
+- Keep the same software and general purpose.
+- Do not reuse the failed downloadUrl or failed assetPattern.
+- Prefer winget only when the package id is reliable.
+- Prefer a current Windows .exe/.msi release asset or official direct download URL from the live context.
+- For GitHub release assets, prefer assetPattern over hard-coded version URLs when a stable Windows asset pattern exists.
+- Direct downloadUrl or matched release asset must pass a live HEAD/GET probe.
+- Do not return arbitrary PowerShell, browser-only instructions, or unsupported install types.
+- Return JSON only. No markdown, no explanations, no trailing commas.`
     }
   ];
 }
@@ -1780,6 +2003,8 @@ Rules:
 - Prefer a direct Windows installer asset (.exe or .msi) from latest release or official download page.
 - Use portable only for .zip or .7z assets when the executable name is obvious.
 - Use winget only if you are confident about the winget package id.
+- Prefer assetPattern for GitHub release assets when the asset naming pattern is stable across versions.
+- Direct downloadUrl or matched release asset must be reachable by WinKitBox live validation.
 - Do not invent unsupported install types.
 - Do not return arbitrary PowerShell, shell scripts, browser-only instructions, or unsupported install types.
 - If no direct Windows install route exists, choose the closest direct Windows route from the assets/page if possible.
@@ -2300,7 +2525,28 @@ function normalizeCustomTools(value) {
       typeof tool.name === "string" &&
       typeof tool.category === "string"
     )
+    .filter((tool) => !isStaleWeTypeOverride(tool))
     .slice(0, 200);
+}
+
+function isStaleWeTypeOverride(tool) {
+  if (tool.id !== "wechat-input") {
+    return false;
+  }
+
+  const haystack = [
+    tool.installer?.downloadUrl,
+    tool.portable?.downloadUrl,
+    tool.customInstallCommand
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    haystack.includes("dldir1v6.qq.com/weixin/universal/wetype/wetype_setup.exe") ||
+    haystack.includes("wetype_setup.exe")
+  );
 }
 
 function normalizePreviousCodePages(value) {

@@ -79,6 +79,7 @@ import {
 import {
   buildExportConfig,
   createCustomTool,
+  normalizeStoredCustomTools,
   parseImportedConfig,
   type CustomToolInput,
 } from "./core/config";
@@ -420,10 +421,10 @@ function createTaskId(kind: string, target: string) {
 
 export function App() {
   const [customTools, setCustomTools] = useState<Tool[]>(() =>
-    loadCustomTools(),
+    normalizeStoredCustomTools(loadCustomTools()),
   );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
-    const initialTools = [...catalogTools, ...loadCustomTools()];
+    const initialTools = [...catalogTools, ...normalizeStoredCustomTools(loadCustomTools())];
     const fallback = getDefaultSelection(initialTools);
     const knownIds = new Set(initialTools.map((tool) => tool.id));
     const stored = localStorage.getItem(selectionStorageKey);
@@ -678,8 +679,8 @@ export function App() {
         const storedCustomTools =
           Array.isArray(nextSettings.customTools) &&
           nextSettings.customTools.length > 0
-            ? nextSettings.customTools
-            : loadCustomTools();
+            ? normalizeStoredCustomTools(nextSettings.customTools)
+            : normalizeStoredCustomTools(loadCustomTools());
         const migratedThemeId = isThemeId(nextSettings.themeId)
           ? nextSettings.themeId
           : defaultThemeId;
@@ -1798,7 +1799,7 @@ export function App() {
       }
 
       const imported = parseImportedConfig(opened.content);
-      const nextCustomTools = imported.customTools;
+      const nextCustomTools = normalizeStoredCustomTools(imported.customTools);
       const nextCustomCategories = normalizeCategoryDefinitions(
         imported.customCategories,
       );
@@ -1942,6 +1943,7 @@ export function App() {
         source: "添加工具",
         repoUrl: context.htmlUrl,
       });
+      throw error;
     }
   }
 
@@ -2135,12 +2137,26 @@ export function App() {
   }
 
   async function addDiscoverRepoWithAi(repoUrl: string, categoryId: string) {
-    openAddToolView({
-      tab: "link",
-      sourceUrl: repoUrl,
+    if (!window.winKitBox) {
+      appendLog("warning", "浏览器预览模式不能调用 AI 添加。");
+      throw new Error("浏览器预览模式不能调用 AI 添加。");
+    }
+
+    if (!settings.aiBaseUrl || !settings.aiApiKey || !settings.aiModel) {
+      appendLog("warning", "请先在设置里保存 AI 接口 URL、API Key 和模型名称。");
+      setActiveView("settings");
+      throw new Error("请先在设置里保存 AI 接口 URL、API Key 和模型名称。");
+    }
+
+    appendLog("info", `正在用 AI 添加 GitHub 项目：${repoUrl}`);
+    const result = await window.winKitBox.generateAiTool({
+      baseUrl: settings.aiBaseUrl,
+      apiKey: settings.aiApiKey,
+      model: settings.aiModel,
+      toolUrl: repoUrl,
       categoryId,
     });
-    appendLog("info", "已把 GitHub 项目填入添加工具页，请确认后添加。");
+    await addAiGeneratedTool(result.candidate, result.context, categoryId);
   }
 
   async function recommendDiscoverReposWithAi(prompt: string) {
@@ -2900,85 +2916,6 @@ export function App() {
                 查看本机
               </span>
               <strong>配置</strong>
-            </button>
-          </div>
-
-          <div className="nav-section">
-            <div className="section-title">
-              <ListChecks size={15} />
-              快捷
-            </div>
-            <button
-              className={`category-button ${
-                activeView === "catalog" &&
-                activeCategory === "all" &&
-                !selectedOnly &&
-                !installedOnly &&
-                !failedOnly &&
-                !updatableOnly
-                  ? "active"
-                  : ""
-              }`}
-              type="button"
-              onClick={() => {
-                setActiveView("catalog");
-                setActiveCategory("all");
-                setQuery("");
-                setFailedOnly(false);
-                setInstalledOnly(false);
-                setSelectedOnly(false);
-                setUpdatableOnly(false);
-              }}
-            >
-              <span>
-                <ListChecks size={16} />
-                全部工具
-              </span>
-              <strong>{allTools.length}</strong>
-            </button>
-            <button
-              className={`category-button ${selectedOnly ? "active" : ""}`}
-              type="button"
-              onClick={() => toggleQuickFilter("selected")}
-            >
-              <span>
-                <Check size={16} />
-                已选择
-              </span>
-              <strong>{dashboardStats.selectedCount}</strong>
-            </button>
-            <button
-              className={`category-button ${installedOnly ? "active" : ""}`}
-              type="button"
-              onClick={() => toggleQuickFilter("installed")}
-            >
-              <span>
-                <DownloadCloud size={16} />
-                已安装
-              </span>
-              <strong>{dashboardStats.installedCount}</strong>
-            </button>
-            <button
-              className={`category-button ${updatableOnly ? "active" : ""}`}
-              type="button"
-              onClick={() => toggleQuickFilter("updatable")}
-            >
-              <span>
-                <RotateCcw size={16} />
-                可更新
-              </span>
-              <strong>{updatableToolCount}</strong>
-            </button>
-            <button
-              className={`category-button ${failedOnly ? "active" : ""}`}
-              type="button"
-              onClick={() => toggleQuickFilter("failed")}
-            >
-              <span>
-                <ShieldAlert size={16} />
-                安装失败
-              </span>
-              <strong>{failedToolCount}</strong>
             </button>
           </div>
 

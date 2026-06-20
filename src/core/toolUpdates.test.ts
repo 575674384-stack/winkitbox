@@ -32,6 +32,21 @@ describe("tool update helpers", () => {
     );
   });
 
+  it("allows tools to override the winget update command", () => {
+    const tool: Tool = {
+      ...baseTool,
+      source: "winget",
+      wingetId: "Tencent.WeType",
+      customUpdateCommand:
+        "winget install --id Tencent.WeType --source winget --accept-package-agreements --accept-source-agreements --interactive --force",
+    };
+
+    expect(getToolUpdateStrategy(tool)).toBe("winget");
+    expect(buildToolUpdateCommand(tool).command).toBe(
+      "winget install --id Tencent.WeType --source winget --accept-package-agreements --accept-source-agreements --interactive --force",
+    );
+  });
+
   it("keeps winget detection read-only and separate from updates", () => {
     const mainSource = readFileSync("electron/main.cjs", "utf8");
     const checkFunction = mainSource.match(

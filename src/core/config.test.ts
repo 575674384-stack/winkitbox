@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildExportConfig, createCustomTool, parseImportedConfig } from "./config";
+import { buildExportConfig, createCustomTool, normalizeStoredCustomTools, parseImportedConfig } from "./config";
 
 describe("config helpers", () => {
   it("creates a custom tool with a stable custom id and install command", () => {
@@ -168,5 +168,42 @@ describe("config helpers", () => {
     expect(imported.customCategories?.find((category) => category.id === "custom-add")?.name).toBe("自定义添加");
     expect(imported.customCategories?.find((category) => category.id === "custom-add")?.hidden).not.toBe(true);
     expect(imported.customCategories?.find((category) => category.id === "user-tools")?.name).toBe("我的工具");
+  });
+
+  it("removes stale WeType AI repair overrides from stored custom tools", () => {
+    const tools = normalizeStoredCustomTools([
+      {
+        id: "wechat-input",
+        name: "微信输入法",
+        category: "ime",
+        summary: "微信输入法",
+        description: "旧 AI 修复项",
+        source: "github",
+        license: "Freeware",
+        homepage: "https://z.weixin.qq.com/",
+        installer: {
+          downloadUrl: "https://dldir1v6.qq.com/weixin/Universal/WeType/WeType_Setup.exe",
+          targetDirName: "wechat-input",
+          fileName: "WeType_Setup.exe"
+        },
+        tags: ["输入法"],
+        risk: "medium"
+      },
+      {
+        id: "custom-tool",
+        name: "自定义工具",
+        category: "custom-add",
+        summary: "自定义工具",
+        description: "保留",
+        source: "custom",
+        license: "Custom",
+        homepage: "https://example.com",
+        customInstallCommand: "echo ok",
+        tags: ["自定义"],
+        risk: "medium"
+      }
+    ]);
+
+    expect(tools.map((tool) => tool.id)).toEqual(["custom-tool"]);
   });
 });

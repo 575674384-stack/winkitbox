@@ -50,6 +50,7 @@ export type Tool = {
   };
   customInstallCommand?: string;
   customUninstallCommand?: string;
+  customUpdateCommand?: string;
   collectionOnly?: boolean;
   localSource?: {
     kind: "launcher" | "installer" | "archive";
@@ -986,6 +987,8 @@ const additionalTools: Tool[] = [
     license: "Freeware",
     homepage: "https://z.weixin.qq.com/",
     wingetId: "Tencent.WeType",
+    customUpdateCommand:
+      "winget install --id Tencent.WeType --source winget --accept-package-agreements --accept-source-agreements --interactive --force",
     launch: {
       startMenuNames: ["微信输入法", "WeType"],
       commands: ["WeType.exe"]

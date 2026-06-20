@@ -371,9 +371,17 @@ export function parseImportedConfig(text: string): WinKitBoxExportConfig {
       proxyManual: String(parsed.settings.proxyManual || "").trim() || undefined
     },
     selectedToolIds: Array.isArray(parsed.selectedToolIds) ? parsed.selectedToolIds.map(String) : [],
-    customTools: parsed.customTools.slice(0, 200).filter(isLikelyTool),
+    customTools: normalizeStoredCustomTools(parsed.customTools),
     customCategories: normalizeCategoryDefinitions((parsed as { customCategories?: unknown }).customCategories)
   };
+}
+
+export function normalizeStoredCustomTools(value: unknown): Tool[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.slice(0, 200).filter(isLikelyTool).filter((tool) => !isStaleWeTypeOverride(tool));
 }
 
 function isLikelyTool(tool: unknown): tool is Tool {
@@ -383,6 +391,26 @@ function isLikelyTool(tool: unknown): tool is Tool {
     typeof (tool as Tool).id === "string" &&
     typeof (tool as Tool).name === "string" &&
     typeof (tool as Tool).category === "string"
+  );
+}
+
+function isStaleWeTypeOverride(tool: Tool) {
+  if (tool.id !== "wechat-input") {
+    return false;
+  }
+
+  const haystack = [
+    tool.installer?.downloadUrl,
+    tool.portable?.downloadUrl,
+    tool.customInstallCommand,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    haystack.includes("dldir1v6.qq.com/weixin/universal/wetype/wetype_setup.exe") ||
+    haystack.includes("wetype_setup.exe")
   );
 }
 

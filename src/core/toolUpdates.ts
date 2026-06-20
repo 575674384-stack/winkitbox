@@ -70,6 +70,13 @@ export function buildToolUpdateCommand(
     };
   }
 
+  if (tool.customUpdateCommand) {
+    return {
+      ...base,
+      command: tool.customUpdateCommand,
+    };
+  }
+
   if (tool.wingetId) {
     return {
       ...base,
