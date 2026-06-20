@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import {
   Check,
   ChevronDown,
@@ -49,6 +49,7 @@ import {
   getCategoryName,
   getDefaultCategoryDefinitions,
   normalizeCategoryDefinitions,
+  reorderUserCategories,
   resolveToolCategory,
   tools as catalogTools,
   type CategoryDefinition,
@@ -87,6 +88,15 @@ import {
   toggleCatalogQuickFilter,
   type CatalogQuickFilter,
 } from "./core/catalogFilters";
+import {
+  categoryDragMimeType,
+  createCategoryDragPayload,
+  createToolDragPayload,
+  getDroppableCategoryId,
+  parseCategoryDragPayload,
+  parseToolDragPayload,
+  toolDragMimeType,
+} from "./core/catalogDrag";
 import {
   createEnvironmentChecks,
   createEnvironmentHealthSummary,
@@ -492,6 +502,10 @@ export function App() {
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState("");
   const [detailToolId, setDetailToolId] = useState<string>();
+  const [draggedToolId, setDraggedToolId] = useState<string>();
+  const [dragOverCategoryId, setDragOverCategoryId] = useState<string>();
+  const [draggedCategoryId, setDraggedCategoryId] = useState<string>();
+  const [categorySortOverId, setCategorySortOverId] = useState<string>();
 
   const allTools = useMemo(() => {
     const applyCategoryOverrides = (tools: Tool[]) =>
@@ -1337,11 +1351,13 @@ export function App() {
         ...settings,
         customCategories: normalizeCategoryDefinitions(nextCategories),
       });
+      return true;
     } catch (error) {
       appendLog(
         "error",
         error instanceof Error ? error.message : "保存分类失败。",
       );
+      return false;
     }
   }
 
@@ -1386,6 +1402,125 @@ export function App() {
         error instanceof Error ? error.message : "修改工具分类失败。",
       );
     }
+  }
+
+  function startToolDrag(event: DragEvent<HTMLElement>, tool: Tool) {
+    setDraggedToolId(tool.id);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(toolDragMimeType, createToolDragPayload(tool.id));
+    event.dataTransfer.setData("text/plain", tool.id);
+  }
+
+  function endToolDrag() {
+    setDraggedToolId(undefined);
+    setDragOverCategoryId(undefined);
+  }
+
+  function getSortableCategoryId(categoryId: string) {
+    const category = settings.customCategories.find((item) => item.id === categoryId);
+    return category && !category.builtin && !category.protected && !category.hidden
+      ? category.id
+      : undefined;
+  }
+
+  function startCategoryDrag(event: DragEvent<HTMLElement>, categoryId: string) {
+    const sortableCategoryId = getSortableCategoryId(categoryId);
+    if (!sortableCategoryId) {
+      return;
+    }
+
+    setDraggedCategoryId(sortableCategoryId);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(
+      categoryDragMimeType,
+      createCategoryDragPayload(sortableCategoryId),
+    );
+  }
+
+  function endCategoryDrag() {
+    setDraggedCategoryId(undefined);
+    setCategorySortOverId(undefined);
+  }
+
+  function dragOverCategory(event: DragEvent<HTMLElement>, categoryId: CategoryFilter) {
+    if (draggedCategoryId) {
+      const sortableCategoryId = getSortableCategoryId(categoryId);
+      if (!sortableCategoryId || sortableCategoryId === draggedCategoryId) {
+        return;
+      }
+
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      setCategorySortOverId(sortableCategoryId);
+      return;
+    }
+
+    const droppableCategoryId = getDroppableCategoryId(categoryId);
+    if (!droppableCategoryId || !draggedToolId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverCategoryId(droppableCategoryId);
+  }
+
+  async function dropToolOnCategory(
+    event: DragEvent<HTMLElement>,
+    categoryId: CategoryFilter,
+  ) {
+    const draggedCategory =
+      parseCategoryDragPayload(event.dataTransfer.getData(categoryDragMimeType)) ||
+      draggedCategoryId;
+    if (draggedCategory) {
+      const sortableCategoryId = getSortableCategoryId(categoryId);
+      setDraggedCategoryId(undefined);
+      setCategorySortOverId(undefined);
+
+      if (!sortableCategoryId || sortableCategoryId === draggedCategory) {
+        return;
+      }
+
+      event.preventDefault();
+      const nextCategories = reorderUserCategories(
+        settings.customCategories,
+        draggedCategory,
+        sortableCategoryId,
+      );
+      if (nextCategories !== settings.customCategories) {
+        const saved = await saveCustomCategories(nextCategories);
+        if (saved) {
+          appendLog("success", "已调整自定义分类顺序。");
+        }
+      }
+      return;
+    }
+
+    const droppableCategoryId = getDroppableCategoryId(categoryId);
+    if (!droppableCategoryId) {
+      return;
+    }
+
+    event.preventDefault();
+    const toolId =
+      parseToolDragPayload(event.dataTransfer.getData(toolDragMimeType)) ||
+      event.dataTransfer.getData("text/plain") ||
+      draggedToolId;
+    setDragOverCategoryId(undefined);
+    setDraggedToolId(undefined);
+
+    if (!toolId || !allTools.some((tool) => tool.id === toolId)) {
+      appendLog("warning", "没有识别到被拖拽的工具。");
+      return;
+    }
+
+    await saveToolCategory(toolId, droppableCategoryId);
+    setActiveView("catalog");
+    setActiveCategory(droppableCategoryId);
+    setFailedOnly(false);
+    setInstalledOnly(false);
+    setSelectedOnly(false);
+    setUpdatableOnly(false);
   }
 
   async function addCustomCategory(name: string) {
@@ -2872,6 +3007,8 @@ export function App() {
                 const editable =
                   category !== "all" && category !== customAddCategoryId && !categoryDef?.protected;
                 const isEditing = editingCategoryId === category;
+                const droppableCategoryId = getDroppableCategoryId(category);
+                const sortableCategoryId = getSortableCategoryId(category);
 
                 return (
                   <div
@@ -2879,12 +3016,38 @@ export function App() {
                       activeView === "catalog" && activeCategory === category
                         ? "active"
                         : ""
+                    } ${droppableCategoryId ? "drop-target" : ""} ${
+                      dragOverCategoryId === droppableCategoryId ? "drop-over" : ""
+                    } ${sortableCategoryId ? "sort-target" : ""} ${
+                      draggedCategoryId === sortableCategoryId ? "sort-source" : ""
+                    } ${
+                      categorySortOverId === sortableCategoryId ? "sort-over" : ""
                     }`}
                     key={category}
+                    onDragOver={(event) => dragOverCategory(event, category)}
+                    onDragLeave={(event) => {
+                      const nextTarget = event.relatedTarget;
+                      if (
+                        nextTarget instanceof Node &&
+                        event.currentTarget.contains(nextTarget)
+                      ) {
+                        return;
+                      }
+                      if (dragOverCategoryId === droppableCategoryId) {
+                        setDragOverCategoryId(undefined);
+                      }
+                      if (categorySortOverId === sortableCategoryId) {
+                        setCategorySortOverId(undefined);
+                      }
+                    }}
+                    onDrop={(event) => void dropToolOnCategory(event, category)}
                   >
                     <button
                       className="category-button"
                       type="button"
+                      draggable={Boolean(sortableCategoryId && !isEditing)}
+                      onDragStart={(event) => startCategoryDrag(event, category)}
+                      onDragEnd={endCategoryDrag}
                       onClick={() => {
                         setActiveView("catalog");
                         setActiveCategory(category);
@@ -3389,20 +3552,18 @@ export function App() {
                   selected={selectedIds.has(tool.id)}
                   categories={activeCategoryDefinitions}
                   isCustom={customTools.some((item) => item.id === tool.id)}
+                  dragging={draggedToolId === tool.id}
                   onToggle={() => toggleTool(tool.id)}
                   onInstall={() => installTool(tool)}
                   onUninstall={() => uninstallTool(tool)}
                   onLaunch={() => launchTool(tool)}
-                  onOpen={() => openUrl(tool.repoUrl ?? tool.homepage)}
-                  onAiFix={() => fixToolWithAi(tool)}
-                  onViewLogs={() =>
-                    openLogsView({ toolId: tool.id, quick: "failed" })
-                  }
                   onShowDetails={() => setDetailToolId(tool.id)}
                   onSetCategory={(categoryId) =>
                     saveToolCategory(tool.id, categoryId)
                   }
                   onRemove={() => removeCustomToolFromCard(tool)}
+                  onDragStart={(event) => startToolDrag(event, tool)}
+                  onDragEnd={endToolDrag}
                 />
               ))}
             </div>
@@ -5971,42 +6132,42 @@ function ToolCard({
   selected,
   categories,
   isCustom,
+  dragging,
   onToggle,
   onInstall,
   onUninstall,
   onLaunch,
-  onOpen,
-  onAiFix,
-  onViewLogs,
   onShowDetails,
   onSetCategory,
   onRemove,
+  onDragStart,
+  onDragEnd,
 }: {
   tool: Tool;
   toolState: ToolRuntimeState;
   selected: boolean;
   categories: CategoryDefinition[];
   isCustom: boolean;
+  dragging: boolean;
   onToggle: () => void;
   onInstall: () => void;
   onUninstall: () => void;
   onLaunch: () => void;
-  onOpen: () => void;
-  onAiFix: () => void;
-  onViewLogs: () => void;
   onShowDetails: () => void;
   onSetCategory: (categoryId: string) => void;
   onRemove: () => void;
+  onDragStart: (event: DragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
 }) {
-  const Icon = categoryIcons[tool.category];
   const [logoFailed, setLogoFailed] = useState(false);
+  const [showLifecycleMenu, setShowLifecycleMenu] = useState(false);
   const logoUrl = getToolLogoUrl(tool);
-  const installDisabled =
+  const isInstalled = toolState.status === "installed";
+  const lifecycleDisabled =
     tool.collectionOnly ||
     toolState.status === "installing" ||
     toolState.status === "uninstalling" ||
     toolState.status === "checking";
-  const uninstallDisabled = tool.collectionOnly || toolState.status !== "installed";
   const openDisabled =
     toolState.status === "installing" ||
     toolState.status === "uninstalling" ||
@@ -6014,10 +6175,28 @@ function ToolCard({
     toolState.status === "checking" ||
     toolState.status === "not-installed" ||
     toolState.launcherFound === false;
+  const lifecycleLabel = tool.collectionOnly
+    ? "无需安装"
+    : isInstalled
+      ? "管理"
+      : getInstallButtonLabel(toolState.status);
+  const LifecycleIcon = isInstalled ? Wrench : Download;
+
+  function handleLifecycleAction() {
+    if (isInstalled) {
+      setShowLifecycleMenu((value) => !value);
+      return;
+    }
+
+    onInstall();
+  }
 
   return (
     <article
-      className={`tool-card ${selected ? "selected" : ""} status-${toolState.status}`}
+      className={`tool-card ${selected ? "selected" : ""} ${dragging ? "dragging" : ""} status-${toolState.status}`}
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
     >
       <button
         className="select-check"
@@ -6103,33 +6282,39 @@ function ToolCard({
         </div>
         <div className="tool-actions">
           <button
-            className="mini-action install"
+            className="mini-action install lifecycle-action"
             type="button"
-            disabled={installDisabled}
-            onClick={onInstall}
+            disabled={lifecycleDisabled}
+            onClick={handleLifecycleAction}
           >
-            <Download size={14} />
-            {tool.collectionOnly ? "无需安装" : getInstallButtonLabel(toolState.status)}
+            <LifecycleIcon size={14} />
+            {lifecycleLabel}
+            {isInstalled && <ChevronDown size={13} />}
           </button>
-          {toolState.status === "failed" && (
-            <>
+          {showLifecycleMenu && isInstalled && (
+            <div className="tool-action-menu">
               <button
-                className="mini-action ai-fix"
                 type="button"
-                onClick={onAiFix}
+                onClick={() => {
+                  setShowLifecycleMenu(false);
+                  onInstall();
+                }}
               >
-                <Sparkles size={14} />
-                AI修复
+                <Download size={14} />
+                重装
               </button>
               <button
-                className="mini-action"
+                className="danger"
                 type="button"
-                onClick={onViewLogs}
+                onClick={() => {
+                  setShowLifecycleMenu(false);
+                  onUninstall();
+                }}
               >
-                <Terminal size={14} />
-                日志
+                <Trash2 size={14} />
+                卸载
               </button>
-            </>
+            </div>
           )}
           <button
             className="mini-action open"
@@ -6141,33 +6326,15 @@ function ToolCard({
             {toolState.status === "opening" ? "打开中" : "打开"}
           </button>
           <button
-            className="mini-action uninstall"
-            type="button"
-            disabled={uninstallDisabled}
-            onClick={onUninstall}
-          >
-            <Trash2 size={14} />
-            {tool.collectionOnly
-              ? "不卸载"
-              : toolState.status === "uninstalling"
-                ? "卸载中"
-                : "卸载"}
-          </button>
-          <button
             className="mini-action"
             type="button"
-            onClick={onShowDetails}
+            onClick={() => {
+              setShowLifecycleMenu(false);
+              onShowDetails();
+            }}
           >
             <Info size={14} />
             详情
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label={`打开 ${tool.name} 来源`}
-            onClick={onOpen}
-          >
-            <ExternalLink size={15} />
           </button>
         </div>
       </div>

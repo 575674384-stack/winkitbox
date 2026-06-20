@@ -6,6 +6,7 @@ import {
   getActiveCategoryDefinitions,
   getDefaultCategoryDefinitions,
   normalizeCategoryDefinitions,
+  reorderUserCategories,
   resolveToolCategory,
   tools,
   uncategorizedCategoryId
@@ -61,5 +62,33 @@ describe("tool catalog", () => {
       name: "我的工具",
       builtin: false
     });
+  });
+
+  it("reorders only user categories while keeping builtin categories fixed", () => {
+    const categories = normalizeCategoryDefinitions([
+      ...getDefaultCategoryDefinitions(),
+      { id: "user-a", name: "A", builtin: false },
+      { id: "user-b", name: "B", builtin: false },
+      { id: "user-c", name: "C", builtin: false }
+    ]);
+
+    const reordered = reorderUserCategories(categories, "user-c", "user-a");
+
+    expect(reordered.map((category) => category.id)).toEqual([
+      customAddCategoryId,
+      "starter",
+      "ai",
+      "ime",
+      "system",
+      "files",
+      "capture",
+      "cleanup",
+      "desktop",
+      "network",
+      "rescue",
+      "user-c",
+      "user-a",
+      "user-b"
+    ]);
   });
 });

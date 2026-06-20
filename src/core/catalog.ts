@@ -209,6 +209,30 @@ export function createUserCategory(name: string, existingCategories: CategoryDef
   };
 }
 
+export function reorderUserCategories(
+  categories: CategoryDefinition[],
+  activeCategoryId: string,
+  overCategoryId: string,
+) {
+  if (!activeCategoryId || activeCategoryId === overCategoryId) {
+    return categories;
+  }
+
+  const builtins = categories.filter((category) => category.builtin || category.protected);
+  const users = categories.filter((category) => !category.builtin && !category.protected);
+  const activeIndex = users.findIndex((category) => category.id === activeCategoryId);
+  const overIndex = users.findIndex((category) => category.id === overCategoryId);
+
+  if (activeIndex < 0 || overIndex < 0) {
+    return categories;
+  }
+
+  const reorderedUsers = [...users];
+  const [moved] = reorderedUsers.splice(activeIndex, 1);
+  reorderedUsers.splice(overIndex, 0, moved);
+  return [...builtins, ...reorderedUsers];
+}
+
 function sanitizeCategoryId(value: string) {
   return value
     .trim()

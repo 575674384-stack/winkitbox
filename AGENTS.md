@@ -153,6 +153,12 @@ Before packaging and publishing a release:
 
 ## Release Notes
 
+### v0.5.2
+
+- Reworked tool card actions into three compact buttons, with installed-tool reinstall and uninstall actions grouped under a Manage menu.
+- Added drag-and-drop tool classification from tool cards to the left category navigation.
+- Added drag-and-drop ordering for user-created categories while keeping built-in categories fixed.
+
 ### v0.5.1
 
 - Added a dedicated AI log tab in Log Center for full AI replies from GitHub recommendations, link/local analysis, and repair flows.
