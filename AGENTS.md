@@ -50,8 +50,10 @@ $env:Path='C:\Program Files\nodejs;'+$env:Path; npm test
 ## Project Map
 
 - `src/App.tsx`: main catalog UI, local system page, settings page, AI-add-tool flow, install/open/uninstall actions.
+- `src/components/`: reusable renderer components split out of the main app shell.
 - `src/DiscoverView.tsx`: Windows-focused GitHub weekly/monthly ranking view, proxy mode, token input, translation flow.
 - `src/styles.css`: full app styling. Keep it responsive for the desktop window minimum size.
+- `src/styles/`: component-level CSS split from the global stylesheet.
 - `src/core/catalog.ts`: tool catalog data. Prefer official, open-source, or stable direct download sources.
 - `src/core/aiTool.ts`: validates AI-generated tool metadata and converts it into catalog entries.
 - `src/core/config.ts`: lightweight export/import config and custom tool helpers.
@@ -64,6 +66,7 @@ $env:Path='C:\Program Files\nodejs;'+$env:Path; npm test
 - `src/core/translation.ts`: translation helpers.
 - `src/core/update.ts`: version comparison and update availability helpers.
 - `electron/main.cjs`: Electron main process, menu/tray/window behavior, IPC, PowerShell execution, settings, update checks.
+- `electron/themeIds.cjs`: main-process theme ID normalization shared by settings and theme-background IPC.
 - `electron/preload.cjs`: safe renderer bridge. Add new renderer APIs here and in `src/types/electron.d.ts`.
 - `electron/windowsTools.cjs`: generated PowerShell for installed-tool detection and launching.
 - `electron/trayController.cjs`: tray icon/menu behavior.
@@ -152,6 +155,17 @@ Before packaging and publishing a release:
 5. Create a **new** GitHub release with the matching tag; do not overwrite an existing release tag.
 
 ## Release Notes
+
+### v0.7.1
+
+- Replaced native confirm dialogs with theme-aware in-app confirmation modals across uninstall, remove, restore, delete, and log clearing actions.
+- Fixed the three newer built-in themes so violet, rose, and ninja theme IDs survive Electron settings normalization and actually apply.
+- Added generated per-page top-bar artwork and unified top bars, metric cards, empty states, error states, and typography treatment.
+- Reworked Notes into a card-grid notebook page with modal editing, removing the permanent duplicate editor panel.
+- Added catalog virtualization, cached search keys, and batched status detection to keep long tool lists responsive.
+- Fixed RustDesk source health by moving the built-in tool from the stale winget ID to the live GitHub Release installer source.
+- Updated Task Center with a close button and automatic hiding after successful completed batches.
+- Split app UI, main-process theme normalization, and component CSS into smaller modules for easier maintenance.
 
 ### v0.6.2
 

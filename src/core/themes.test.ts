@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   defaultThemeId,
@@ -31,5 +32,16 @@ describe("theme definitions", () => {
 
   it("defaults to azure", () => {
     expect(defaultThemeId).toBe("azure");
+  });
+
+  it("keeps Electron theme normalization in sync with renderer themes", () => {
+    const themeIdsSource = readFileSync("electron/themeIds.cjs", "utf8");
+    const allowedIds =
+      themeIdsSource.match(/const allowedThemeIds = new Set\(\[(?<ids>[^\]]+)\]\)/)
+        ?.groups?.ids ?? "";
+
+    for (const theme of themeDefinitions) {
+      expect(allowedIds).toContain(`"${theme.id}"`);
+    }
   });
 });

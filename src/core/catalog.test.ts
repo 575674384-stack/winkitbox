@@ -40,6 +40,19 @@ describe("tool catalog", () => {
     expect(czkawka?.wingetId).toBe("qarmin.czkawka.gui");
   });
 
+  it("uses a live GitHub Release source for RustDesk instead of the retired winget id", () => {
+    const rustdesk = tools.find((tool) => tool.id === "rustdesk");
+
+    expect(rustdesk?.wingetId).toBeUndefined();
+    expect(rustdesk?.installer).toMatchObject({
+      releaseApiUrl: "https://api.github.com/repos/rustdesk/rustdesk/releases/latest",
+      assetPattern: "^rustdesk-.*-x86_64\\.exe$",
+      targetDirName: "rustdesk",
+      fileName: "RustDesk-Setup.exe",
+      args: ["--silent-install"]
+    });
+  });
+
   it("keeps custom add protected while allowing other categories to be hidden", () => {
     const categories = normalizeCategoryDefinitions([
       { id: customAddCategoryId, name: "改名无效", hidden: true },

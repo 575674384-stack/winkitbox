@@ -1,3 +1,5 @@
+@import "./styles/components.css";
+
 :root {
   /* Color system */
   --neutral-0: #ffffff;
@@ -74,14 +76,18 @@
   --glass-opacity: 0.72;
   --glass-blur: 28px;
   --theme-background-image: none;
+  --page-topbar-image: none;
   --theme-backdrop: var(--app-bg-gradient);
   --side-panel-image-opacity: 0.18;
   --side-panel-scrim: rgba(255, 255, 255, 0.72);
   --sidebar-active: rgba(13, 148, 136, 0.1);
   --button-hover: var(--neutral-100);
-  --font-ui: "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI",
-    "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-  --font-serif-cn: "SimSun", "Songti SC", "STSong", "Noto Serif CJK SC", serif;
+  --font-ui: "Segoe UI Variable Text", "Microsoft YaHei UI", "PingFang SC",
+    "HarmonyOS Sans SC", "MiSans", system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Microsoft YaHei UI", "PingFang SC",
+    "HarmonyOS Sans SC", system-ui, sans-serif;
+  --font-serif-cn: "Microsoft YaHei UI", "PingFang SC", "HarmonyOS Sans SC",
+    "MiSans", "Noto Sans CJK SC", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
 
   color: var(--text-strong);
@@ -806,7 +812,7 @@ button {
   z-index: 0;
   background-image:
     linear-gradient(90deg, rgba(var(--panel-base), 0.92) 0%, rgba(var(--panel-base), 0.74) 42%, rgba(var(--panel-base), 0.28) 100%),
-    var(--theme-background-image);
+    var(--page-topbar-image);
   background-size: cover;
   background-position: center;
   opacity: 0.72;
@@ -819,6 +825,13 @@ button {
   align-items: center;
   gap: 18px;
   z-index: 1;
+}
+
+.command-bar h2,
+.command-bar h3,
+.metric strong,
+.brand-block h1 {
+  font-family: var(--font-display);
 }
 
 .command-bar .top-actions {
@@ -1138,6 +1151,11 @@ button {
   background-size: cover;
   background-position: center;
   opacity: 0.34;
+  pointer-events: none;
+}
+
+.tool-grid-spacer {
+  grid-column: 1 / -1;
   pointer-events: none;
 }
 

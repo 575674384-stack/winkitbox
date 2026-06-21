@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { validateAiToolCandidate, validateDownloadUrl } = require("./aiCandidateValidation.cjs");
+const { allowedThemeIds, defaultThemeId, normalizeThemeId } = require("./themeIds.cjs");
 const { createTrayMenuTemplate, getTrayIconPath } = require("./trayController.cjs");
 const {
   buildDetectToolsScript,
@@ -2689,13 +2690,6 @@ function normalizePreviousCodePages(value) {
   }
 
   return { acp, oemcp, maccp };
-}
-
-const allowedThemeIds = new Set(["azure", "mint", "amber"]);
-const defaultThemeId = "azure";
-
-function normalizeThemeId(value) {
-  return allowedThemeIds.has(value) ? value : defaultThemeId;
 }
 
 function normalizeThemeBackgrounds(value) {

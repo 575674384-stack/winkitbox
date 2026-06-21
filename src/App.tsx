@@ -39,6 +39,9 @@ import {
   X,
 } from "lucide-react";
 import { AddToolView, type AddToolFocus } from "./AddToolView";
+import { ConfirmDialog, type ConfirmDialogOptions } from "./components/ConfirmDialog";
+import { NotesView } from "./components/NotesView";
+import { TaskQueuePanel } from "./components/TaskQueuePanel";
 import { DiscoverView } from "./DiscoverView";
 import { LogsView, type LogsViewFocus } from "./LogsView";
 import winkitboxIconUrl from "../assets/icon/winkitbox-icon.png";
@@ -111,6 +114,10 @@ import {
   type EnvironmentSnapshot,
   type EnvironmentRepairAction,
 } from "./core/environment";
+import {
+  createDetectionBatches,
+  defaultDetectionBatchDelayMs,
+} from "./core/detectionBatches";
 import { normalizeGpuInfo } from "./core/hardware";
 import { createLaunchDescriptor, getToolLogoUrl } from "./core/launcher";
 import {
@@ -158,7 +165,6 @@ import {
   addTaskQueueItem,
   completeTaskQueueItem,
   failTaskQueueItem,
-  getTaskStatusLabel,
   getTaskQueueStats,
   startTaskQueueItem,
   type TaskQueueItem,
@@ -166,6 +172,7 @@ import {
   type TaskQueueStats,
   type TaskQueueStatus,
 } from "./core/taskQueue";
+import { shouldAutoHideTaskPanel } from "./core/taskPanel";
 import {
   applyDetectionResults,
   applyRunEventSnapshot,
@@ -176,6 +183,7 @@ import {
   markToolsChecking,
   type DetectionMergeOptions,
   type InstallProgress,
+  type ToolDetectionResult,
   type ToolRuntimeState,
   type ToolRuntimeStates,
 } from "./core/toolStatus";
@@ -187,7 +195,12 @@ import {
   themeDefinitions,
   type ThemeId,
 } from "./core/themes";
+import { getPageTopbarImage } from "./core/pageTopbars";
 import { findSetupAsset, type UpdateInfo } from "./core/update";
+import {
+  calculateVirtualGridWindow,
+  filterToolsWithCacheKey,
+} from "./core/virtualGrid";
 import {
   normalizeAiRepoRecommendations,
   type AiRepoRecommendation,
@@ -449,21 +462,6 @@ function createTaskId(kind: string, target: string) {
   return `${kind}-${target}-${Date.now()}`;
 }
 
-function formatTaskDuration(durationMs: number) {
-  if (durationMs < 1000) {
-    return `${durationMs}ms`;
-  }
-
-  const totalSeconds = Math.round(durationMs / 1000);
-  if (totalSeconds < 60) {
-    return `${totalSeconds}s`;
-  }
-
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m${seconds ? `${seconds}s` : ""}`;
-}
-
 export function App() {
   const [customTools, setCustomTools] = useState<Tool[]>(() =>
     normalizeStoredCustomTools(loadCustomTools()),
@@ -506,6 +504,15 @@ export function App() {
   const [configBackups, setConfigBackups] = useState<ConfigBackupEntry[]>([]);
   const [taskQueue, setTaskQueue] = useState<TaskQueueItem[]>([]);
   const taskQueueRef = useRef<TaskQueueItem[]>([]);
+  const [taskPanelHidden, setTaskPanelHidden] = useState(false);
+  const [confirmOptions, setConfirmOptions] = useState<ConfirmDialogOptions>();
+  const confirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const catalogWorkspaceRef = useRef<HTMLElement | null>(null);
+  const [catalogViewport, setCatalogViewport] = useState({
+    scrollTop: 0,
+    height: 900,
+    width: 1200,
+  });
   const [logsViewFocus, setLogsViewFocus] = useState<LogsViewFocus>({
     nonce: 0,
   });
@@ -684,6 +691,7 @@ export function App() {
     [allTools, detailToolId],
   );
 
+  const searchCacheKey = useMemo(() => filterToolsWithCacheKey(query), [query]);
   const visibleTools = useMemo(() => {
     return getVisibleCatalogTools(allTools, {
       activeCategory,
@@ -692,7 +700,7 @@ export function App() {
       installedOnly,
       selectedIds,
       selectedOnly,
-      query,
+      query: searchCacheKey,
       toolStates,
       toolUpdateResults,
       updatableOnly,
@@ -702,7 +710,7 @@ export function App() {
     activeCategory,
     failedOnly,
     installedOnly,
-    query,
+    searchCacheKey,
     selectedIds,
     selectedOnly,
     settings.customCategories,
@@ -710,6 +718,27 @@ export function App() {
     toolUpdateResults,
     updatableOnly,
   ]);
+  const catalogColumnCount = useMemo(
+    () => Math.max(1, Math.floor((catalogViewport.width + 18) / 298)),
+    [catalogViewport.width],
+  );
+  const virtualToolsWindow = useMemo(
+    () =>
+      calculateVirtualGridWindow({
+        totalItems: visibleTools.length,
+        scrollTop: catalogViewport.scrollTop,
+        viewportHeight: catalogViewport.height,
+        columnCount: catalogColumnCount,
+        rowHeight: 306,
+        overscanRows: 2,
+        minimumItems: 48,
+      }),
+    [catalogColumnCount, catalogViewport.height, catalogViewport.scrollTop, visibleTools.length],
+  );
+  const windowedVisibleTools = useMemo(
+    () => visibleTools.slice(virtualToolsWindow.startIndex, virtualToolsWindow.endIndex),
+    [virtualToolsWindow.endIndex, virtualToolsWindow.startIndex, visibleTools],
+  );
   const currentTheme = useMemo(
     () => getThemeDefinition(settings.themeId),
     [settings.themeId],
@@ -717,17 +746,19 @@ export function App() {
   const currentThemeBackground =
     settings.themeBackgrounds[settings.themeId] ??
     getThemeImageBackgroundUrl(settings.themeId);
+  const currentPageTopbarImage = getPageTopbarImage(activeView);
   const themeStyle = useMemo(
     () =>
       ({
         "--theme-background-image": currentThemeBackground
           ? toCssUrl(currentThemeBackground)
           : "none",
+        "--page-topbar-image": toCssUrl(currentPageTopbarImage),
         "--theme-backdrop": currentTheme.background,
         "--glass-opacity": String(currentTheme.defaultGlassOpacity),
         "--glass-blur": `${currentTheme.defaultGlassBlur}px`,
       }) as CSSProperties,
-    [currentTheme, currentThemeBackground],
+    [currentTheme, currentThemeBackground, currentPageTopbarImage],
   );
 
   useEffect(() => {
@@ -824,19 +855,51 @@ export function App() {
   }, [notebookEntries]);
 
   useEffect(() => {
-    if (!activeNoteId && notebookEntries.length > 0) {
-      setActiveNoteId(notebookEntries[0].id);
-      return;
-    }
-
     if (
       activeNoteId &&
       notebookEntries.length > 0 &&
       !notebookEntries.some((entry) => entry.id === activeNoteId)
     ) {
-      setActiveNoteId(notebookEntries[0].id);
+      setActiveNoteId(undefined);
     }
   }, [activeNoteId, notebookEntries]);
+
+  useEffect(() => {
+    if (shouldAutoHideTaskPanel(taskQueue)) {
+      const timer = window.setTimeout(() => setTaskPanelHidden(true), 1800);
+      return () => window.clearTimeout(timer);
+    }
+
+    if (
+      taskQueue.some((task) =>
+        task.status === "queued" || task.status === "running" || task.status === "error"
+      )
+    ) {
+      setTaskPanelHidden(false);
+    }
+
+    return undefined;
+  }, [taskQueue]);
+
+  useEffect(() => {
+    const element = catalogWorkspaceRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    const updateViewport = () => {
+      setCatalogViewport({
+        scrollTop: element.scrollTop,
+        height: element.clientHeight,
+        width: element.clientWidth,
+      });
+    };
+
+    updateViewport();
+    const observer = new ResizeObserver(updateViewport);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [activeView]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -1016,6 +1079,23 @@ export function App() {
     await Promise.all([loadActivityLog(), loadAiLog()]);
   }
 
+  function requestConfirmation(options: ConfirmDialogOptions) {
+    return new Promise<boolean>((resolve) => {
+      if (confirmResolverRef.current) {
+        confirmResolverRef.current(false);
+      }
+      confirmResolverRef.current = resolve;
+      setConfirmOptions(options);
+    });
+  }
+
+  function resolveConfirmation(confirmed: boolean) {
+    const resolver = confirmResolverRef.current;
+    confirmResolverRef.current = null;
+    setConfirmOptions(undefined);
+    resolver?.(confirmed);
+  }
+
   function setTaskQueueState(
     updater: (current: readonly TaskQueueItem[]) => TaskQueueItem[],
   ) {
@@ -1037,6 +1117,7 @@ export function App() {
       retryKey?: string;
     },
   ) {
+    setTaskPanelHidden(false);
     setTaskQueueState((current) => addTaskQueueItem(current, input));
   }
 
@@ -1252,10 +1333,30 @@ export function App() {
     setToolStates((current) => markToolsChecking(current, toolIds));
 
     try {
-      const results = await window.winKitBox.detectTools(descriptors);
-      setToolStates((current) =>
-        applyDetectionResults(current, results, toolIds, detectionOptions),
-      );
+      const descriptorBatches = createDetectionBatches(descriptors);
+      const allResults: ToolDetectionResult[] = [];
+
+      for (const [batchIndex, batch] of descriptorBatches.entries()) {
+        const batchIds = batch.map((descriptor) => descriptor.toolId);
+        const results = await window.winKitBox.detectTools(batch);
+        allResults.push(...results);
+
+        setToolStates((current) =>
+          applyDetectionResults(current, results, batchIds, detectionOptions),
+        );
+
+        if (batchIndex < descriptorBatches.length - 1) {
+          await new Promise((resolve) =>
+            window.setTimeout(resolve, defaultDetectionBatchDelayMs),
+          );
+        }
+      }
+
+      if (descriptorBatches.length > 1) {
+        setToolStates((current) =>
+          applyDetectionResults(current, allResults, toolIds, detectionOptions),
+        );
+      }
     } catch (error) {
       setToolStates((current) => {
         const next = { ...current };
@@ -1715,6 +1816,26 @@ export function App() {
     );
   }
 
+  async function removeCategoryWithConfirm(categoryId: string) {
+    const category = settings.customCategories.find(
+      (item) => item.id === categoryId,
+    );
+    const categoryName = category?.name ?? categoryId;
+
+    if (
+      !(await requestConfirmation({
+        title: "删除分类",
+        message: `确定要删除分类“${categoryName}”吗？该分类下的工具将移至未分类。`,
+        confirmLabel: "删除",
+        tone: "danger",
+      }))
+    ) {
+      return;
+    }
+
+    await removeCategory(categoryId);
+  }
+
   async function restoreCategory(categoryId: string) {
     const category = settings.customCategories.find(
       (item) => item.id === categoryId,
@@ -2037,7 +2158,14 @@ export function App() {
       return;
     }
 
-    if (!window.confirm("恢复配置备份会覆盖当前工具目录、分类、自定义工具和设置。是否继续？")) {
+    if (
+      !(await requestConfirmation({
+        title: "恢复配置备份",
+        message: "恢复配置备份会覆盖当前工具目录、分类、自定义工具和设置。是否继续？",
+        confirmLabel: "恢复",
+        tone: "danger",
+      }))
+    ) {
       return;
     }
 
@@ -2201,12 +2329,38 @@ export function App() {
       ? `${tool.name} 当前显示为已安装。移除将仅从 WinKitBox 列表中删除该工具，不会卸载已安装的软件。是否继续？`
       : `确定要从 WinKitBox 中移除 ${tool.name} 吗？`;
 
-    if (!window.confirm(confirmationMessage)) {
+    if (
+      !(await requestConfirmation({
+        title: isInstalled ? "移除已安装工具记录" : "移除自定义工具",
+        message: confirmationMessage,
+        confirmLabel: "移除",
+        tone: "danger",
+      }))
+    ) {
       appendLog("info", `已取消移除 ${tool.name}。`);
       return;
     }
 
     await removeCustomTool(tool.id);
+  }
+
+  async function removeCustomToolWithConfirm(toolId: string) {
+    const tool = customTools.find((item) => item.id === toolId);
+    const name = tool?.name ?? toolId;
+
+    if (
+      !(await requestConfirmation({
+        title: "移除自定义工具",
+        message: `确定要从 WinKitBox 中移除 ${name} 吗？这不会删除本机文件。`,
+        confirmLabel: "移除",
+        tone: "danger",
+      }))
+    ) {
+      appendLog("info", `已取消移除 ${name}。`);
+      return;
+    }
+
+    await removeCustomTool(toolId);
   }
 
   async function fixToolWithAi(tool: Tool) {
@@ -2468,9 +2622,17 @@ export function App() {
     setNotebookEntries((current) => updateNotebookEntry(current, id, patch));
   }
 
-  function deleteNotebook(id: string) {
+  async function deleteNotebook(id: string) {
     const entry = notebookEntries.find((item) => item.id === id);
-    if (entry && !window.confirm(`确定删除记事本“${entry.title}”吗？`)) {
+    if (
+      entry &&
+      !(await requestConfirmation({
+        title: "删除记事本",
+        message: `确定删除记事本“${entry.title}”吗？`,
+        confirmLabel: "删除",
+        tone: "danger",
+      }))
+    ) {
       return;
     }
 
@@ -2487,9 +2649,11 @@ export function App() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `将执行 ${installPlan.readyCount} 条安装命令。是否继续？`,
-    );
+    const confirmed = await requestConfirmation({
+      title: "执行安装计划",
+      message: `将执行 ${installPlan.readyCount} 条安装命令。是否继续？`,
+      confirmLabel: "执行安装",
+    });
 
     if (!confirmed) {
       appendLog("info", "已取消执行安装计划。");
@@ -2555,9 +2719,12 @@ export function App() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `将卸载已选择且已安装的 ${uninstallPlan.readyCount} 个工具。卸载可能会弹出软件自己的确认窗口，是否继续？`,
-    );
+    const confirmed = await requestConfirmation({
+      title: "卸载已选工具",
+      message: `将卸载已选择且已安装的 ${uninstallPlan.readyCount} 个工具。卸载可能会弹出软件自己的确认窗口，是否继续？`,
+      confirmLabel: "卸载已选",
+      tone: "danger",
+    });
 
     if (!confirmed) {
       appendLog("info", "已取消执行卸载计划。");
@@ -2832,9 +2999,12 @@ export function App() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `将卸载 ${tool.name}。卸载可能会弹出软件自己的确认窗口，是否继续？`,
-    );
+    const confirmed = await requestConfirmation({
+      title: "卸载工具",
+      message: `将卸载 ${tool.name}。卸载可能会弹出软件自己的确认窗口，是否继续？`,
+      confirmLabel: "卸载",
+      tone: "danger",
+    });
 
     if (!confirmed) {
       finishTask(taskId, "skipped", "用户取消卸载。");
@@ -3074,7 +3244,11 @@ export function App() {
       return;
     }
 
-    const confirmed = window.confirm(`将更新 ${tool.name}。是否继续？`);
+    const confirmed = await requestConfirmation({
+      title: "更新工具",
+      message: `将更新 ${tool.name}。是否继续？`,
+      confirmLabel: "更新",
+    });
 
     if (!confirmed) {
       finishTask(taskId, "skipped", "用户取消更新。");
@@ -3372,18 +3546,7 @@ export function App() {
                           className="category-action danger"
                           type="button"
                           title="删除"
-                          onClick={() => {
-                            const categoryDef = settings.customCategories.find(
-                              (item) => item.id === category,
-                            );
-                            if (
-                              window.confirm(
-                                `确定要删除分类“${categoryDef?.name ?? category}”吗？该分类下的工具将移至未分类。`,
-                              )
-                            ) {
-                              void removeCategory(category);
-                            }
-                          }}
+                          onClick={() => void removeCategoryWithConfirm(category)}
                         >
                           <Trash2 size={12} />
                         </button>
@@ -3594,6 +3757,7 @@ export function App() {
             onOpenLogs={() =>
               openLogsView({ kind: "system", quick: "system" })
             }
+            onConfirm={requestConfirmation}
             onCreateTask={createTask}
             onStartTask={startTask}
             onFinishTask={finishTask}
@@ -3637,7 +3801,7 @@ export function App() {
             focus={addToolFocus}
             onAddManualTool={addManualCustomTool}
             onAddAiTool={addAiGeneratedTool}
-            onRemoveCustomTool={removeCustomTool}
+            onRemoveCustomTool={removeCustomToolWithConfirm}
             onUninstallCustomTool={uninstallTool}
             onOpenSettings={() => setActiveView("settings")}
             onOpenUrl={openUrl}
@@ -3675,6 +3839,7 @@ export function App() {
             onLog={appendLog}
             onShowTool={showToolFromLog}
             onFixTool={fixToolFromLog}
+            onConfirm={requestConfirmation}
           />
         </section>
       )}
@@ -3710,7 +3875,19 @@ export function App() {
       )}
 
       {activeView === "catalog" && (
-        <section className="workspace workspace-catalog">
+        <section
+          className="workspace workspace-catalog"
+          ref={catalogWorkspaceRef}
+          onScroll={(event) => {
+            const target = event.currentTarget;
+            setCatalogViewport((current) => ({
+              ...current,
+              scrollTop: target.scrollTop,
+              height: target.clientHeight,
+              width: target.clientWidth,
+            }));
+          }}
+        >
           <header className="command-bar">
             <div className="command-bar-title">
               <div className="command-bar-icon">
@@ -3886,7 +4063,13 @@ export function App() {
             </EmptyState>
           ) : (
             <div className="tool-grid" aria-label="Tool catalog">
-              {visibleTools.map((tool) => (
+              {virtualToolsWindow.beforeHeight > 0 && (
+                <div
+                  className="tool-grid-spacer"
+                  style={{ height: virtualToolsWindow.beforeHeight }}
+                />
+              )}
+              {windowedVisibleTools.map((tool) => (
                 <ToolCard
                   key={tool.id}
                   tool={tool}
@@ -3908,6 +4091,12 @@ export function App() {
                   onDragEnd={endToolDrag}
                 />
               ))}
+              {virtualToolsWindow.afterHeight > 0 && (
+                <div
+                  className="tool-grid-spacer"
+                  style={{ height: virtualToolsWindow.afterHeight }}
+                />
+              )}
             </div>
           )}
         </section>
@@ -4004,13 +4193,14 @@ export function App() {
         </aside>
       )}
 
-      {taskQueue.length > 0 && (
+      {taskQueue.length > 0 && !taskPanelHidden && (
         <TaskQueuePanel
           tasks={taskQueue}
           stats={taskQueueStats}
           onRetry={retryTask}
           onOpenLogs={() => openLogsView({ quick: "failed" })}
           onClearFinished={clearFinishedTasks}
+          onClose={() => setTaskPanelHidden(true)}
         />
       )}
 
@@ -4041,6 +4231,8 @@ export function App() {
           onRemove={() => removeCustomToolFromCard(detailTool)}
         />
       )}
+
+      <ConfirmDialog options={confirmOptions} onResolve={resolveConfirmation} />
     </main>
   );
 }
@@ -4188,218 +4380,6 @@ function ToolAiRecommendationPanel({
         <p className="empty-text compact-empty">选择工具后点击 AI 推荐。</p>
       )}
     </section>
-  );
-}
-
-function NotesView({
-  entries,
-  activeNoteId,
-  onCreate,
-  onSelect,
-  onUpdate,
-  onDelete,
-}: {
-  entries: NotebookEntry[];
-  activeNoteId?: string;
-  onCreate: () => void;
-  onSelect: (id: string) => void;
-  onUpdate: (
-    id: string,
-    patch: Partial<Pick<NotebookEntry, "title" | "content">>,
-  ) => void;
-  onDelete: (id: string) => void;
-}) {
-  const activeEntry = entries.find((entry) => entry.id === activeNoteId) ?? entries[0];
-
-  return (
-    <div className="notes-page">
-      <header className="command-bar page-topbar">
-        <div className="command-bar-title">
-          <div className="command-bar-icon notes-icon">
-            <NotebookPen size={22} />
-          </div>
-          <div>
-            <p className="eyebrow">个人记录</p>
-            <h2>记事本</h2>
-          </div>
-        </div>
-        <div className="top-actions">
-          <button className="primary-button" type="button" onClick={onCreate}>
-            <Plus size={16} />
-            新建记事本
-          </button>
-        </div>
-      </header>
-
-      <div className="notes-layout">
-        <section className="notes-grid" aria-label="记事本列表">
-          {entries.length === 0 ? (
-            <EmptyState
-              icon={NotebookPen}
-              title="还没有记事本"
-              description="创建一个记事本，用来记录装机备注、命令、链接或临时想法。"
-              compact
-            />
-          ) : (
-            entries.map((entry) => (
-              <button
-                className={`note-card ${entry.id === activeEntry?.id ? "active" : ""}`}
-                key={entry.id}
-                type="button"
-                onClick={() => onSelect(entry.id)}
-              >
-                <strong>{entry.title}</strong>
-                <span>{entry.content || "空白记事本"}</span>
-                <small>{new Date(entry.updatedAt).toLocaleString()}</small>
-              </button>
-            ))
-          )}
-        </section>
-
-        <aside className="note-editor-panel">
-          {activeEntry ? (
-            <>
-              <div className="note-editor-head">
-                <div>
-                  <p className="eyebrow">编辑</p>
-                  <h3>{activeEntry.title}</h3>
-                </div>
-                <button
-                  className="secondary-button danger"
-                  type="button"
-                  onClick={() => onDelete(activeEntry.id)}
-                >
-                  <Trash2 size={14} />
-                  删除
-                </button>
-              </div>
-              <label className="field-label">
-                标题
-                <input
-                  value={activeEntry.title}
-                  onChange={(event) =>
-                    onUpdate(activeEntry.id, { title: event.target.value })
-                  }
-                  placeholder="记事本标题"
-                />
-              </label>
-              <label className="field-label note-content-field">
-                内容
-                <textarea
-                  value={activeEntry.content}
-                  onChange={(event) =>
-                    onUpdate(activeEntry.id, { content: event.target.value })
-                  }
-                  placeholder="记录你想保存的文本。"
-                />
-              </label>
-            </>
-          ) : (
-            <EmptyState
-              icon={NotebookPen}
-              title="选择或新建记事本"
-              description="左侧会以工具卡片大小展示所有记事本。"
-              compact
-            />
-          )}
-        </aside>
-      </div>
-    </div>
-  );
-}
-
-function TaskQueuePanel({
-  tasks,
-  stats,
-  onRetry,
-  onOpenLogs,
-  onClearFinished,
-}: {
-  tasks: TaskQueueItem[];
-  stats: TaskQueueStats;
-  onRetry: (task: TaskQueueItem) => Promise<void>;
-  onOpenLogs: () => void;
-  onClearFinished: () => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const visibleTasks = expanded ? tasks.slice(0, 10) : tasks.slice(0, 4);
-  const activeCount = stats.running + stats.queued;
-
-  return (
-    <aside className={`task-queue-panel ${expanded ? "expanded" : ""}`}>
-      <div className="task-queue-head">
-        <div>
-          <p className="eyebrow">任务中心</p>
-          <h3>
-            {activeCount > 0
-              ? `${activeCount} 个任务进行中`
-              : `${stats.total} 个最近任务`}
-          </h3>
-        </div>
-        <button
-          className="icon-button"
-          type="button"
-          aria-label={expanded ? "收起任务中心" : "展开任务中心"}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
-        </button>
-      </div>
-      <div className="task-queue-stats">
-        <span>完成 {stats.success}</span>
-        <span>失败 {stats.error}</span>
-        <span>等待 {stats.queued}</span>
-        {stats.retryableFailures > 0 && <span>可重试 {stats.retryableFailures}</span>}
-      </div>
-      <div className="task-queue-list">
-        {visibleTasks.map((task) => (
-          <div className={`task-queue-row ${task.status}`} key={task.id}>
-            <span className={`logs-entry-status ${task.status === "error" ? "error" : task.status === "warning" ? "warning" : task.status === "success" ? "success" : "info"}`} />
-            <div>
-              <strong>{task.title}</strong>
-              <small>
-                {getTaskStatusLabel(task.status)}
-                {task.durationMs !== undefined ? ` · ${formatTaskDuration(task.durationMs)}` : ""}
-                {task.exitCode !== undefined && task.exitCode !== null ? ` · 退出码 ${task.exitCode}` : ""}
-                {task.message ? ` · ${task.message}` : ""}
-              </small>
-            </div>
-            <div className="task-queue-row-actions">
-              {task.status === "error" && task.retryable && (
-                <button
-                  className="mini-action"
-                  type="button"
-                  onClick={() => void onRetry(task)}
-                >
-                  <RotateCcw size={13} />
-                  重试
-                </button>
-              )}
-              {task.status === "error" && (
-                <button
-                  className="mini-action"
-                  type="button"
-                  onClick={onOpenLogs}
-                >
-                  <Terminal size={13} />
-                  日志
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="task-queue-actions">
-        <button className="text-button" type="button" onClick={onOpenLogs}>
-          <Terminal size={14} />
-          日志
-        </button>
-        <button className="text-button" type="button" onClick={onClearFinished}>
-          <Trash2 size={14} />
-          清理完成项
-        </button>
-      </div>
-    </aside>
   );
 }
 
@@ -4925,6 +4905,7 @@ function SystemView({
   onLog,
   onRecordActivity,
   onOpenLogs,
+  onConfirm,
   onCreateTask,
   onStartTask,
   onFinishTask,
@@ -4933,6 +4914,7 @@ function SystemView({
   onLog: (level: LogEntry["level"], message: string) => void;
   onRecordActivity: (input: ActivityLogInput) => Promise<void>;
   onOpenLogs: () => void;
+  onConfirm: (options: ConfirmDialogOptions) => Promise<boolean>;
   onCreateTask: (input: {
     id: string;
     kind: TaskQueueKind;
@@ -5142,7 +5124,14 @@ function SystemView({
           ? "将修改当前网卡的静态 IP 和 DNS，系统会弹出管理员确认，是否继续？"
           : "将修改当前网卡的 DNS，系统会弹出管理员确认，是否继续？";
 
-    if (!window.confirm(message)) {
+    if (
+      !(await onConfirm({
+        title: "应用网络配置",
+        message,
+        confirmLabel: "应用",
+        tone: mode === "dhcp" ? "normal" : "danger",
+      }))
+    ) {
       return;
     }
 
@@ -5209,11 +5198,14 @@ function SystemView({
 
     const confirmed =
       options.skipConfirm ||
-      window.confirm(
-        enabled
+      (await onConfirm({
+        title: enabled ? "开启 UTF-8 beta" : "关闭 UTF-8 beta",
+        message: enabled
           ? "将开启 Windows 的“使用 Unicode UTF-8 提供全球语言支持”，需要管理员确认并重启系统后生效。是否继续？"
           : "将关闭 Windows UTF-8 beta 开关并尽量恢复之前的代码页，需要管理员确认并重启系统后生效。是否继续？",
-      );
+        confirmLabel: enabled ? "开启" : "关闭",
+        tone: "danger",
+      }));
 
     if (!confirmed) {
       return false;
@@ -5314,11 +5306,14 @@ function SystemView({
 
     const confirmed =
       options.skipConfirm ||
-      window.confirm(
-        action.requiresAdmin
+      (await onConfirm({
+        title: "执行环境修复",
+        message: action.requiresAdmin
           ? `将执行“${action.label}”，可能弹出管理员确认窗口。是否继续？`
           : `将执行“${action.label}”。是否继续？`,
-      );
+        confirmLabel: "执行",
+        tone: action.requiresAdmin ? "danger" : "normal",
+      }));
 
     if (!confirmed) {
       return false;
@@ -5406,9 +5401,12 @@ function SystemView({
       return;
     }
 
-    const confirmed = window.confirm(
-      `将依次执行 ${recommendedEnvironmentRepairs.length} 个推荐修复项，部分步骤可能弹出管理员确认或安装窗口。是否继续？`,
-    );
+    const confirmed = await onConfirm({
+      title: "执行推荐修复",
+      message: `将依次执行 ${recommendedEnvironmentRepairs.length} 个推荐修复项，部分步骤可能弹出管理员确认或安装窗口。是否继续？`,
+      confirmLabel: "执行修复",
+      tone: "danger",
+    });
 
     if (!confirmed) {
       return;

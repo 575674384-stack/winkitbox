@@ -44,6 +44,7 @@ import {
   type AiLogKind,
   type AiLogStatus,
 } from "./core/aiLog";
+import type { ConfirmDialogOptions } from "./components/ConfirmDialog";
 
 export type RuntimeLogEntry = {
   id: number;
@@ -73,6 +74,7 @@ export function LogsView({
   onLog,
   onShowTool,
   onFixTool,
+  onConfirm,
 }: {
   logs: RuntimeLogEntry[];
   activityLog: ActivityLogEntry[];
@@ -94,6 +96,7 @@ export function LogsView({
   onLog: (level: RuntimeLogEntry["level"], message: string) => void;
   onShowTool: (toolId: string) => void;
   onFixTool: (toolId: string) => void;
+  onConfirm: (options: ConfirmDialogOptions) => Promise<boolean>;
 }) {
   const [activeTab, setActiveTab] = useState<"history" | "realtime" | "ai">("history");
   const [filters, setFilters] = useState<ActivityLogFilters>({
@@ -185,11 +188,14 @@ export function LogsView({
   async function clearHistory() {
     const isAiTab = activeTab === "ai";
     if (
-      !window.confirm(
-        isAiTab
+      !(await onConfirm({
+        title: isAiTab ? "清空 AI 日志" : "清空操作历史",
+        message: isAiTab
           ? "将清空所有 AI 日志，操作历史和实时输出不受影响。是否继续？"
           : "将清空所有操作历史，实时输出不受影响。是否继续？",
-      )
+        confirmLabel: "清空",
+        tone: "danger",
+      }))
     ) {
       return;
     }

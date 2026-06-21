@@ -740,7 +740,13 @@ const baseTools: Tool[] = [
     stars: 97000,
     homepage: "https://rustdesk.com/",
     repoUrl: "https://github.com/rustdesk/rustdesk",
-    wingetId: "RustDesk.RustDesk",
+    installer: {
+      releaseApiUrl: "https://api.github.com/repos/rustdesk/rustdesk/releases/latest",
+      assetPattern: "^rustdesk-.*-x86_64\\.exe$",
+      targetDirName: "rustdesk",
+      fileName: "RustDesk-Setup.exe",
+      args: ["--silent-install"]
+    },
     launch: {
       startMenuNames: ["RustDesk"],
       commands: ["rustdesk.exe"]
