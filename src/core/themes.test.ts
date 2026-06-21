@@ -23,6 +23,9 @@ describe("theme definitions", () => {
     expect(isThemeId("violet")).toBe(true);
     expect(isThemeId("rose")).toBe(true);
     expect(isThemeId("ninja")).toBe(true);
+    expect(isThemeId("ice")).toBe(true);
+    expect(isThemeId("obsidian")).toBe(true);
+    expect(isThemeId("ash")).toBe(true);
     expect(isThemeId("official-character-pack")).toBe(false);
   });
 

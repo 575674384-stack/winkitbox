@@ -21,6 +21,7 @@ import {
 } from "./core/catalog";
 import type { AiToolCandidate, AiToolGitHubContext } from "./core/aiTool";
 import type { AiLogInput } from "./core/aiLog";
+import { PageHeaderIcon } from "./components/PageHeaderIcon";
 import {
   createDefaultAddToolDraft,
   describeAddToolDraft,
@@ -411,9 +412,9 @@ export function AddToolView({
     <div className="add-tool-page">
       <header className="command-bar page-topbar">
         <div className="command-bar-title">
-          <div className="command-bar-icon add-tool-icon">
+          <PageHeaderIcon page="addTool" className="add-tool-icon" alt="添加工具">
             <ListPlus size={22} />
-          </div>
+          </PageHeaderIcon>
           <div>
             <p className="eyebrow">添加工具</p>
             <h2>本地文件、网页链接和手动命令统一入口</h2>

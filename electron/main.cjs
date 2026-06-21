@@ -35,10 +35,10 @@ if (!gotSingleInstanceLock) {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 840,
-    minWidth: 1040,
-    minHeight: 700,
+    width: 1600,
+    height: 940,
+    minWidth: 1280,
+    minHeight: 760,
     resizable: true,
     minimizable: true,
     maximizable: true,
@@ -53,7 +53,7 @@ function createWindow() {
     }
   });
 
-  mainWindow.setMinimumSize(1040, 700);
+  mainWindow.setMinimumSize(1280, 760);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);

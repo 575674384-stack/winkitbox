@@ -156,6 +156,14 @@ Before packaging and publishing a release:
 
 ## Release Notes
 
+### v0.7.2
+
+- Added generated Q-version anime mascot icons for non-GitHub page headers while keeping the GitHub ranking icon style unchanged.
+- Added three built-in image themes: white ice-dream anime girl, black handsome male, and gray handsome male themes with readable theme color variables.
+- Reworked Notes so opening a notebook fills the Notes workbench with a back button and realtime autosave instead of a modal editor.
+- Added an in-app Settings WIKI entry and detailed usage documentation under `docs/USAGE_WIKI.md`.
+- Fixed the initial selected-tools batch bar layout by making it wrap cleanly and increasing the default Electron window size.
+
 ### v0.7.1
 
 - Replaced native confirm dialogs with theme-aware in-app confirmation modals across uninstall, remove, restore, delete, and log clearing actions.

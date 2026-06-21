@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import {
+  BookOpen,
   Check,
   ChevronDown,
   ChevronUp,
@@ -41,6 +42,7 @@ import {
 import { AddToolView, type AddToolFocus } from "./AddToolView";
 import { ConfirmDialog, type ConfirmDialogOptions } from "./components/ConfirmDialog";
 import { NotesView } from "./components/NotesView";
+import { PageHeaderIcon } from "./components/PageHeaderIcon";
 import { TaskQueuePanel } from "./components/TaskQueuePanel";
 import { DiscoverView } from "./DiscoverView";
 import { LogsView, type LogsViewFocus } from "./LogsView";
@@ -195,6 +197,7 @@ import {
   themeDefinitions,
   type ThemeId,
 } from "./core/themes";
+import { usageWikiSections } from "./core/usageWiki";
 import { getPageTopbarImage } from "./core/pageTopbars";
 import { findSetupAsset, type UpdateInfo } from "./core/update";
 import {
@@ -3890,9 +3893,9 @@ export function App() {
         >
           <header className="command-bar">
             <div className="command-bar-title">
-              <div className="command-bar-icon">
+              <PageHeaderIcon page="catalog" alt="装机方案">
                 <Sparkles size={22} />
-              </div>
+              </PageHeaderIcon>
               <div>
                 <p className="eyebrow">装机方案</p>
                 <h2>选择工具，一键恢复环境</h2>
@@ -4529,9 +4532,9 @@ function ToolUpdatesView({
     <div className="updates-page">
       <header className="command-bar page-topbar">
         <div className="command-bar-title">
-          <div className="command-bar-icon update-icon">
+          <PageHeaderIcon page="updates" className="update-icon" alt="工具更新">
             <RotateCcw size={22} />
-          </div>
+          </PageHeaderIcon>
           <div>
             <p className="eyebrow">维护中心</p>
             <h2>工具更新中心</h2>
@@ -5438,9 +5441,9 @@ function SystemView({
     <div className="system-page">
       <header className="command-bar page-topbar">
         <div className="command-bar-title">
-          <div className="command-bar-icon system-icon">
+          <PageHeaderIcon page="system" className="system-icon" alt="本机配置">
             <Laptop size={22} />
-          </div>
+          </PageHeaderIcon>
           <div>
             <p className="eyebrow">本机配置</p>
             <h2>查看本机，调整 IP / DNS</h2>
@@ -6005,6 +6008,7 @@ export function SettingsView({
   const [downloadProgress, setDownloadProgress] = useState<
     { downloaded: number; total: number; percent: number } | undefined
   >();
+  const [showUsageWiki, setShowUsageWiki] = useState(false);
 
   useEffect(() => {
     setAiDraft((current) => ({
@@ -6147,9 +6151,9 @@ export function SettingsView({
     <div className="settings-page">
       <header className="command-bar page-topbar">
         <div className="command-bar-title">
-          <div className="command-bar-icon settings-icon">
+          <PageHeaderIcon page="settings" className="settings-icon" alt="设置">
             <Settings size={22} />
-          </div>
+          </PageHeaderIcon>
           <div>
             <p className="eyebrow">设置</p>
             <h2>工具目录、AI、主题和配置同步</h2>
@@ -6164,6 +6168,26 @@ export function SettingsView({
       )}
 
       <div className="settings-layout">
+        <section className="settings-card full-span usage-wiki-card">
+          <div>
+            <div className="section-title">
+              <BookOpen size={15} />
+              使用文档 / WIKI
+            </div>
+            <p className="settings-text">
+              查看工具选择、添加工具、更新中心、日志、环境体检和配置备份的完整说明。
+            </p>
+          </div>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => setShowUsageWiki(true)}
+          >
+            <BookOpen size={15} />
+            打开使用文档
+          </button>
+        </section>
+
         <section className="settings-card full-span">
           <div className="section-title">
             <Sparkles size={15} />
@@ -6604,6 +6628,40 @@ export function SettingsView({
         </section>
 
       </div>
+
+      {showUsageWiki && (
+        <div className="wiki-modal-overlay" role="presentation">
+          <section className="wiki-modal" aria-modal="true" role="dialog">
+            <div className="wiki-modal-head">
+              <div>
+                <p className="eyebrow">WinKitBox WIKI</p>
+                <h3>使用文档</h3>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                aria-label="关闭使用文档"
+                onClick={() => setShowUsageWiki(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="wiki-modal-body">
+              {usageWikiSections.map((section) => (
+                <article className="wiki-section" key={section.title}>
+                  <h4>{section.title}</h4>
+                  <p>{section.description}</p>
+                  <ul>
+                    {section.items.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </article>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

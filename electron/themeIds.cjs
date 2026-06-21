@@ -1,4 +1,14 @@
-const allowedThemeIds = new Set(["azure", "mint", "amber", "violet", "rose", "ninja"]);
+const allowedThemeIds = new Set([
+  "azure",
+  "mint",
+  "amber",
+  "violet",
+  "rose",
+  "ninja",
+  "ice",
+  "obsidian",
+  "ash"
+]);
 const defaultThemeId = "azure";
 
 function normalizeThemeId(value) {

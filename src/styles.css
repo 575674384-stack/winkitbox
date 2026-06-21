@@ -381,6 +381,75 @@ button {
   --side-panel-scrim: rgba(255, 247, 237, 0.76);
 }
 
+.app-shell.theme-ice {
+  --app-bg: #f8fbff;
+  --app-bg-gradient: radial-gradient(ellipse at 0% 0%, rgba(56, 189, 248, 0.12) 0%, transparent 45%),
+    radial-gradient(ellipse at 100% 100%, rgba(186, 230, 253, 0.18) 0%, transparent 45%),
+    radial-gradient(ellipse at 50% 50%, rgba(125, 211, 252, 0.08) 0%, transparent 60%), #f8fbff;
+  --panel-base: 255, 255, 255;
+  --card-bg: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.65 + 0.30));
+  --card-bg-soft: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.55 + 0.25));
+  --border-color: rgba(56, 189, 248, 0.24);
+  --text-strong: #0f3557;
+  --text-main: #164e63;
+  --text-muted: #036987;
+  --accent: #0284c7;
+  --accent-soft: #e0f7ff;
+  --accent-hover: #0369a1;
+  --sidebar-active: rgba(56, 189, 248, 0.12);
+  --theme-overlay: rgba(248, 251, 255, 0.22);
+  --side-panel-image-opacity: 0.2;
+  --side-panel-scrim: rgba(248, 251, 255, 0.78);
+}
+
+.app-shell.theme-obsidian {
+  --app-bg: #0b1120;
+  --app-bg-gradient: radial-gradient(ellipse at 0% 0%, rgba(56, 189, 248, 0.16) 0%, transparent 42%),
+    radial-gradient(ellipse at 100% 100%, rgba(30, 41, 59, 0.86) 0%, transparent 52%),
+    #0b1120;
+  --panel-base: 17, 24, 39;
+  --card-bg: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.68 + 0.18));
+  --card-bg-soft: rgba(30, 41, 59, calc(var(--glass-opacity) * 0.56 + 0.18));
+  --border-color: rgba(148, 163, 184, 0.28);
+  --border-strong: rgba(203, 213, 225, 0.42);
+  --text-strong: #f8fafc;
+  --text-main: #dbeafe;
+  --text-muted: #a8c7e8;
+  --accent: #38bdf8;
+  --accent-soft: #0f2a3a;
+  --accent-hover: #7dd3fc;
+  --info-soft: rgba(59, 130, 246, 0.18);
+  --success-soft: rgba(16, 185, 129, 0.16);
+  --warning-soft: rgba(245, 158, 11, 0.16);
+  --danger-soft: rgba(239, 68, 68, 0.16);
+  --sidebar-active: rgba(56, 189, 248, 0.16);
+  --theme-overlay: rgba(2, 6, 23, 0.42);
+  --side-panel-image-opacity: 0.18;
+  --side-panel-scrim: rgba(2, 6, 23, 0.72);
+  --button-hover: rgba(30, 41, 59, 0.88);
+}
+
+.app-shell.theme-ash {
+  --app-bg: #f1f5f9;
+  --app-bg-gradient: radial-gradient(ellipse at 0% 0%, rgba(100, 116, 139, 0.16) 0%, transparent 45%),
+    radial-gradient(ellipse at 100% 100%, rgba(148, 163, 184, 0.16) 0%, transparent 45%),
+    radial-gradient(ellipse at 50% 50%, rgba(71, 85, 105, 0.08) 0%, transparent 60%), #f1f5f9;
+  --panel-base: 255, 255, 255;
+  --card-bg: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.65 + 0.30));
+  --card-bg-soft: rgba(var(--panel-base), calc(var(--glass-opacity) * 0.55 + 0.25));
+  --border-color: rgba(100, 116, 139, 0.26);
+  --text-strong: #111827;
+  --text-main: #334155;
+  --text-muted: #475569;
+  --accent: #64748b;
+  --accent-soft: #e2e8f0;
+  --accent-hover: #475569;
+  --sidebar-active: rgba(100, 116, 139, 0.12);
+  --theme-overlay: rgba(241, 245, 249, 0.24);
+  --side-panel-image-opacity: 0.2;
+  --side-panel-scrim: rgba(241, 245, 249, 0.78);
+}
+
 /* Glass panels */
 .sidebar,
 .plan-panel {
@@ -979,6 +1048,26 @@ button {
 .command-bar-icon.add-tool-icon {
   background: linear-gradient(135deg, var(--success) 0%, var(--accent) 100%);
   box-shadow: 0 6px 10px -2px color-mix(in srgb, var(--success) 36%, transparent);
+}
+
+.command-bar-icon.page-mascot-icon {
+  overflow: hidden;
+  padding: 0;
+  color: var(--accent);
+  background:
+    linear-gradient(135deg, rgba(var(--panel-base), 0.88), rgba(var(--panel-base), 0.58)),
+    var(--accent-soft);
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  box-shadow:
+    0 10px 18px -8px color-mix(in srgb, var(--accent) 38%, transparent),
+    0 0 0 1px rgba(255, 255, 255, 0.42) inset;
+}
+
+.command-bar-icon.page-mascot-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .topbar,
@@ -3278,6 +3367,101 @@ button {
   grid-column: 1 / -1;
 }
 
+.usage-wiki-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.wiki-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background:
+    radial-gradient(circle at 18% 16%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 34%),
+    rgba(15, 23, 42, 0.32);
+  backdrop-filter: blur(18px) saturate(160%);
+}
+
+.wiki-modal {
+  width: min(1040px, calc(100vw - 56px));
+  max-height: calc(100vh - 64px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(135deg, rgba(var(--panel-base), 0.94), rgba(var(--panel-base), 0.76)),
+    var(--card-bg);
+  box-shadow: var(--shadow-xl);
+  padding: 22px;
+}
+
+.wiki-modal-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 14px;
+}
+
+.wiki-modal-head h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 900;
+}
+
+.wiki-modal-body {
+  min-height: 0;
+  display: grid;
+  gap: 14px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.wiki-section {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: rgba(var(--panel-base), 0.56);
+  padding: 16px;
+}
+
+.wiki-section h4 {
+  margin: 0 0 6px;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.wiki-section p,
+.wiki-section li {
+  color: var(--text-main);
+  font-size: 13px;
+  line-height: 1.7;
+  font-weight: 700;
+}
+
+.wiki-section p {
+  margin: 0 0 10px;
+}
+
+.wiki-section ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
 .settings-text,
 .dns-head p {
   margin: 0;
@@ -3544,10 +3728,10 @@ button {
 }
 
 .catalog-batch-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px) auto auto;
+  display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   margin: 12px 0 16px;
   border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-color));
   border-radius: var(--radius-lg);
@@ -3558,9 +3742,11 @@ button {
 }
 
 .catalog-batch-bar > div {
+  flex: 1 1 280px;
   display: grid;
   gap: 3px;
-  min-width: 0;
+  min-width: 240px;
+  writing-mode: horizontal-tb;
 }
 
 .catalog-batch-bar strong {
@@ -3577,8 +3763,18 @@ button {
 }
 
 .catalog-batch-bar label {
+  flex: 0 1 260px;
   display: grid;
   gap: 4px;
+  min-width: 220px;
+  writing-mode: horizontal-tb;
+}
+
+.catalog-batch-bar .secondary-button,
+.catalog-batch-bar .ghost-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
 }
 
 .catalog-batch-bar select {
@@ -3929,6 +4125,65 @@ button {
   color: var(--text-strong);
   font-size: 18px;
   line-height: 1.25;
+}
+
+.note-workbench {
+  display: grid;
+  grid-template-rows: auto auto minmax(420px, 1fr);
+  gap: 14px;
+  min-height: calc(100vh - 170px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(135deg, rgba(var(--panel-base), 0.86), rgba(var(--panel-base), 0.48)),
+    var(--card-bg);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(14px) saturate(160%);
+  padding: 18px;
+}
+
+.note-workbench-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.note-title-input,
+.note-workbench-textarea {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  color: var(--text-strong);
+  background: rgba(var(--panel-base), 0.72);
+  outline: none;
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-fast);
+}
+
+.note-title-input:focus,
+.note-workbench-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.note-title-input {
+  min-height: 58px;
+  padding: 0 18px;
+  font-family: var(--font-display);
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 900;
+}
+
+.note-workbench-textarea {
+  min-height: 420px;
+  resize: none;
+  padding: 18px;
+  font-family: var(--font-serif-cn);
+  font-size: 15px;
+  line-height: 1.8;
 }
 
 .note-content-field textarea {

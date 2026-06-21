@@ -1,6 +1,6 @@
-import { NotebookPen, Plus, Save, Trash2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowLeft, NotebookPen, Plus, Trash2 } from "lucide-react";
 import type { NotebookEntry } from "../core/notebook";
+import { PageHeaderIcon } from "./PageHeaderIcon";
 
 export function NotesView({
   entries,
@@ -21,46 +21,66 @@ export function NotesView({
   onDelete: (id: string) => void;
 }) {
   const activeEntry = entries.find((entry) => entry.id === activeNoteId);
-  const [draft, setDraft] = useState({ title: "", content: "" });
-
-  useEffect(() => {
-    if (!activeEntry) {
-      setDraft({ title: "", content: "" });
-      return;
-    }
-
-    setDraft({ title: activeEntry.title, content: activeEntry.content });
-  }, [activeEntry]);
-
-  function save() {
-    if (!activeEntry) {
-      return;
-    }
-
-    onUpdate(activeEntry.id, draft);
-  }
 
   return (
     <div className="notes-page">
       <header className="command-bar page-topbar">
         <div className="command-bar-title">
-          <div className="command-bar-icon notes-icon">
+          <PageHeaderIcon page="notes" className="notes-icon" alt="记事本">
             <NotebookPen size={22} />
-          </div>
+          </PageHeaderIcon>
           <div>
             <p className="eyebrow">个人记录</p>
             <h2>记事本</h2>
           </div>
         </div>
         <div className="top-actions">
-          <button className="primary-button" type="button" onClick={onCreate}>
-            <Plus size={16} />
-            新建记事本
-          </button>
+          {activeEntry ? (
+            <button className="secondary-button" type="button" onClick={() => onSelect("")}>
+              <ArrowLeft size={16} />
+              返回列表
+            </button>
+          ) : (
+            <button className="primary-button" type="button" onClick={onCreate}>
+              <Plus size={16} />
+              新建记事本
+            </button>
+          )}
         </div>
       </header>
 
-      {entries.length === 0 ? (
+      {activeEntry ? (
+        <section className="note-workbench" aria-label="编辑记事本">
+          <div className="note-workbench-head">
+            <button className="secondary-button" type="button" onClick={() => onSelect("")}>
+              <ArrowLeft size={15} />
+              返回列表
+            </button>
+            <button
+              className="secondary-button danger"
+              type="button"
+              onClick={() => onDelete(activeEntry.id)}
+            >
+              <Trash2 size={15} />
+              删除记事本
+            </button>
+          </div>
+          <input
+            className="note-title-input"
+            value={activeEntry.title}
+            onChange={(event) => onUpdate(activeEntry.id, { title: event.target.value })}
+            placeholder="记事本标题"
+            aria-label="记事本标题"
+          />
+          <textarea
+            className="note-workbench-textarea"
+            value={activeEntry.content}
+            onChange={(event) => onUpdate(activeEntry.id, { content: event.target.value })}
+            placeholder="记录装机备注、命令、链接或临时想法。内容会实时保存。"
+            aria-label="记事本内容"
+          />
+        </section>
+      ) : entries.length === 0 ? (
         <div className="empty-state empty-state-compact">
           <div className="empty-state-icon">
             <NotebookPen size={22} />
@@ -87,65 +107,6 @@ export function NotesView({
             </button>
           ))}
         </section>
-      )}
-
-      {activeEntry && (
-        <div className="note-modal-overlay" role="presentation">
-          <section className="note-modal" aria-modal="true" role="dialog">
-            <div className="note-editor-head">
-              <div>
-                <p className="eyebrow">编辑记事本</p>
-                <h3>{activeEntry.title}</h3>
-              </div>
-              <button
-                className="icon-button"
-                type="button"
-                aria-label="关闭记事本"
-                onClick={() => onSelect("")}
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <label className="field-label">
-              标题
-              <input
-                value={draft.title}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, title: event.target.value }))
-                }
-                placeholder="记事本标题"
-              />
-            </label>
-            <label className="field-label note-content-field">
-              内容
-              <textarea
-                value={draft.content}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, content: event.target.value }))
-                }
-                placeholder="记录你想保存的文本。"
-              />
-            </label>
-            <div className="note-modal-actions">
-              <button
-                className="secondary-button danger"
-                type="button"
-                onClick={() => onDelete(activeEntry.id)}
-              >
-                <Trash2 size={14} />
-                删除
-              </button>
-              <button className="secondary-button" type="button" onClick={() => onSelect("")}>
-                <X size={14} />
-                关闭
-              </button>
-              <button className="primary-button" type="button" onClick={save}>
-                <Save size={14} />
-                保存
-              </button>
-            </div>
-          </section>
-        </div>
       )}
     </div>
   );

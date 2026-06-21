@@ -45,6 +45,7 @@ import {
   type AiLogStatus,
 } from "./core/aiLog";
 import type { ConfirmDialogOptions } from "./components/ConfirmDialog";
+import { PageHeaderIcon } from "./components/PageHeaderIcon";
 
 export type RuntimeLogEntry = {
   id: number;
@@ -282,9 +283,9 @@ export function LogsView({
     <div className="logs-page">
       <header className="command-bar page-topbar">
         <div className="command-bar-title">
-          <div className="command-bar-icon logs-icon">
+          <PageHeaderIcon page="logs" className="logs-icon" alt="日志中心">
             <Terminal size={22} />
-          </div>
+          </PageHeaderIcon>
           <div>
             <p className="eyebrow">日志中心</p>
             <h2>查看操作历史、实时输出和失败详情</h2>

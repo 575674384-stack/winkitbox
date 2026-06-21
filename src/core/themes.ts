@@ -4,8 +4,20 @@ import mintWorkbenchBackgroundUrl from "../../assets/backgrounds/mint-workbench.
 import violetFantasyBackgroundUrl from "../../assets/backgrounds/violet-fantasy.png";
 import roseStudioBackgroundUrl from "../../assets/backgrounds/rose-studio.png";
 import ninjaWorkshopBackgroundUrl from "../../assets/backgrounds/ninja-workshop.png";
+import iceDreamBackgroundUrl from "../../assets/backgrounds/ice-dream.png";
+import obsidianKnightBackgroundUrl from "../../assets/backgrounds/obsidian-knight.png";
+import ashCommanderBackgroundUrl from "../../assets/backgrounds/ash-commander.png";
 
-export type ThemeId = "azure" | "mint" | "amber" | "violet" | "rose" | "ninja";
+export type ThemeId =
+  | "azure"
+  | "mint"
+  | "amber"
+  | "violet"
+  | "rose"
+  | "ninja"
+  | "ice"
+  | "obsidian"
+  | "ash";
 
 export type ThemeDefinition = {
   id: ThemeId;
@@ -85,6 +97,39 @@ export const themeDefinitions: ThemeDefinition[] = [
     background: "#fff7ed",
     imageBackground: ninjaWorkshopBackgroundUrl,
     defaultGlassOpacity: 0.68,
+    defaultGlassBlur: 18
+  },
+  {
+    id: "ice",
+    name: "冰雪梦幻",
+    description: "雪白冰蓝美少女主题，清澈明亮",
+    accent: "#38bdf8",
+    accentSoft: "#e0f7ff",
+    background: "#f8fbff",
+    imageBackground: iceDreamBackgroundUrl,
+    defaultGlassOpacity: 0.72,
+    defaultGlassBlur: 18
+  },
+  {
+    id: "obsidian",
+    name: "黑曜骑士",
+    description: "黑色帅气男性主题，深色高对比",
+    accent: "#38bdf8",
+    accentSoft: "#0f2a3a",
+    background: "#0b1120",
+    imageBackground: obsidianKnightBackgroundUrl,
+    defaultGlassOpacity: 0.72,
+    defaultGlassBlur: 20
+  },
+  {
+    id: "ash",
+    name: "灰域指挥官",
+    description: "灰色帅气男性主题，冷静清晰",
+    accent: "#64748b",
+    accentSoft: "#e2e8f0",
+    background: "#f1f5f9",
+    imageBackground: ashCommanderBackgroundUrl,
+    defaultGlassOpacity: 0.70,
     defaultGlassBlur: 18
   }
 ];
