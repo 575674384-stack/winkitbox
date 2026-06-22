@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { validateAiToolCandidate, validateDownloadUrl } = require("./aiCandidateValidation.cjs");
+const { looksLikeMsixFailure } = require("./aiRepair.cjs");
 const { allowedThemeIds, defaultThemeId, normalizeThemeId } = require("./themeIds.cjs");
 const { createTrayMenuTemplate, getTrayIconPath } = require("./trayController.cjs");
 const {
@@ -768,6 +769,9 @@ $adapters = Get-NetIPConfiguration |
   disks = @($disks)
   physicalDisks = @($physicalDisks)
   gpus = @($gpus)
+  $appInstallerPackage = Get-AppxPackage -Name "Microsoft.DesktopAppInstaller" -ErrorAction SilentlyContinue | Select-Object -First 1
+  $uiXamlPackages = @(Get-AppxPackage -Name "Microsoft.UI.Xaml.*" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+  $uiXamlInstalled = $uiXamlPackages.Count -gt 0
   environment = [PSCustomObject]@{
     wingetAvailable = [bool]$wingetCommand
     wingetVersion = [string]$wingetVersion
@@ -778,6 +782,10 @@ $adapters = Get-NetIPConfiguration |
     webView2Installed = [bool]$webView2Installed
     longPathsEnabled = [bool]($fileSystem.LongPathsEnabled -eq 1)
     utf8BetaEnabled = [bool]($codePage.ACP -eq '65001')
+    appInstallerAvailable = [bool]$appInstallerPackage
+    appInstallerVersion = [string]($appInstallerPackage.Version)
+    uiXamlInstalled = [bool]$uiXamlInstalled
+    uiXamlPackages = @($uiXamlPackages)
   }
   utf8BetaEnabled = [bool]($codePage.ACP -eq '65001')
   adapters = @($adapters)
@@ -1170,13 +1178,15 @@ async function testAiConnection(request) {
   return { ok: true };
 }
 
-async function fetchAiContent(baseUrl, apiKey, model, messages) {
+async function fetchAiContent(baseUrl, apiKey, model, messages, options = {}) {
   const endpoint = buildAiEndpoint(baseUrl, "chat/completions");
   const headers = buildAiHeaders(apiKey);
+  const signal = options.signal;
 
   const jsonModeResponse = await net.fetch(endpoint, {
     method: "POST",
     headers,
+    signal,
     body: JSON.stringify({
       model,
       messages,
@@ -1202,6 +1212,7 @@ async function fetchAiContent(baseUrl, apiKey, model, messages) {
   const plainResponse = await net.fetch(endpoint, {
     method: "POST",
     headers,
+    signal,
     body: JSON.stringify({
       model,
       messages,
@@ -1290,32 +1301,41 @@ async function fixToolWithAi(request) {
     throw new Error("工具定义无效。");
   }
 
-  const context = await fetchToolRepairContext(tool);
-  const content = await fetchAiContent(
-    baseUrl,
-    apiKey,
-    model,
-    buildAiFixMessages(tool, errorMessage, context)
-  );
-  const { candidate, aiResponse, validation } = await parseAndValidateAiCandidate({
-    content,
-    context,
-    baseUrl,
-    apiKey,
-    model,
-    buildRepairMessages: (failedCandidate, failedValidation) =>
-      buildAiCandidateValidationRepairMessages({
-        mode: "tool-repair",
-        context,
-        candidate: failedCandidate,
-        validation: failedValidation,
-        categoryId: String(tool.category ?? "custom-add") || "custom-add",
-        tool,
-        errorMessage
-      })
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90_000);
 
-  return { candidate, aiResponse, validation };
+  try {
+    const context = await fetchToolRepairContext(tool);
+    const content = await fetchAiContent(
+      baseUrl,
+      apiKey,
+      model,
+      buildAiFixMessages(tool, errorMessage, context),
+      { signal: controller.signal }
+    );
+    const { candidate, aiResponse, validation } = await parseAndValidateAiCandidate({
+      content,
+      context,
+      baseUrl,
+      apiKey,
+      model,
+      signal: controller.signal,
+      buildRepairMessages: (failedCandidate, failedValidation) =>
+        buildAiCandidateValidationRepairMessages({
+          mode: "tool-repair",
+          context,
+          candidate: failedCandidate,
+          validation: failedValidation,
+          categoryId: String(tool.category ?? "custom-add") || "custom-add",
+          tool,
+          errorMessage
+        })
+    });
+
+    return { candidate, aiResponse, validation };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function parseAndValidateAiCandidate({
@@ -1324,6 +1344,7 @@ async function parseAndValidateAiCandidate({
   baseUrl,
   apiKey,
   model,
+  signal,
   buildRepairMessages
 }) {
   const candidate = parseAiCandidateContent(content);
@@ -1337,7 +1358,8 @@ async function parseAndValidateAiCandidate({
     baseUrl,
     apiKey,
     model,
-    buildRepairMessages(candidate, validation)
+    buildRepairMessages(candidate, validation),
+    { signal }
   );
   const repairedCandidate = parseAiCandidateContent(repairedContent);
   const repairedValidation = await validateAiCandidateWithNetwork(repairedCandidate, context);
@@ -1515,13 +1537,17 @@ async function recommendGitHubReposWithAi(request) {
 }
 
 function buildAiToolFixPrompt(tool, errorMessage, context) {
+  const msixHint = looksLikeMsixFailure(errorMessage)
+    ? `\nThe failure appears related to MSIX / App Installer / Microsoft Store deployment. If possible, avoid MSIX-only install routes (do not rely on Add-AppxPackage or .msixbundle). Prefer a winget package that delivers an .exe/.msi, a direct .exe/.msi installer, or a portable .zip/.7z archive.\n`
+    : "";
+
   return `Analyze this WinKitBox tool definition and its installation failure, then return a corrected install configuration.
 
 Tool definition:
 ${JSON.stringify(tool, null, 2)}
 
 Installation error message:
-${errorMessage || "No specific error message provided."}
+${errorMessage || "No specific error message provided."}${msixHint}
 
 Live source context:
 ${JSON.stringify(context, null, 2)}

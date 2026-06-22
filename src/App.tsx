@@ -18,6 +18,7 @@ import {
   Keyboard,
   Laptop,
   ListChecks,
+  Loader2,
   MonitorOff,
   Network,
   NotebookPen,
@@ -563,6 +564,7 @@ export function App() {
   );
   const [isCheckingToolUpdates, setIsCheckingToolUpdates] = useState(false);
   const [isCheckingToolSources, setIsCheckingToolSources] = useState(false);
+  const [aiRepairingToolId, setAiRepairingToolId] = useState<string>();
   const [batchCategoryId, setBatchCategoryId] = useState(customAddCategoryId);
   const [settings, setSettings] = useState<ToolPathSettings>(fallbackSettings);
   const [toolRootDraft, setToolRootDraft] = useState(
@@ -2388,9 +2390,11 @@ export function App() {
       .filter(Boolean)
       .join("；");
     const isBuiltinTool = !customTools.some((item) => item.id === tool.id);
-    appendLog("info", `正在用 AI 分析 ${tool.name} 的安装失败原因...`);
+    setAiRepairingToolId(tool.id);
+    appendLog("info", `AI 修复 ${tool.name}：正在读取来源上下文...`);
 
     try {
+      appendLog("info", `AI 修复 ${tool.name}：正在请求 AI 分析并校验安装源...`);
       const result = await window.winKitBox.fixAiTool({
         baseUrl: settings.aiBaseUrl,
         apiKey: settings.aiApiKey,
@@ -2477,6 +2481,8 @@ export function App() {
         toolName: tool.name,
         repoUrl: tool.repoUrl ?? tool.homepage,
       });
+    } finally {
+      setAiRepairingToolId(undefined);
     }
   }
 
@@ -3780,6 +3786,7 @@ export function App() {
             isChecking={isCheckingToolUpdates}
             isCheckingSources={isCheckingToolSources}
             isRunning={isRunning}
+            aiRepairingToolId={aiRepairingToolId}
             onCheck={checkInstalledToolUpdates}
             onCheckSources={checkToolSources}
             onRepairSource={repairToolSource}
@@ -4081,6 +4088,8 @@ export function App() {
                   categories={activeCategoryDefinitions}
                   isCustom={customTools.some((item) => item.id === tool.id)}
                   dragging={draggedToolId === tool.id}
+                  hasRecentFailure={Boolean(getLatestToolFailure(activityLog, tool.id))}
+                  isAiRepairing={aiRepairingToolId === tool.id}
                   onToggle={() => toggleTool(tool.id)}
                   onInstall={() => installTool(tool)}
                   onUninstall={() => uninstallTool(tool)}
@@ -4090,6 +4099,7 @@ export function App() {
                     saveToolCategory(tool.id, categoryId)
                   }
                   onRemove={() => removeCustomToolFromCard(tool)}
+                  onAiFix={() => fixToolWithAi(tool)}
                   onDragStart={(event) => startToolDrag(event, tool)}
                   onDragEnd={endToolDrag}
                 />
@@ -4232,6 +4242,7 @@ export function App() {
             openLogsView({ toolId: detailTool.id, quick: "failed" })
           }
           onRemove={() => removeCustomToolFromCard(detailTool)}
+          isAiRepairing={aiRepairingToolId === detailTool.id}
         />
       )}
 
@@ -4435,6 +4446,7 @@ function ToolUpdatesView({
   isChecking,
   isCheckingSources,
   isRunning,
+  aiRepairingToolId,
   onCheck,
   onCheckSources,
   onRepairSource,
@@ -4452,6 +4464,7 @@ function ToolUpdatesView({
   isChecking: boolean;
   isCheckingSources: boolean;
   isRunning: boolean;
+  aiRepairingToolId?: string;
   onCheck: () => Promise<void>;
   onCheckSources: () => Promise<void>;
   onRepairSource: (tool: Tool) => Promise<void>;
@@ -4619,10 +4632,11 @@ function ToolUpdatesView({
                     <button
                       className="mini-action repair"
                       type="button"
+                      disabled={aiRepairingToolId === tool.id}
                       onClick={() => void onRepairSource(tool)}
                     >
-                      <Sparkles size={13} />
-                      AI 修复
+                      {aiRepairingToolId === tool.id ? <Loader2 className="spin" size={13} /> : <Sparkles size={13} />}
+                      {aiRepairingToolId === tool.id ? "修复中" : "AI 修复"}
                     </button>
                   )}
                   {(result.checkedUrl || tool?.repoUrl || tool?.homepage) && (
@@ -4771,11 +4785,11 @@ function ToolUpdatesView({
                       <button
                         className="mini-action repair"
                         type="button"
-                        disabled={isRunning}
+                        disabled={isRunning || aiRepairingToolId === tool.id}
                         onClick={() => void onRepairSource(tool)}
                       >
-                        <Sparkles size={14} />
-                        AI 修复
+                        {aiRepairingToolId === tool.id ? <Loader2 className="spin" size={14} /> : <Sparkles size={14} />}
+                        {aiRepairingToolId === tool.id ? "修复中" : "AI 修复"}
                       </button>
                     )}
                   <button
@@ -6750,6 +6764,7 @@ function ToolDetailDrawer({
   onAiFix,
   onViewLogs,
   onRemove,
+  isAiRepairing,
 }: {
   tool: Tool;
   toolState: ToolRuntimeState;
@@ -6768,6 +6783,7 @@ function ToolDetailDrawer({
   onAiFix: () => void;
   onViewLogs: () => void;
   onRemove: () => void;
+  isAiRepairing: boolean;
 }) {
   const canOpen =
     toolState.status !== "installing" &&
@@ -6857,10 +6873,15 @@ function ToolDetailDrawer({
             <Terminal size={14} />
             相关日志
           </button>
-          {toolState.status === "failed" && (
-            <button className="primary-button" type="button" onClick={onAiFix}>
-              <Sparkles size={14} />
-              AI 修复
+          {(toolState.status === "failed" || recentActivities.some((entry) => entry.status === "error")) && (
+            <button
+              className="primary-button"
+              type="button"
+              disabled={isAiRepairing}
+              onClick={onAiFix}
+            >
+              {isAiRepairing ? <Loader2 className="spin" size={14} /> : <Sparkles size={14} />}
+              {isAiRepairing ? "修复中" : "AI 修复"}
             </button>
           )}
           {isCustom && (
@@ -6919,6 +6940,8 @@ function ToolCard({
   categories,
   isCustom,
   dragging,
+  hasRecentFailure,
+  isAiRepairing,
   onToggle,
   onInstall,
   onUninstall,
@@ -6926,6 +6949,7 @@ function ToolCard({
   onShowDetails,
   onSetCategory,
   onRemove,
+  onAiFix,
   onDragStart,
   onDragEnd,
 }: {
@@ -6935,6 +6959,8 @@ function ToolCard({
   categories: CategoryDefinition[];
   isCustom: boolean;
   dragging: boolean;
+  hasRecentFailure: boolean;
+  isAiRepairing: boolean;
   onToggle: () => void;
   onInstall: () => void;
   onUninstall: () => void;
@@ -6942,6 +6968,7 @@ function ToolCard({
   onShowDetails: () => void;
   onSetCategory: (categoryId: string) => void;
   onRemove: () => void;
+  onAiFix: () => void;
   onDragStart: (event: DragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
 }) {
@@ -7122,6 +7149,20 @@ function ToolCard({
             <Info size={14} />
             详情
           </button>
+          {hasRecentFailure && (
+            <button
+              className="mini-action ai-fix"
+              type="button"
+              disabled={isAiRepairing}
+              onClick={() => {
+                setShowLifecycleMenu(false);
+                onAiFix();
+              }}
+            >
+              {isAiRepairing ? <Loader2 className="spin" size={14} /> : <Sparkles size={14} />}
+              {isAiRepairing ? "修复中" : "AI 修复"}
+            </button>
+          )}
         </div>
       </div>
     </article>

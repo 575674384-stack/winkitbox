@@ -8,6 +8,10 @@ export type EnvironmentSnapshot = {
   webView2Installed?: boolean;
   longPathsEnabled: boolean;
   utf8BetaEnabled: boolean;
+  appInstallerAvailable?: boolean;
+  appInstallerVersion?: string;
+  uiXamlInstalled?: boolean;
+  uiXamlPackages?: string[];
 };
 
 export type EnvironmentCheckId =
@@ -17,7 +21,9 @@ export type EnvironmentCheckId =
   | "vcredist"
   | "webview2"
   | "long-paths"
-  | "utf8";
+  | "utf8"
+  | "app-installer"
+  | "ui-xaml";
 
 export type EnvironmentRepairAction = {
   id: string;
@@ -191,6 +197,8 @@ export function createEnvironmentChecks(snapshot: EnvironmentSnapshot): Environm
             recommended: false,
           },
     },
+    createAppInstallerCheck(snapshot, wingetAvailable),
+    createUiXamlCheck(snapshot, wingetAvailable),
   ];
 }
 
@@ -222,6 +230,64 @@ export function createEnvironmentHealthSummary(
     danger,
     score,
     recommendedRepairCount,
+  };
+}
+
+function createAppInstallerCheck(
+  snapshot: EnvironmentSnapshot,
+  wingetAvailable: boolean,
+): EnvironmentCheck {
+  const available = Boolean(snapshot.appInstallerAvailable);
+
+  return {
+    id: "app-installer",
+    label: "App Installer（应用安装器）",
+    status: available ? "ok" : "warning",
+    impact: ["MSIX/UWP 应用安装", "winget 部分包部署", "Windows Terminal 等 Store 签名包"],
+    detail: available
+      ? `已安装${snapshot.appInstallerVersion ? ` · ${snapshot.appInstallerVersion}` : ""}`
+      : "未检测到 App Installer，安装 Windows Terminal 等 MSIX/Store 签名包时可能失败。",
+    action: available ? undefined : "建议安装或修复 App Installer",
+    repair: available
+      ? undefined
+      : {
+          id: "open-app-installer",
+          checkId: "app-installer",
+          kind: "url",
+          label: "打开 App Installer",
+          description: "跳转到 Microsoft Store 的 App Installer 页面，安装后重新刷新体检。",
+          url: "ms-windows-store://pdp/?ProductId=9NBLGGH4NNS1",
+          recommended: false,
+        },
+  };
+}
+
+function createUiXamlCheck(
+  snapshot: EnvironmentSnapshot,
+  wingetAvailable: boolean,
+): EnvironmentCheck {
+  const installed = Boolean(snapshot.uiXamlInstalled);
+  const packages = Array.isArray(snapshot.uiXamlPackages) ? snapshot.uiXamlPackages : [];
+
+  return {
+    id: "ui-xaml",
+    label: "Microsoft UI.Xaml 框架",
+    status: installed ? "ok" : "warning",
+    impact: ["MSIX/Store 应用依赖", "Windows Terminal 等现代 UI 包"],
+    detail: installed
+      ? `已检测到 ${packages.join("、") || "UI.Xaml"}`
+      : "未检测到 Microsoft UI.Xaml 框架，部分 MSIX 应用（如 Windows Terminal）可能无法安装。",
+    action: installed ? undefined : "需要时安装 UI.Xaml 框架依赖",
+    repair: installed
+      ? undefined
+      : createWingetInstallRepair({
+          checkId: "ui-xaml",
+          id: "install-ui-xaml",
+          label: "安装 Microsoft UI.Xaml 2.8",
+          description: "安装 Microsoft UI.Xaml 2.8 框架，部分 MSIX 应用需要它作为依赖。",
+          wingetId: "Microsoft.UI.Xaml.2.8",
+          wingetAvailable,
+        }),
   };
 }
 

@@ -19,6 +19,10 @@ describe("environment checks", () => {
       webView2Installed: true,
       longPathsEnabled: true,
       utf8BetaEnabled: true,
+      appInstallerAvailable: true,
+      appInstallerVersion: "1.21.0.0",
+      uiXamlInstalled: true,
+      uiXamlPackages: ["Microsoft.UI.Xaml.2.8"],
     });
 
     expect(checks.map((check) => [check.id, check.status])).toEqual([
@@ -29,6 +33,8 @@ describe("environment checks", () => {
       ["webview2", "ok"],
       ["long-paths", "ok"],
       ["utf8", "ok"],
+      ["app-installer", "ok"],
+      ["ui-xaml", "ok"],
     ]);
 
     expect(checks.find((check) => check.id === "dotnet")?.detail).toBe(
@@ -48,6 +54,8 @@ describe("environment checks", () => {
       webView2Installed: false,
       longPathsEnabled: false,
       utf8BetaEnabled: false,
+      appInstallerAvailable: false,
+      uiXamlInstalled: false,
     });
 
     expect(checks.find((check) => check.id === "winget")?.status).toBe("danger");
@@ -56,6 +64,8 @@ describe("environment checks", () => {
     expect(checks.find((check) => check.id === "webview2")?.status).toBe("warning");
     expect(checks.find((check) => check.id === "long-paths")?.status).toBe("warning");
     expect(checks.find((check) => check.id === "utf8")?.action).toBe("可在本页一键切换");
+    expect(checks.find((check) => check.id === "app-installer")?.status).toBe("warning");
+    expect(checks.find((check) => check.id === "ui-xaml")?.status).toBe("warning");
   });
 
   it("attaches repair actions to missing dependencies without making UTF-8 a default fix", () => {
@@ -67,6 +77,8 @@ describe("environment checks", () => {
       webView2Installed: false,
       longPathsEnabled: false,
       utf8BetaEnabled: false,
+      appInstallerAvailable: true,
+      uiXamlInstalled: false,
     });
 
     expect(checks.find((check) => check.id === "dotnet")?.repair?.command).toContain(
@@ -83,7 +95,7 @@ describe("environment checks", () => {
       (action) => action.checkId,
     );
 
-    expect(recommended).toEqual(["dotnet", "vcredist", "webview2", "long-paths"]);
+    expect(recommended).toEqual(["dotnet", "vcredist", "webview2", "long-paths", "ui-xaml"]);
   });
 
   it("marks winget-dependent repairs as unavailable when winget is missing", () => {
@@ -115,11 +127,14 @@ describe("environment checks", () => {
       webView2Installed: true,
       longPathsEnabled: false,
       utf8BetaEnabled: true,
+      appInstallerAvailable: true,
+      uiXamlInstalled: true,
+      uiXamlPackages: ["Microsoft.UI.Xaml.2.8"],
     });
 
     expect(createEnvironmentHealthSummary(checks)).toMatchObject({
-      total: 7,
-      ok: 5,
+      total: 9,
+      ok: 7,
       warning: 2,
       danger: 0,
       recommendedRepairCount: 2,
@@ -138,6 +153,9 @@ describe("environment checks", () => {
       webView2Installed: true,
       longPathsEnabled: true,
       utf8BetaEnabled: true,
+      appInstallerAvailable: true,
+      uiXamlInstalled: true,
+      uiXamlPackages: ["Microsoft.UI.Xaml.2.8"],
     });
 
     const dotnetCheck = checks.find((check) => check.id === "dotnet");
@@ -146,6 +164,28 @@ describe("environment checks", () => {
     expect(dotnetCheck?.detail).toBe(
       "未检测到 Windows Desktop Runtime，部分桌面工具可能无法启动。"
     );
+  });
+
+  it("warns when App Installer or UI.Xaml framework is missing", () => {
+    const checks = createEnvironmentChecks({
+      wingetAvailable: true,
+      powershellVersion: "5.1.19041.1",
+      dotnetRuntimes: [],
+      vcredistInstalled: true,
+      webView2Installed: true,
+      longPathsEnabled: true,
+      utf8BetaEnabled: true,
+      appInstallerAvailable: false,
+      uiXamlInstalled: false,
+    });
+
+    const appInstallerCheck = checks.find((check) => check.id === "app-installer");
+    const uiXamlCheck = checks.find((check) => check.id === "ui-xaml");
+
+    expect(appInstallerCheck?.status).toBe("warning");
+    expect(appInstallerCheck?.repair?.kind).toBe("url");
+    expect(uiXamlCheck?.status).toBe("warning");
+    expect(uiXamlCheck?.repair?.command).toContain("Microsoft.UI.Xaml.2.8");
   });
 
   it("uses explicit Desktop Runtime readings from the system snapshot", () => {
@@ -161,6 +201,9 @@ describe("environment checks", () => {
       webView2Installed: true,
       longPathsEnabled: true,
       utf8BetaEnabled: true,
+      appInstallerAvailable: true,
+      uiXamlInstalled: true,
+      uiXamlPackages: ["Microsoft.UI.Xaml.2.8"],
     });
 
     const dotnetCheck = checks.find((check) => check.id === "dotnet");

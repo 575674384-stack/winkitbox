@@ -1,36 +1,36 @@
 # AGENTS.md
 
-This file is the working guide for AI coding agents and future maintainers of WinKitBox.
+本文件是 AI 编码助手与未来维护者在 WinKitBox 项目上的工作指南。
 
-## Project Summary
+## 项目简介
 
-WinKitBox is a Windows desktop toolbox for rebuilding a familiar PC environment quickly. It is an Electron + React + Vite app that can:
+WinKitBox 是一款面向 Windows 的桌面装机/环境恢复工具箱，基于 **Electron + React + Vite** 构建。它帮助用户快速重建熟悉的 PC 环境，主要能力包括：
 
-- browse and select common Windows tools;
-- generate and run install or uninstall PowerShell plans;
-- detect installed tools and launch them from the app;
-- manage portable tools under a configurable WinKitBox tool directory;
-- show local system/network/DNS information and apply IP or DNS changes through elevated PowerShell;
-- recommend public DNS providers and test DNS latency against preset or custom domains;
-- browse Windows-focused GitHub weekly/monthly rankings with proxy support and Chinese translation;
-- add custom GitHub tools through an OpenAI-compatible AI workflow;
-- export/import lightweight user configuration for syncing selected tools, settings, and AI-added tools;
-- package Windows setup and portable builds.
+- 浏览和选择常用 Windows 工具；
+- 生成并执行安装或卸载 PowerShell 计划；
+- 检测已安装工具并从应用内启动；
+- 在可配置的 WinKitBox 工具目录下管理便携工具；
+- 展示本机系统/网络/DNS 信息，并通过提权 PowerShell 应用 IP 或 DNS 变更；
+- 推荐公共 DNS 并测试预设或自定义域名的 DNS 延迟；
+- 浏览 Windows 相关的 GitHub 周榜/月榜，支持代理与中文翻译；
+- 通过 OpenAI 兼容的 AI 工作流添加自定义 GitHub 工具；
+- 导出/导入轻量级用户配置，用于同步已选工具、设置和 AI 添加的工具；
+- 打包 Windows 安装版与便携版。
 
-The app is for personal Windows use first. Keep changes practical, local, and conservative.
+本应用首先服务于个人 Windows 使用场景。改动应保持实用、本地化、保守。
 
-## Stack
+## 技术栈
 
-- Runtime: Electron
-- UI: React + TypeScript + Vite
-- Tests: Vitest + jsdom
-- Packaging: electron-builder
-- Icons: lucide-react in UI, app icon under `assets/icon/`
-- Shell target: Windows PowerShell
+- 运行时：Electron
+- 前端：React + TypeScript + Vite
+- 测试：Vitest + jsdom
+- 打包：electron-builder
+- 图标：UI 内使用 lucide-react，应用图标位于 `assets/icon/`
+- Shell 目标：Windows PowerShell
 
-## Important Commands
+## 常用命令
 
-Run commands from the repository root.
+在仓库根目录执行：
 
 ```powershell
 npm install
@@ -41,351 +41,151 @@ npm run build
 npm run package:win
 ```
 
-If `npm` can be found but child processes cannot find `node`, temporarily prepend Node to PATH for that command:
+如果 `npm` 能找到但子进程找不到 `node`，可临时把 Node 加到 PATH：
 
 ```powershell
 $env:Path='C:\Program Files\nodejs;'+$env:Path; npm test
 ```
 
-## Project Map
+## 项目结构
 
-- `src/App.tsx`: main catalog UI, local system page, settings page, AI-add-tool flow, install/open/uninstall actions.
-- `src/components/`: reusable renderer components split out of the main app shell.
-- `src/DiscoverView.tsx`: Windows-focused GitHub weekly/monthly ranking view, proxy mode, token input, translation flow.
-- `src/styles.css`: full app styling. Keep it responsive for the desktop window minimum size.
-- `src/styles/`: component-level CSS split from the global stylesheet.
-- `src/core/catalog.ts`: tool catalog data. Prefer official, open-source, or stable direct download sources.
-- `src/core/aiTool.ts`: validates AI-generated tool metadata and converts it into catalog entries.
-- `src/core/config.ts`: lightweight export/import config and custom tool helpers.
-- `src/core/network.ts`: public DNS recommendations, DNS latency ranking helpers, and DNS test domain presets.
-- `src/core/planner.ts`: install/uninstall command generation and PowerShell script rendering.
-- `src/core/launcher.ts`: launcher descriptors and logo URL fallback logic.
-- `src/core/toolStatus.ts`: runtime install/open/checking states and progress snapshots.
-- `src/core/runEvents.ts`: parser for structured PowerShell progress events.
-- `src/core/github.ts`: GitHub trend request helpers.
-- `src/core/translation.ts`: translation helpers.
-- `src/core/update.ts`: version comparison and update availability helpers.
-- `electron/main.cjs`: Electron main process, menu/tray/window behavior, IPC, PowerShell execution, settings, update checks.
-- `electron/themeIds.cjs`: main-process theme ID normalization shared by settings and theme-background IPC.
-- `electron/preload.cjs`: safe renderer bridge. Add new renderer APIs here and in `src/types/electron.d.ts`.
-- `electron/windowsTools.cjs`: generated PowerShell for installed-tool detection and launching.
-- `electron/trayController.cjs`: tray icon/menu behavior.
-- `scripts/package-win.cjs`: Windows packaging wrapper.
-- `scripts/sign-win.cjs`: local code-signing helper.
+- `src/App.tsx`：主目录 UI、本机系统页、设置页、AI 添加工具流程、安装/打开/卸载动作。
+- `src/components/`：从主应用壳中拆出的可复用渲染组件。
+- `src/DiscoverView.tsx`：Windows 相关的 GitHub 周榜/月榜视图、代理模式、Token 输入、翻译流程。
+- `src/styles.css`：全局应用样式。需保持在桌面窗口最小尺寸下的响应式。
+- `src/styles/`：从全局样式表中拆出的组件级 CSS。
+- `src/core/catalog.ts`：工具目录数据。优先使用官方、开源或稳定的直接下载源。
+- `src/core/aiTool.ts`：校验 AI 生成的工具元数据并转换为目录条目。
+- `src/core/config.ts`：轻量级导出/导入配置与自定义工具辅助函数。
+- `src/core/network.ts`：公共 DNS 推荐、DNS 延迟排序辅助函数、DNS 测试域名预设。
+- `src/core/planner.ts`：安装/卸载命令生成与 PowerShell 脚本渲染。
+- `src/core/launcher.ts`：启动描述符与 logo URL 兜底逻辑。
+- `src/core/toolStatus.ts`：运行时安装/打开/检测状态与进度快照。
+- `src/core/runEvents.ts`：结构化 PowerShell 进度事件解析器。
+- `src/core/github.ts`：GitHub 趋势请求辅助函数。
+- `src/core/translation.ts`：翻译辅助函数。
+- `src/core/update.ts`：版本对比与更新可用性辅助函数。
+- `electron/main.cjs`：Electron 主进程、菜单/托盘/窗口行为、IPC、PowerShell 执行、设置、更新检查。
+- `electron/themeIds.cjs`：设置与主题背景 IPC 共享的主进程主题 ID 规范化。
+- `electron/preload.cjs`：安全的渲染进程桥接。新增渲染进程 API 时，也要同步到 `src/types/electron.d.ts`。
+- `electron/windowsTools.cjs`：用于已安装工具检测与启动的生成 PowerShell。
+- `electron/trayController.cjs`：托盘图标/菜单行为。
+- `scripts/package-win.cjs`：Windows 打包包装脚本。
+- `scripts/sign-win.cjs`：本地代码签名辅助脚本。
 
-## Editing Rules
+## 编码规范
 
-- Keep install, uninstall, launch, and detection behavior aligned. If a tool path changes in `planner.ts`, check `launcher.ts` and detection behavior too.
-- Add or update tests for core behavior before changing shared logic in `src/core/`.
-- Do not turn website-only downloads into browser jumps unless there is no stable direct installation route.
-- Keep the UI dense and utilitarian. This is a toolbox, not a landing page.
-- Prefer lucide icons already used by the app.
-- Avoid adding hidden network calls outside the user's explicit actions, except lightweight update checks.
-- Keep AI calls user-initiated. Model listing, connection tests, and tool generation should only run after the user clicks a button.
-- Do not hard-code personal access tokens, private download links, local absolute paths, or machine-specific secrets.
-- Do not commit generated packages, local certificates, screenshots, logs, `node_modules`, or build output.
+- 保持安装、卸载、启动、检测行为一致。如果在 `planner.ts` 中修改了工具路径，也要检查 `launcher.ts` 和检测行为。
+- 在修改 `src/core/` 中的共享逻辑前，先添加或更新相关测试。
+- 不要把仅提供网页下载的工具变成浏览器跳转，除非没有稳定的直接安装途径。
+- 保持 UI 紧凑、实用。这是一个工具箱，不是落地页。
+- 优先使用应用已有的 lucide 图标。
+- 避免在用户显式操作之外发起隐藏网络请求，轻量级更新检查除外。
+- 保持 AI 调用由用户触发。模型列表、连接测试、工具生成只应在用户点击按钮后运行。
+- 不要硬编码个人访问令牌、私有下载链接、本地绝对路径或机器相关密钥。
+- 不要提交生成的安装包、本地证书、截图、日志、`node_modules` 或构建产物。
 
-## Tool Catalog Guidance
+## 语言与输出规范
 
-When adding a tool to `src/core/catalog.ts`:
+- AI 的思考过程、分析说明、结论、方案对比、操作反馈等面向用户的内容，**统一使用中文输出**。
+- 以下情况可保留英文：文件路径、代码片段、变量名/函数名、技术标识符、必须保留的英文命令行参数、版本号、URL、以及已有的英文专有名词（如 winget、PowerShell、GitHub、npm）。
+- 回复应简洁、准确、可操作，避免冗长铺垫。
 
-- provide a clear Chinese name/summary/description;
-- prefer `wingetId` when the package is reliable;
-- for portable tools, define `portable.downloadUrl`, `archiveName`, `targetDirName`, and `executable`;
-- for installer tools, define an installer source and launcher hints;
-- include `repoUrl` and stars when useful, especially for GitHub open-source tools;
-- add launch hints in `launch.startMenuNames`, `launch.commands`, or `launch.appUserModelIds`;
-- update planner and launcher tests if the new tool uses a new install shape.
+## 工具目录规范
 
-## AI Tool Add Guidance
+向 `src/core/catalog.ts` 添加工具时：
 
-The settings page has an AI-assisted custom tool flow. The user provides an OpenAI-compatible API URL, API key, model name, and a GitHub repository homepage.
+- 提供清晰的中文名称、摘要和描述；
+- 包稳定时优先使用 `wingetId`；
+- 便携工具需定义 `portable.downloadUrl`、`archiveName`、`targetDirName` 和 `executable`；
+- 安装包工具需定义安装源和启动提示；
+- 有用时包含 `repoUrl` 和 stars，尤其是 GitHub 开源工具；
+- 在 `launch.startMenuNames`、`launch.commands` 或 `launch.appUserModelIds` 中添加启动提示；
+- 如果新工具使用了新的安装形态，更新 planner 和 launcher 测试。
 
-Implementation notes:
+## AI 添加工具规范
 
-- AI settings are stored in the Electron user data settings file, not in the repository.
-- The renderer asks the main process to list models, test connectivity, and generate a tool.
-- `electron/main.cjs` fetches GitHub repository/release metadata, calls `/v1/chat/completions`, and returns structured JSON.
-- `src/core/aiTool.ts` is the trust boundary. It only accepts direct install shapes: `winget`, GitHub installer assets, or GitHub portable assets.
-- Do not allow AI output to become arbitrary PowerShell. If a new install shape is needed, add a typed catalog shape and tests first.
+设置页包含 AI 辅助的自定义工具流程。用户提供 OpenAI 兼容的 API URL、API Key、模型名和 GitHub 仓库主页。
 
-## System And Network Guidance
+实现要点：
 
-The local system page reads adapter/IP/DNS information through PowerShell and applies IP/DNS changes with elevation.
+- AI 设置保存在 Electron 用户数据设置文件中，不存入仓库。
+- 渲染进程请求主进程列出模型、测试连接、生成工具。
+- `electron/main.cjs` 拉取 GitHub 仓库/发布元数据，调用 `/v1/chat/completions`，返回结构化 JSON。
+- `src/core/aiTool.ts` 是信任边界。它只接受直接安装形态：`winget`、GitHub 安装包资源、GitHub 便携资源。
+- 不允许 AI 输出变成任意 PowerShell。如果需要新的安装形态，先添加类型化的目录形态和测试。
 
-- Keep network changes explicit and user-confirmed.
-- DNS latency testing should remain user-triggered and supports preset or user-supplied domains.
-- Prefer small structured IPC payloads instead of passing raw scripts from the renderer.
+## 系统与网络规范
 
-## Verification Checklist
+本机系统页通过 PowerShell 读取网卡/IP/DNS 信息，并通过提权应用 IP/DNS 变更。
 
-For normal source changes:
+- 网络变更必须显式且经用户确认。
+- DNS 延迟测试保持用户触发，支持预设或用户提供的域名。
+- 优先使用小型结构化 IPC 载荷，不要把原始脚本从渲染进程传给主进程。
+
+## 验证清单
+
+常规源码变更：
 
 ```powershell
 npm test
 npm run build
 ```
 
-For Windows desktop behavior changes:
+涉及 Windows 桌面行为的变更：
 
 ```powershell
 npm run package:win
 ```
 
-Then smoke-test the portable build in `release/`:
-
-- app starts and shows the expected version;
-- top app menu is hidden;
-- tray minimize/restore still works;
-- install/uninstall plans still render;
-- custom tool directory still affects portable paths;
-- settings export/import stays under 1MB;
-- AI add tool flow shows model detection, connectivity test, and GitHub URL generation controls;
-- local system page shows adapters and DNS recommendations;
-- GitHub update check can read the latest public release.
-
-## Release Checklist
-
-Before packaging and publishing a release:
-
-1. Bump `version` in `package.json` to the next version (e.g. `0.3.5` → `0.3.6`).
-2. Add a new `### vX.Y.Z` section under **Release Notes** below.
-3. Run `npm test` and `npm run build`.
-4. Run `npm run package:win` to produce signed Setup + Portable executables.
-5. Create a **new** GitHub release with the matching tag; do not overwrite an existing release tag.
-
-## Release Notes
-
-### v0.7.2
-
-- Added generated Q-version anime mascot icons for non-GitHub page headers while keeping the GitHub ranking icon style unchanged.
-- Added three built-in image themes: white ice-dream anime girl, black handsome male, and gray handsome male themes with readable theme color variables.
-- Reworked Notes so opening a notebook fills the Notes workbench with a back button and realtime autosave instead of a modal editor.
-- Added an in-app Settings WIKI entry and detailed usage documentation under `docs/USAGE_WIKI.md`.
-- Fixed the initial selected-tools batch bar layout by making it wrap cleanly and increasing the default Electron window size.
-
-### v0.7.1
-
-- Replaced native confirm dialogs with theme-aware in-app confirmation modals across uninstall, remove, restore, delete, and log clearing actions.
-- Fixed the three newer built-in themes so violet, rose, and ninja theme IDs survive Electron settings normalization and actually apply.
-- Added generated per-page top-bar artwork and unified top bars, metric cards, empty states, error states, and typography treatment.
-- Reworked Notes into a card-grid notebook page with modal editing, removing the permanent duplicate editor panel.
-- Added catalog virtualization, cached search keys, and batched status detection to keep long tool lists responsive.
-- Fixed RustDesk source health by moving the built-in tool from the stale winget ID to the live GitHub Release installer source.
-- Updated Task Center with a close button and automatic hiding after successful completed batches.
-- Split app UI, main-process theme normalization, and component CSS into smaller modules for easier maintenance.
-
-### v0.6.2
-
-- Added repair actions to Tool Source Health so broken or suspicious sources can be sent through the existing AI repair workflow and then rechecked.
-- Reworded source-health copy for non-technical users and made its artwork follow the active theme instead of staying green.
-- Added three built-in anime-style themes: light purple fantasy, light red studio, and ninja workshop.
-- Added a Notes page before Log Center with multiple local notebooks shown as tool-card-sized entries and an editor for arbitrary text.
-- Added catalog-side AI recommendations based on selected tools, with up to five GitHub project suggestions, preview links, and AI add actions.
-- Auto-creates a local config snapshot on every app startup while preserving the existing recent-backup retention limit.
-- Fixed GPU display by filtering virtual display adapters and preferring dedicated VRAM data when available.
-- Polished typography, theme-aware top bars and metric cards, white PowerShell previews, equal plan action buttons, and removed the lower-left developer avatar.
-
-### v0.6.1
-
-- Added a Tool Update Center source-health check that separately probes winget packages, GitHub Release assets, and direct download links without installing or updating.
-- Added update strategy labels so tools clearly show whether they use winget precise updates, reinstall refresh, manual updates, or toolbox-only behavior.
-- Added selected-tool batch category movement from the catalog page and clearer task-center status details with duration, exit code, retry, and log actions.
-- Added local settings backup and restore support, including Electron IPC, preload/type bridge, and Settings UI for recent snapshots.
-- Polished the sidebar navigation groups, removed the extra “装机工具箱” text from the version line, and added a GitHub developer credit with the provided avatar.
-- Improved the Add Tool entry selection cards and Windows environment-health repair guidance.
-- Updated the README for current logs, AI add, source-health, backup, and categorization behavior.
-
-### v0.5.3
-
-- Added live validation for AI-generated install sources before custom tools are saved.
-- AI add and AI repair now retry once with validation errors and fresh source context when a direct URL or release asset is unavailable.
-- Fixed WeChat Input updates by using Tencent.WeType's winget interactive force update path and removing stale AI repair overrides that pointed to the retired direct URL.
-- Simplified GitHub ranking cards by removing copy buttons and making AI Add run directly from the card.
-- Removed the sidebar quick filter block to reduce navigation noise.
-
-### v0.5.2
-
-- Reworked tool card actions into three compact buttons, with installed-tool reinstall and uninstall actions grouped under a Manage menu.
-- Added drag-and-drop tool classification from tool cards to the left category navigation.
-- Added drag-and-drop ordering for user-created categories while keeping built-in categories fixed.
-
-### v0.5.1
-
-- Added a dedicated AI log tab in Log Center for full AI replies from GitHub recommendations, link/local analysis, and repair flows.
-- Added persistent AI log storage with redaction, filtering, detail view, copy, clear, and JSON/TXT export.
-- Added a task center for install, uninstall, update, update-check, and Windows environment repair actions, including status tracking and retry for failed tool tasks.
-- Added tool detail drawers with install source, status, category, update info, recent operation logs, and recent AI records.
-- Enhanced Tool Update Center with status filters, batch update for visible updatable tools, ignored-version handling, and clearer empty states.
-- Expanded Windows environment health cards with affected-feature impact labels while keeping repair actions inside the existing health panel.
-- Added sidebar quick filters for all tools, selected, installed, updatable, and failed tools.
-
-### v0.4.1
-
-- Added in-page feedback to Settings actions so tool directory, update, proxy, theme, AI setting, and config import/export operations no longer rely only on realtime logs.
-- Added AI model panel feedback for model detection and connection testing, including success and error states.
-- Added in-page feedback to the Add Tool workflow for AI analysis, validation warnings, and successful local/link/manual additions.
-- Added React/Vitest coverage for Settings and Add Tool feedback behavior.
-
-### v0.3.12
-
-- Fixed the AI model picker dialog so long model lists have a dedicated vertical scrollbar.
-- Added a stable scrollbar gutter and styled scrollbar track/thumb for clearer model-list scrolling.
-- Kept manual model entry unchanged while improving detected-model selection readability.
-
-### v0.3.11
-
-- Moved local, link-based, and manual custom-tool creation out of Settings into a dedicated Add Tool page.
-- Added a unified Add Tool workflow with Local File, Link Add, and Manual Add tabs, plus reusable previews and the existing custom-tool list.
-- GitHub ranking and AI assistant add buttons now open the Add Tool link workflow with the repository URL prefilled instead of adding immediately.
-- Simplified Settings so it keeps global configuration only, including tool directory, updates, proxy, theme, sync, and AI model settings.
-- Reworked AI model detection into a searchable model-picker dialog while keeping manual model entry available.
-
-### v0.3.10
-
-- Moved logs out of Settings into a dedicated Log Center page with operation-history and realtime-output tabs.
-- Added log search, status/type/time filters, quick filters, per-tool scoping, detailed records, and JSON/TXT export.
-- Expanded persistent activity history with redacted command summaries, raw output snippets, durations, and metadata.
-- Added log entry points from failed tool cards, tool update rows, and the Windows system page for faster troubleshooting.
-- Settings now focuses on configuration only; log history and clear-history controls live in the Log Center.
-
-### v0.3.9
-
-- Upgraded the existing Windows environment check into a health panel with score, status counts, per-item repair buttons, and recommended one-click repairs.
-- Added WebView2 Runtime detection alongside winget, PowerShell, .NET Desktop Runtime, VC++ runtime, long paths, and UTF-8 beta checks.
-- Added typed repair actions for .NET Desktop Runtime, VC++ runtime, WebView2 Runtime, long path enablement, App Installer guidance, and UTF-8 beta toggling.
-- Environment repair actions now write to the operation history so system fixes are visible in the log center.
-- Refined the system page UI with clearer health cards, status pills, repair CTAs, and better responsive layout.
-
-### v0.3.8
-
-- Added a persistent operation history stored outside `settings.json`, keeping recent install, uninstall, update, update-check, launch, AI, and config actions.
-- Settings now shows realtime logs and operation history together, with counts, latest failure summary, source labels, exit codes, and a clear-history action.
-- AI repair now reuses the latest failed operation context for the selected tool.
-- Rewrote the README with a clearer product overview, workflow, security boundary, project map, generated hero art, and a real app screenshot.
-
-### v0.3.7
-
-- Separated tool update detection from actual updates: winget tools now use read-only version checks and only run `winget upgrade` after the user clicks Update.
-- Cleaned update-center messages so winget errors no longer flood tool cards with raw command output.
-- Simplified local tool adding into a file-first flow with automatic handling suggestions, optional AI analysis, and collapsed advanced settings.
-- Fixed Windows environment checks so `.NET Desktop Runtime` only counts `Microsoft.WindowsDesktop.App` runtimes and displays concise version details.
-
-### v0.3.6
-
-- Fixed winget tool-update detection actually running upgrades: `winget upgrade` now uses `--what-if` for dry-run detection only.
-- Redesigned the manual "Add Tool" form: removed the 5 mode tabs and replaced them with a single upload-file + AI-analyze flow.
-- Added `ai-analyze-local-file` IPC and prompt so AI can decide whether a file should be collected, installed, extracted from ZIP, or handled as a custom command.
-- Users now only need to pick a file, enter a name/remark, and let AI infer launch/uninstall/ZIP-executable settings.
-
-### v0.3.4
-
-- Added a quick "selected tools only" filter from the dashboard selected-count card.
-- Clicking the selected or installed dashboard card now toggles its filter off when it is already active.
-- Category navigation clears quick filters so the catalog view does not stay unexpectedly narrowed.
-
-### v0.3.3
-
-- Fixed post-install and post-uninstall status refresh so tools no longer stay stuck as "安装中" after the command has finished.
-- Added a post-run detection merge mode that can override active tool states while keeping normal background detection from interrupting running installs.
-- The left navigation and right install plan panels now reuse the active theme image with a soft readability overlay instead of flat solid backgrounds.
-
-### v0.3.2
-
-- Added an AI Assistant section under the GitHub ranking view.
-- The assistant reuses the saved AI API URL, key, and model to recommend multiple Windows-friendly GitHub open-source projects from a user request.
-- AI recommendations can be opened on GitHub, copied, or added to the toolbox through the existing AI add-tool workflow and selected category.
-- Removed the unused "候选" button from GitHub ranking project cards.
-- Replaced the app icon with a generated anime-style toolbox mascot icon.
-
-### v0.3.1
-
-- Added two built-in anime-style image themes: mint (浅绿工位) and amber (暖黄工坊), alongside the existing azure theme.
-- Generated the new theme images with the built-in image generation tool and kept UI readability by using theme-specific fixed panel opacity/blur values.
-- Removed the Settings page panel controls for manual opacity and blur.
-- Fixed Czkawka uninstall reliability by using winget portable uninstall flags (`--force --purge`) with fallback package IDs.
-
-### v0.2.28
-
-- Moved the remove button on custom tool cards from the bottom action bar to the right of the category dropdown.
-- Styled the remove button as a small pill to align with the category select.
-
-### v0.2.27
-
-- Fixed update downloads not actually going through the configured proxy.
-- Added `https-proxy-agent` and wired it into Node.js `https.request` used by update checks and update downloads.
-- Proxy agent is recreated whenever system/manual proxy settings change; direct mode clears it.
-
-### v0.2.26
-
-- Added a "移除" button on custom tool cards; clicking it removes the tool from WinKitBox after confirmation (installed tools are removed from the list, not uninstalled).
-- Fixed custom category assignment not persisting: `toolCategoryOverrides` is now saved to settings.
-- Custom tools moved to another category update their own `category` field directly instead of relying on overrides.
-
-### v0.2.25
-
-- Fixed app self-update download failures (`ECONNRESET`).
-- Disabled multipart parallel `Range` downloads; update packages now use a single stream with resume support and automatic retry.
-- Fixed redirect handling: redirect response bodies are now consumed before following the location header, preventing connection resets.
-- Proxy settings now apply to Node.js `https`/`http` requests as well as Electron renderer requests, so update checks, update downloads, and AI API calls respect the configured proxy.
-
-### v0.2.24
-
-- Custom tools in the Settings page now show an "卸载并移除" button.
-- Clicking it reuses the existing single-tool uninstall flow, then removes the tool from the custom list.
-
-### v0.2.23
-
-- Added proxy settings to the Settings page.
-- Users can choose between system proxy, direct connection, or a manually entered proxy address.
-- The configured proxy is applied globally and affects GitHub API requests, translation, update checks, and update downloads.
-- DiscoverView now reads proxy settings from the global settings; GitHub Token remains configurable in the GitHub ranking panel.
-
-### v0.2.22
-
-- Reduced themes to a single built-in image theme: azure (晴空天台).
-- Removed sakura and neon image themes.
-- Ensured the azure rooftop wallpaper is clearly visible inside the workspace area while keeping cards readable with frosted-glass transparency.
-- Fixed GitHub update check 403 errors by switching from `net.fetch` to Node `https` and adding the required `X-GitHub-Api-Version` header.
-
-### v0.2.21
-
-- Theme system refactored to keep only image themes: sakura, neon, and azure.
-- Removed the four solid color themes (light, slate, teal, rose).
-- Fixed a bug where image backgrounds were invisible: `themeId` is now normalized to image theme IDs, and custom backgrounds are applied per image theme.
-- Settings page theme picker now shows image theme cards with a selected checkmark and buttons to upload or reset custom backgrounds.
-- Added theme-specific color schemes and improved card hover/active visual effects.
-
-### v0.2.20
-
-- Improved automatic update download logic: switched to Node `https`/`http` modules.
-- Large update files are downloaded with 4 parallel `Range` chunks and automatically fall back to a single stream.
-
-### v0.2.19
-
-- DNS latency testing now supports multiple preset domains and a user-defined custom domain.
-- Result headers and log messages show the tested domain.
-
-### Earlier releases
-
-Release artifacts are generated under `release/` and ignored by Git. Upload only the final setup and portable `.exe` files to GitHub Releases.
-
-Typical asset names:
+然后对 `release/` 中的便携版进行冒烟测试：
+
+- 应用启动并显示预期版本；
+- 顶部应用菜单隐藏；
+- 托盘最小化/还原仍然可用；
+- 安装/卸载计划仍能渲染；
+- 自定义工具目录仍影响便携路径；
+- 设置导出/导入保持在 1MB 以内；
+- AI 添加工具流程显示模型检测、连接测试和 GitHub URL 生成控件；
+- 本机系统页显示网卡和 DNS 推荐；
+- GitHub 更新检查能读取最新公共发布。
+
+## 发布清单
+
+打包发布前：
+
+1. 在 `package.json` 和 `package-lock.json` 中提升 `version` 到下一版本（例如 `0.3.5` → `0.3.6`）。
+2. 在 `CHANGELOG.md` 中添加新的 `### vX.Y.Z` 章节。**不要把版本更新日志写进本文件。**
+3. 运行 `npm test` 和 `npm run build`。
+4. 运行 `npm run package:win` 生成签名的 Setup + Portable 可执行文件。
+5. 提交版本改动，创建并推送匹配的标签：
+
+   ```powershell
+   git add -A
+   git commit -m "release: vX.Y.Z"
+   git tag vX.Y.Z
+   git push origin main
+   git push origin vX.Y.Z
+   ```
+
+6. 在 GitHub 上创建一个**新的** Release，选择刚才推送的 `vX.Y.Z` 标签，填写发布说明，并上传 `release/` 目录下的 Setup 和 Portable `.exe` 文件；不要覆盖已有发布标签。
+
+典型产物名称：
 
 - `WinKitBox-<version>-Setup-x64.exe`
 - `WinKitBox-<version>-Portable-x64.exe`
 
-The app's built-in update check reads:
+应用内置的更新检查读取：
 
 ```text
 https://api.github.com/repos/575674384-stack/winkitbox/releases/latest
 ```
 
-So the public GitHub Release tag should match the package version, for example `v0.1.9`.
+因此公开的 GitHub Release 标签应与包版本一致，例如 `v0.1.9`。
 
-## Security Notes
+## 安全规范
 
-- Never commit GitHub tokens, private certificates, PFX passwords, or generated signing keys.
-- The local signing certificate under `certs/` is intentionally ignored.
-- If a token appears in chat, terminal history, or logs, treat it as exposed and rotate it.
-- Git remotes must not contain embedded credentials. Use temporary auth headers or a credential manager instead.
+- 永远不要提交 GitHub 令牌、私有证书、PFX 密码或生成的签名密钥。
+- `certs/` 下的本地签名证书被有意忽略。
+- 如果令牌出现在聊天、终端历史或日志中，视为已泄露并立即轮换。
+- Git 远程地址不得包含内嵌凭据。请使用临时鉴权头或凭据管理器。

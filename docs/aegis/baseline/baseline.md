@@ -1,7 +1,7 @@
 # WinKitBox Project Baseline
 
-Updated: 2026-06-20  
-Current release at last update: v0.6.2
+Updated: 2026-06-22  
+Current release at last update: v0.7.2
 
 ## Product Intent
 
@@ -47,13 +47,17 @@ $env:Path='C:\Program Files\nodejs;'+$env:Path; npm test
 - Tool cards support install/reinstall, open, details, manage/uninstall, category assignment, and drag-to-category classification.
 - User-created categories can be reordered by drag-and-drop.
 - Add Tool page owns local file, link-based, and manual custom-tool creation.
-- Settings page should stay focused on global settings: tool directory, updates, proxy, theme, sync/config, and AI model settings.
+- Settings page stays focused on global settings: tool directory, updates, proxy, theme, sync/config, AI model settings, and an in-app WIKI entry.
 - Log Center owns operation history, realtime output, and AI logs.
-- Notes owns lightweight local notebooks for arbitrary user text.
+- Notes workbench shows notebooks as a card grid and opens a selected note in a full-workbench editor with realtime save and back navigation.
 - GitHub Discover owns rankings plus AI-assisted project recommendation and direct AI add.
 - Windows system page owns local system info, network/DNS actions, and environment health checks.
 - Tool Update Center separates update detection from update execution.
 - Tool Source Health owns network/source probes and exposes user-triggered repair actions through the existing AI repair workflow.
+- Theme system uses built-in image themes with shared renderer/main theme ID normalization.
+- Per-page topbar artwork and generated page-header icons (non-GitHub pages) replace earlier flat/SVG headers.
+- In-app confirmation modal handles destructive actions such as uninstall, remove, restore, delete, and clear logs.
+- Virtualized/batched rendering and cached search keys keep long tool grids responsive.
 
 ## Source Of Truth
 
@@ -69,6 +73,14 @@ $env:Path='C:\Program Files\nodejs;'+$env:Path; npm test
 - `src/core/environment.ts`: Windows environment health model and repair action mapping.
 - `src/core/hardware.ts`: renderer-side hardware normalization such as virtual GPU filtering.
 - `src/core/notebook.ts`: local note normalization and mutation helpers.
+- `src/core/themes.ts` and `electron/themeIds.cjs`: theme definitions and shared renderer/main theme ID normalization.
+- `src/core/pageTopbars.ts`: per-page topbar artwork mapping.
+- `src/core/virtualGrid.ts`: bounded long-list rendering helpers for the tool grid.
+- `src/core/taskPanel.ts`: task center visibility rules such as auto-hide on completion.
+- `src/components/ConfirmDialog.tsx`: app-styled confirmation modal.
+- `src/components/TaskQueuePanel.tsx`: task center UI.
+- `src/components/NotesView.tsx`: Notes workbench.
+- `src/styles/components.css`: component-level styles split from the global stylesheet.
 - `electron/main.cjs`: Electron main process, IPC handlers, PowerShell execution, settings, update checks, AI requests, proxy behavior.
 - `electron/preload.cjs` and `src/types/electron.d.ts`: renderer bridge contract. Keep these synchronized for new IPC.
 
@@ -86,6 +98,16 @@ Supported install shapes are:
 
 When changing a tool source, keep install, uninstall, update, detection, and launch behavior aligned.
 
+### Theme And Topbar
+
+Theme IDs are owned by both the renderer (`src/core/themes.ts`) and the main process (`electron/themeIds.cjs`). Additions or removals must be synchronized so persisted user theme selections survive normalization.
+
+Custom backgrounds are keyed by theme ID. Per-page topbar artwork is declared in `src/core/pageTopbars.ts` and rendered independently of the active background theme.
+
+### Confirmation
+
+Destructive actions use the in-app confirmation modal (`src/components/ConfirmDialog.tsx`). Native `window.confirm` dialogs are retired from the renderer.
+
 ### AI Boundary
 
 AI calls are user-triggered and use OpenAI-compatible settings stored in Electron user data, not the repository.
@@ -99,6 +121,15 @@ AI add/repair must not become arbitrary PowerShell generation. Link-based AI can
 - if the retry fails, no custom tool should be saved.
 
 Local-file AI analysis may suggest handling modes, but the user still confirms the resulting tool.
+
+### AI Repair
+
+AI repair is user-triggered and reuses the saved AI settings.
+
+- The repair entry point may be derived from persistent operation history (`activityLog`) so it remains available after a post-run detection refresh overwrites the transient `failed` runtime state.
+- While a repair is in progress the triggering button should be disabled and show a loading indicator; the renderer logs staged progress messages.
+- The main process repair call has an abort/timeout safeguard so a stuck AI request does not leave the UI permanently busy.
+- When the failure message indicates an MSIX/App Installer issue, the repair prompt instructs the model to prefer non-MSIX install shapes (direct .exe/.msi, portable archive, or winget package delivering an executable installer).
 
 ### Update Behavior
 
@@ -126,9 +157,13 @@ Operation history and AI logs are separate from settings.
 
 ### System And Network Actions
 
-Network, DNS, UTF-8 beta, and environment repair actions must be explicit user actions. Prefer typed IPC payloads over passing raw scripts from the renderer.
+Network, DNS, UTF-8 beta, MSIX/App Installer stack, and environment repair actions must be explicit user actions. Prefer typed IPC payloads over passing raw scripts from the renderer.
 
 Changes that affect system state should write operation history and expose clear success/failure feedback.
+
+### Notes
+
+Notes are lightweight local text stored outside settings. The workbench uses a card grid for the notebook list and a full-area editor for a selected note. Title and content changes autosave immediately. A back action returns to the card grid.
 
 ## Verification Baseline
 
@@ -156,6 +191,15 @@ Before release:
 ## Known Current Notes
 
 - `README.md` is user-facing and may lag behind recent UI wording; `AGENTS.md` and this baseline should be treated as the stronger maintainer context.
-- Old image assets may remain in `assets/backgrounds/`; the active built-in theme set is controlled by code, not file presence alone.
+- Old image assets may remain in `assets/backgrounds/` and `assets/topbars/`; the active built-in theme/topbar set is controlled by code, not file presence alone.
 - Do not commit generated packages, logs, local signing certificates, `node_modules`, `dist`, or `release`.
 - If a token appears in chat or logs, treat it as exposed and rotate it.
+- Settings WIKI content is maintained in `docs/USAGE_WIKI.md` and surfaced through the Settings page modal.
+
+## Recently Retired
+
+- Native `window.confirm` dialogs in the renderer (replaced by `ConfirmDialog`).
+- RustDesk `wingetId: RustDesk.RustDesk` source (replaced by a GitHub Release installer source).
+- Theme ID duplication between renderer and main process (replaced by `electron/themeIds.cjs` shared normalization).
+- Notes permanent right-side editor and earlier modal-only editing (replaced by the workbench editor with back navigation).
+- Reuse of the active theme image for page header artwork (replaced by per-page topbar artwork and page-header icons).

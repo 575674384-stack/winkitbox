@@ -1,6 +1,6 @@
 # WinKitBox v0.2.2 Fluent 风格精修设计简案
 
-Status: historical. This brief described a v0.2.2 visual polish pass and is not the current WinKitBox baseline. For current project context, read `docs/aegis/baseline.md`.
+Status: historical. This brief described a v0.2.2 visual polish pass and is not the current WinKitBox baseline. For current project context, read `docs/aegis/baseline/baseline.md`.
 
 ## 目标
 在 v0.2.1 已经完成的现代卡片化 UI 基础上，进一步向 **Windows 11 / Fluent 2** 视觉靠拢，提升专业感、耐看度和原生协调感。完全保留现有功能与交互逻辑，只做视觉层优化。
