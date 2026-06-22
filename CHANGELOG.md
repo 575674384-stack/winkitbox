@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.7.5
+
+### 新增
+
+- 工具详情抽屉（ToolDetailDrawer）中新增“路径”按钮，与工具卡片管理菜单保持一致，点击后打开工具安装目录。
+- 系统环境体检新增 PowerShell 7 检测项：
+  - 仅作为推荐安装项（warning 级别），不影响 danger 计数；
+  - 缺失时提供通过 winget 安装 `Microsoft.PowerShell` 的修复入口；
+  - winget 不可用时修复按钮自动禁用并提示“需要先修复 winget”。
+
+### 测试与验证
+
+- 更新 `src/core/environment.test.ts`，覆盖 PowerShell 7 检查项的健康、缺失、推荐修复及汇总统计。
+- `npm test` 全部 155 个测试通过。
+- `npm run build` 通过。
+- `npm run package:win` 成功生成签名后的 Setup 与 Portable 包。
+
 ## v0.7.4
 
 ### 修复

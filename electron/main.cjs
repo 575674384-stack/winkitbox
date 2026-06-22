@@ -722,6 +722,8 @@ $gpus = Get-CimInstance Win32_VideoController |
   }
 $wingetCommand = Get-Command winget -ErrorAction SilentlyContinue
 $wingetVersion = if ($wingetCommand) { (& winget --version 2>$null | Select-Object -First 1) } else { '' }
+$pwshCommand = Get-Command pwsh -ErrorAction SilentlyContinue
+$pwshVersion = if ($pwshCommand) { (& pwsh --version 2>$null | Select-Object -First 1) } else { '' }
 $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
 $dotnetRuntimes = if ($dotnetCommand) { @(& dotnet --list-runtimes 2>$null | ForEach-Object { [string]$_ }) } else { @() }
 $dotnetDesktopRuntimes = @($dotnetRuntimes | Where-Object { $_ -match '^Microsoft\.WindowsDesktop\.App\s+' })
@@ -749,7 +751,8 @@ $appInstallerPackage = Get-AppxPackage -ErrorAction SilentlyContinue |
   Select-Object -First 1
 $uiXamlPackages = @(Get-AppxPackage -ErrorAction SilentlyContinue |
   Where-Object { $_.Name -like "Microsoft.UI.Xaml.*" } |
-  Select-Object -ExpandProperty Name)
+  Select-Object -ExpandProperty Name |
+  Sort-Object -Unique)
 $uiXamlInstalled = $uiXamlPackages.Count -gt 0
 $adapters = Get-NetIPConfiguration |
   Where-Object { $_.NetAdapter.Status -ne 'Disabled' } |
@@ -788,6 +791,8 @@ $adapters = Get-NetIPConfiguration |
     wingetAvailable = [bool]$wingetCommand
     wingetVersion = [string]$wingetVersion
     powershellVersion = [string]$PSVersionTable.PSVersion
+    pwshAvailable = [bool]$pwshCommand
+    pwshVersion = [string]$pwshVersion
     dotnetRuntimes = @($dotnetRuntimes)
     dotnetDesktopRuntimes = @($dotnetDesktopRuntimes)
     vcredistInstalled = [bool]$vcredistInstalled

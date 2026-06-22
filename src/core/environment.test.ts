@@ -23,6 +23,8 @@ describe("environment checks", () => {
       appInstallerVersion: "1.21.0.0",
       uiXamlInstalled: true,
       uiXamlPackages: ["Microsoft.UI.Xaml.2.8"],
+      pwshAvailable: true,
+      pwshVersion: "7.4.2",
     });
 
     expect(checks.map((check) => [check.id, check.status])).toEqual([
@@ -35,6 +37,7 @@ describe("environment checks", () => {
       ["utf8", "ok"],
       ["app-installer", "ok"],
       ["ui-xaml", "ok"],
+      ["pwsh", "ok"],
     ]);
 
     expect(checks.find((check) => check.id === "dotnet")?.detail).toBe(
@@ -66,6 +69,7 @@ describe("environment checks", () => {
     expect(checks.find((check) => check.id === "utf8")?.action).toBe("可在本页一键切换");
     expect(checks.find((check) => check.id === "app-installer")?.status).toBe("warning");
     expect(checks.find((check) => check.id === "ui-xaml")?.status).toBe("warning");
+    expect(checks.find((check) => check.id === "pwsh")?.status).toBe("warning");
   });
 
   it("attaches repair actions to missing dependencies without making UTF-8 a default fix", () => {
@@ -79,6 +83,8 @@ describe("environment checks", () => {
       utf8BetaEnabled: false,
       appInstallerAvailable: true,
       uiXamlInstalled: false,
+      pwshAvailable: true,
+      pwshVersion: "7.4.2",
     });
 
     expect(checks.find((check) => check.id === "dotnet")?.repair?.command).toContain(
@@ -116,6 +122,9 @@ describe("environment checks", () => {
     expect(checks.find((check) => check.id === "dotnet")?.repair?.disabledReason).toBe(
       "需要先修复 winget。",
     );
+    expect(checks.find((check) => check.id === "pwsh")?.repair?.disabledReason).toBe(
+      "需要先修复 winget。",
+    );
   });
 
   it("summarizes environment health for the UI", () => {
@@ -130,11 +139,13 @@ describe("environment checks", () => {
       appInstallerAvailable: true,
       uiXamlInstalled: true,
       uiXamlPackages: ["Microsoft.UI.Xaml.2.8"],
+      pwshAvailable: true,
+      pwshVersion: "7.4.2",
     });
 
     expect(createEnvironmentHealthSummary(checks)).toMatchObject({
-      total: 9,
-      ok: 7,
+      total: 10,
+      ok: 8,
       warning: 2,
       danger: 0,
       recommendedRepairCount: 2,

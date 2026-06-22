@@ -102,6 +102,15 @@
    - 运行 `npm test`、`npm run build`、`npm run package:win`。
    - 记录手动冒烟测试结果。
 
+8. **后续追加项（v0.7.5 范围）**
+   - 工具详情抽屉（`ToolDetailDrawer`）增加“路径”按钮，与工具卡片管理菜单保持一致。
+   - 环境体检新增 **PowerShell 7** 检查项：
+     - 检测 `pwsh` 是否可用及版本；
+     - 状态为 `warning`（推荐安装，非必需）；
+     - 修复入口使用 winget 安装 `Microsoft.PowerShell`；
+     - 当 winget 不可用时给出 Store/官网链接。
+   - 更新 `src/core/environment.test.ts` 覆盖 PowerShell 7 检查。
+
 # 风险
 
 - `src/App.tsx` 已非常庞大，新增状态会增加维护面。如可行，后续可将 AI 修复相关状态提取到本地 hook 或 `src/core/aiRepair.ts`。

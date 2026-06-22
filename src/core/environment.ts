@@ -12,6 +12,8 @@ export type EnvironmentSnapshot = {
   appInstallerVersion?: string;
   uiXamlInstalled?: boolean;
   uiXamlPackages?: string[];
+  pwshAvailable?: boolean;
+  pwshVersion?: string;
 };
 
 export type EnvironmentCheckId =
@@ -23,7 +25,8 @@ export type EnvironmentCheckId =
   | "long-paths"
   | "utf8"
   | "app-installer"
-  | "ui-xaml";
+  | "ui-xaml"
+  | "pwsh";
 
 export type EnvironmentRepairAction = {
   id: string;
@@ -199,6 +202,7 @@ export function createEnvironmentChecks(snapshot: EnvironmentSnapshot): Environm
     },
     createAppInstallerCheck(snapshot, wingetAvailable),
     createUiXamlCheck(snapshot, wingetAvailable),
+    createPwsh7Check(snapshot, wingetAvailable),
   ];
 }
 
@@ -262,12 +266,43 @@ function createAppInstallerCheck(
   };
 }
 
+function createPwsh7Check(
+  snapshot: EnvironmentSnapshot,
+  wingetAvailable: boolean,
+): EnvironmentCheck {
+  const available = Boolean(snapshot.pwshAvailable);
+
+  return {
+    id: "pwsh",
+    label: "PowerShell 7",
+    status: available ? "ok" : "warning",
+    impact: ["脚本兼容性与性能", "现代 PowerShell 模块"],
+    detail: available
+      ? `已安装 PowerShell ${snapshot.pwshVersion || "7"}`
+      : "未安装 PowerShell 7。建议安装以获得更好的脚本兼容性与性能，但不是必需项。",
+    action: available ? undefined : "需要时安装 PowerShell 7",
+    repair: available
+      ? undefined
+      : createWingetInstallRepair({
+          checkId: "pwsh",
+          id: "install-pwsh",
+          label: "安装 PowerShell 7",
+          description: "安装 Microsoft.PowerShell，提升脚本执行兼容性和性能。",
+          wingetId: "Microsoft.PowerShell",
+          wingetAvailable,
+        }),
+  };
+}
+
 function createUiXamlCheck(
   snapshot: EnvironmentSnapshot,
   wingetAvailable: boolean,
 ): EnvironmentCheck {
   const installed = Boolean(snapshot.uiXamlInstalled);
   const packages = Array.isArray(snapshot.uiXamlPackages) ? snapshot.uiXamlPackages : [];
+  const versionLabels = packages
+    .map((name) => name.replace(/^Microsoft\.UI\.Xaml\./i, ""))
+    .filter(Boolean);
 
   return {
     id: "ui-xaml",
@@ -275,7 +310,7 @@ function createUiXamlCheck(
     status: installed ? "ok" : "warning",
     impact: ["MSIX/Store 应用依赖", "Windows Terminal 等现代 UI 包"],
     detail: installed
-      ? `已检测到 ${packages.join("、") || "UI.Xaml"}`
+      ? `已检测到 ${versionLabels.join("、") || "UI.Xaml"}`
       : "未检测到 Microsoft UI.Xaml 框架，部分 MSIX 应用（如 Windows Terminal）可能无法安装。",
     action: installed ? undefined : "需要时安装 UI.Xaml 框架依赖",
     repair: installed

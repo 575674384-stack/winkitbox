@@ -4262,6 +4262,7 @@ export function App() {
           onInstall={() => installTool(detailTool)}
           onUninstall={() => uninstallTool(detailTool)}
           onLaunch={() => launchTool(detailTool)}
+          onOpenDirectory={() => openToolDirectory(detailTool)}
           onOpen={() => openUrl(detailTool.repoUrl ?? detailTool.homepage)}
           onAiFix={() => fixToolWithAi(detailTool)}
           onViewLogs={() =>
@@ -6787,6 +6788,7 @@ function ToolDetailDrawer({
   onUninstall,
   onLaunch,
   onOpen,
+  onOpenDirectory,
   onAiFix,
   onViewLogs,
   onRemove,
@@ -6806,6 +6808,7 @@ function ToolDetailDrawer({
   onUninstall: () => void;
   onLaunch: () => void;
   onOpen: () => void;
+  onOpenDirectory: () => void;
   onAiFix: () => void;
   onViewLogs: () => void;
   onRemove: () => void;
@@ -6861,6 +6864,15 @@ function ToolDetailDrawer({
           <button className="secondary-button danger" type="button" disabled={!canUninstall} onClick={onUninstall}>
             <Trash2 size={15} />
             卸载
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={toolState.status !== "installed" || toolState.launcherFound === false}
+            onClick={onOpenDirectory}
+          >
+            <FolderOpen size={15} />
+            路径
           </button>
         </div>
 
