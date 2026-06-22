@@ -14,6 +14,7 @@ const { createTrayMenuTemplate, getTrayIconPath } = require("./trayController.cj
 const {
   buildDetectToolsScript,
   buildLaunchToolScript,
+  buildOpenToolDirectoryScript,
   normalizeLaunchDescriptor,
   normalizeLaunchDescriptors
 } = require("./windowsTools.cjs");
@@ -475,6 +476,13 @@ ipcMain.handle("launch-tool", async (event, descriptor) => {
   return runPowerShellScript(event, script);
 });
 
+ipcMain.handle("open-tool-directory", async (event, descriptor) => {
+  const safeDescriptor = normalizeLaunchDescriptor(descriptor);
+  const script = buildOpenToolDirectoryScript(safeDescriptor);
+
+  return runPowerShellScript(event, script);
+});
+
 function runPowerShellScript(event, script) {
   return new Promise((resolve) => {
     const child = spawn("powershell.exe", [
@@ -736,6 +744,13 @@ $webView2Installed = [bool](
 )
 $fileSystem = Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem' -ErrorAction SilentlyContinue
 $codePage = Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage'
+$appInstallerPackage = Get-AppxPackage -ErrorAction SilentlyContinue |
+  Where-Object { $_.Name -eq "Microsoft.DesktopAppInstaller" } |
+  Select-Object -First 1
+$uiXamlPackages = @(Get-AppxPackage -ErrorAction SilentlyContinue |
+  Where-Object { $_.Name -like "Microsoft.UI.Xaml.*" } |
+  Select-Object -ExpandProperty Name)
+$uiXamlInstalled = $uiXamlPackages.Count -gt 0
 $adapters = Get-NetIPConfiguration |
   Where-Object { $_.NetAdapter.Status -ne 'Disabled' } |
   ForEach-Object {
@@ -769,9 +784,6 @@ $adapters = Get-NetIPConfiguration |
   disks = @($disks)
   physicalDisks = @($physicalDisks)
   gpus = @($gpus)
-  $appInstallerPackage = Get-AppxPackage -Name "Microsoft.DesktopAppInstaller" -ErrorAction SilentlyContinue | Select-Object -First 1
-  $uiXamlPackages = @(Get-AppxPackage -Name "Microsoft.UI.Xaml.*" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-  $uiXamlInstalled = $uiXamlPackages.Count -gt 0
   environment = [PSCustomObject]@{
     wingetAvailable = [bool]$wingetCommand
     wingetVersion = [string]$wingetVersion

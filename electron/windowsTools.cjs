@@ -240,9 +240,78 @@ exit 1
 `;
 }
 
+function buildOpenToolDirectoryScript(descriptor) {
+  const setup = buildPayloadAssignment([normalizeLaunchDescriptor(descriptor)]);
+
+  return `${setup}
+$data = @($tools)[0]
+$startApps = @(Get-StartApps -ErrorAction SilentlyContinue)
+$programDirs = @(
+  "$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs",
+  "$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs"
+) | Where-Object { Test-Path -LiteralPath $_ }
+
+function Open-Directory($path) {
+  $directory = Split-Path -Parent -Path $path
+  if (-not [string]::IsNullOrWhiteSpace($directory) -and (Test-Path -LiteralPath $directory)) {
+    Start-Process -FilePath 'explorer.exe' -ArgumentList "\`"$directory\`""
+    exit 0
+  }
+}
+
+foreach ($command in @($data.commands)) {
+  if ([string]::IsNullOrWhiteSpace($command)) { continue }
+  $expandedCommand = [Environment]::ExpandEnvironmentVariables([string]$command)
+
+  if (Test-Path -LiteralPath $expandedCommand -PathType Leaf) {
+    Open-Directory $expandedCommand
+  }
+
+  $resolved = Get-Command $expandedCommand -ErrorAction SilentlyContinue
+  if ($resolved) {
+    Open-Directory $resolved.Source
+  }
+}
+
+foreach ($name in @($data.startMenuNames)) {
+  if ([string]::IsNullOrWhiteSpace($name)) { continue }
+  foreach ($programDir in $programDirs) {
+    $shortcut = Get-ChildItem -LiteralPath $programDir -Recurse -Filter '*.lnk' -ErrorAction SilentlyContinue |
+      Where-Object { $_.BaseName -like "*$name*" } |
+      Sort-Object FullName |
+      Select-Object -First 1
+
+    if ($shortcut) {
+      $shell = New-Object -ComObject WScript.Shell
+      $target = $shell.CreateShortcut($shortcut.FullName).TargetPath
+      if (-not [string]::IsNullOrWhiteSpace($target) -and (Test-Path -LiteralPath $target)) {
+        Open-Directory $target
+      }
+    }
+  }
+}
+
+foreach ($appId in @($data.appUserModelIds)) {
+  if ([string]::IsNullOrWhiteSpace($appId)) { continue }
+  $app = $startApps | Where-Object { $_.AppID -eq $appId } | Select-Object -First 1
+  if ($app) {
+    $package = Get-AppxPackage | Where-Object { $_.PackageFamilyName -eq $app.AppID.Split('!')[0] } | Select-Object -First 1
+    if ($package) {
+      Start-Process -FilePath 'explorer.exe' -ArgumentList "\`"$($package.InstallLocation)\`""
+      exit 0
+    }
+  }
+}
+
+Write-Error "Could not find an installed directory for $($data.label)."
+exit 1
+`;
+}
+
 module.exports = {
   buildDetectToolsScript,
   buildLaunchToolScript,
+  buildOpenToolDirectoryScript,
   normalizeLaunchDescriptor,
   normalizeLaunchDescriptors
 };

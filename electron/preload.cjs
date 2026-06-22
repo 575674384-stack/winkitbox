@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld("winKitBox", {
   runPowerShell: (script) => ipcRenderer.invoke("run-powershell", script),
   detectTools: (descriptors) => ipcRenderer.invoke("detect-tools", descriptors),
   launchTool: (descriptor) => ipcRenderer.invoke("launch-tool", descriptor),
+  openToolDirectory: (descriptor) => ipcRenderer.invoke("open-tool-directory", descriptor),
   onRunOutput: (callback) => {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on("run-output", listener);

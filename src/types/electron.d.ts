@@ -298,6 +298,15 @@ declare global {
         commands: string[];
         homepage: string;
       }) => Promise<{ code: number | null }>;
+      openToolDirectory: (descriptor: {
+        toolId: string;
+        label: string;
+        wingetId?: string;
+        appUserModelIds: string[];
+        startMenuNames: string[];
+        commands: string[];
+        homepage: string;
+      }) => Promise<{ code: number | null }>;
       onRunOutput: (callback: (value: string) => void) => () => void;
       onDownloadUpdateProgress: (callback: (value: {
         downloaded: number;

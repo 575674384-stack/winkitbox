@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Filter,
   FolderKanban,
+  FolderOpen,
   Gauge,
   Github,
   HardDriveDownload,
@@ -3398,6 +3399,30 @@ export function App() {
     }
   }
 
+  async function openToolDirectory(tool: Tool) {
+    if (!window.winKitBox) {
+      appendLog(
+        "warning",
+        `浏览器预览不能打开本地目录。请用桌面版运行 WinKitBox 后打开 ${tool.name} 的安装目录。`,
+      );
+      return;
+    }
+
+    appendLog("info", `正在打开 ${tool.name} 的安装目录。`);
+    const result = await window.winKitBox.openToolDirectory(
+      createLaunchDescriptor(tool, plannerOptions),
+    );
+
+    if (result.code === 0) {
+      appendLog("success", `${tool.name} 的安装目录已打开。`);
+    } else {
+      appendLog(
+        "warning",
+        `没有找到 ${tool.name} 的安装目录。`,
+      );
+    }
+  }
+
   return (
     <main
       className={`app-shell theme-${settings.themeId} ${currentThemeBackground ? "has-custom-background" : ""} ${
@@ -4100,6 +4125,7 @@ export function App() {
                   }
                   onRemove={() => removeCustomToolFromCard(tool)}
                   onAiFix={() => fixToolWithAi(tool)}
+                  onOpenDirectory={() => openToolDirectory(tool)}
                   onDragStart={(event) => startToolDrag(event, tool)}
                   onDragEnd={endToolDrag}
                 />
@@ -6950,6 +6976,7 @@ function ToolCard({
   onSetCategory,
   onRemove,
   onAiFix,
+  onOpenDirectory,
   onDragStart,
   onDragEnd,
 }: {
@@ -6969,6 +6996,7 @@ function ToolCard({
   onSetCategory: (categoryId: string) => void;
   onRemove: () => void;
   onAiFix: () => void;
+  onOpenDirectory: () => void;
   onDragStart: (event: DragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
 }) {
@@ -7115,6 +7143,16 @@ function ToolCard({
               >
                 <Download size={14} />
                 重装
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLifecycleMenu(false);
+                  onOpenDirectory();
+                }}
+              >
+                <FolderOpen size={14} />
+                路径
               </button>
               <button
                 className="danger"
