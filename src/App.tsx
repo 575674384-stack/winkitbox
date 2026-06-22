@@ -250,6 +250,7 @@ type ToolPathSettings = {
   customTools: Tool[];
   customCategories: CategoryDefinition[];
   toolCategoryOverrides: Record<string, string>;
+  hiddenToolIds: string[];
 };
 
 type SystemAdapter = {
@@ -359,6 +360,7 @@ const fallbackSettings: ToolPathSettings = {
   customTools: [],
   customCategories: getDefaultCategoryDefinitions(),
   toolCategoryOverrides: {},
+  hiddenToolIds: [],
 };
 const releasePageUrl = "https://github.com/575674384-stack/winkitbox/releases";
 
@@ -592,11 +594,20 @@ export function App() {
           ? { ...tool, category: override }
           : tool;
       });
-    return [
-      ...applyCategoryOverrides(catalogTools),
-      ...applyCategoryOverrides(customTools),
-    ];
-  }, [customTools, settings.toolCategoryOverrides]);
+    const hiddenIds = new Set(settings.hiddenToolIds);
+    const merged = new Map<string, Tool>();
+    for (const tool of applyCategoryOverrides(catalogTools)) {
+      if (!hiddenIds.has(tool.id)) {
+        merged.set(tool.id, tool);
+      }
+    }
+    for (const tool of applyCategoryOverrides(customTools)) {
+      if (!hiddenIds.has(tool.id)) {
+        merged.set(tool.id, tool);
+      }
+    }
+    return Array.from(merged.values());
+  }, [customTools, settings.hiddenToolIds, settings.toolCategoryOverrides]);
   const activeCategoryDefinitions = useMemo(
     () => getActiveCategoryDefinitions(settings.customCategories),
     [settings.customCategories],
@@ -1428,6 +1439,7 @@ export function App() {
       customTools: nextSettings.customTools,
       customCategories: nextSettings.customCategories,
       toolCategoryOverrides: nextSettings.toolCategoryOverrides,
+      hiddenToolIds: nextSettings.hiddenToolIds,
     });
     const normalizedSettings = {
       ...fallbackSettings,
@@ -1436,6 +1448,9 @@ export function App() {
       customCategories: normalizeCategoryDefinitions(
         savedSettings.customCategories,
       ),
+      hiddenToolIds: Array.isArray(savedSettings.hiddenToolIds)
+        ? savedSettings.hiddenToolIds.map(String)
+        : [],
     };
     setCustomTools(normalizedSettings.customTools);
     setSettings(normalizedSettings);
@@ -1997,6 +2012,7 @@ export function App() {
         selectedToolIds: Array.from(selectedIds),
         customTools,
         customCategories: settings.customCategories,
+        hiddenToolIds: settings.hiddenToolIds,
       });
 
       if (window.winKitBox) {
@@ -2072,6 +2088,7 @@ export function App() {
         proxyManual: imported.settings.proxyManual ?? settings.proxyManual,
         customTools: nextCustomTools,
         customCategories: nextCustomCategories,
+        hiddenToolIds: imported.hiddenToolIds ?? settings.hiddenToolIds,
       };
 
       setCustomTools(nextCustomTools);
@@ -2304,20 +2321,30 @@ export function App() {
   }
 
   async function removeCustomTool(toolId: string) {
-    const tool = customTools.find((item) => item.id === toolId);
-    const nextCustomTools = customTools.filter((item) => item.id !== toolId);
+    const tool = allTools.find((item) => item.id === toolId);
+    const isCustomTool = customTools.some((item) => item.id === toolId);
+    const nextCustomTools = isCustomTool
+      ? customTools.filter((item) => item.id !== toolId)
+      : customTools;
+    const nextHiddenToolIds = settings.hiddenToolIds.includes(toolId)
+      ? settings.hiddenToolIds
+      : [...settings.hiddenToolIds, toolId];
     setCustomTools(nextCustomTools);
     setSelectedIds((current) => {
       const next = new Set(current);
       next.delete(toolId);
       return next;
     });
-    await persistSettings({ ...settings, customTools: nextCustomTools });
-    appendLog("success", `已移除自定义工具：${tool?.name ?? toolId}。`);
+    await persistSettings({
+      ...settings,
+      customTools: nextCustomTools,
+      hiddenToolIds: nextHiddenToolIds,
+    });
+    appendLog("success", `已从 WinKitBox 中移除：${tool?.name ?? toolId}。`);
     await recordActivity({
       kind: "config",
       status: "success",
-      title: `已移除自定义工具：${tool?.name ?? toolId}`,
+      title: `已从 WinKitBox 中移除：${tool?.name ?? toolId}`,
       toolId,
       toolName: tool?.name,
       source: tool ? getToolActivitySource(tool) : undefined,
@@ -2421,16 +2448,24 @@ export function App() {
         tool.id,
       );
 
-      const nextCustomTools = customTools.some((item) => item.id === tool.id)
-        ? customTools.map((item) => (item.id === tool.id ? fixedTool : item))
-        : [...customTools, fixedTool];
+      const isCustomTool = customTools.some((item) => item.id === tool.id);
+    const nextCustomTools = isCustomTool
+      ? customTools.map((item) => (item.id === tool.id ? fixedTool : item))
+      : [...customTools, fixedTool];
+    const nextHiddenToolIds = isCustomTool
+      ? settings.hiddenToolIds
+      : [...settings.hiddenToolIds, tool.id];
 
       setCustomTools(nextCustomTools);
-      await persistSettings({ ...settings, customTools: nextCustomTools });
+      await persistSettings({
+        ...settings,
+        customTools: nextCustomTools,
+        hiddenToolIds: nextHiddenToolIds,
+      });
       appendLog(
         "success",
         isBuiltinTool
-          ? `AI 已修复 ${tool.name} 的安装配置，已保存为自定义覆盖版本，后续安装将使用修复后的配置。`
+          ? `AI 已修复 ${tool.name} 的安装配置，已保存为自定义覆盖版本，原内置条目已隐藏。`
           : `AI 已修复 ${tool.name} 的安装配置，请重新尝试安装。`,
       );
       await recordActivity({
@@ -4113,7 +4148,7 @@ export function App() {
                   categories={activeCategoryDefinitions}
                   isCustom={customTools.some((item) => item.id === tool.id)}
                   dragging={draggedToolId === tool.id}
-                  hasRecentFailure={Boolean(getLatestToolFailure(activityLog, tool.id))}
+                  hasRecentFailure={toolStates[tool.id]?.status === "failed"}
                   isAiRepairing={aiRepairingToolId === tool.id}
                   onToggle={() => toggleTool(tool.id)}
                   onInstall={() => installTool(tool)}
@@ -6911,7 +6946,7 @@ function ToolDetailDrawer({
             <Terminal size={14} />
             相关日志
           </button>
-          {(toolState.status === "failed" || recentActivities.some((entry) => entry.status === "error")) && (
+          {toolState.status === "failed" && (
             <button
               className="primary-button"
               type="button"
@@ -6922,12 +6957,10 @@ function ToolDetailDrawer({
               {isAiRepairing ? "修复中" : "AI 修复"}
             </button>
           )}
-          {isCustom && (
-            <button className="secondary-button danger" type="button" onClick={onRemove}>
-              <X size={14} />
-              移除
-            </button>
-          )}
+          <button className="secondary-button danger" type="button" onClick={onRemove}>
+            <X size={14} />
+            移除
+          </button>
         </div>
 
         <section className="tool-detail-section">
@@ -7110,16 +7143,14 @@ function ToolCard({
               </option>
             ))}
           </select>
-          {isCustom && (
-            <button
-              className="mini-action remove"
-              type="button"
-              onClick={onRemove}
-            >
-              <X size={14} />
-              移除
-            </button>
-          )}
+          <button
+            className="mini-action remove"
+            type="button"
+            onClick={onRemove}
+          >
+            <X size={14} />
+            移除
+          </button>
         </div>
         <div className="tool-meta-pills">
           <span

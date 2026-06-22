@@ -21,6 +21,7 @@ export type WinKitBoxExportConfig = {
   selectedToolIds: string[];
   customTools: Tool[];
   customCategories?: CategoryDefinition[];
+  hiddenToolIds?: string[];
 };
 
 export type CustomToolInput = {
@@ -372,7 +373,10 @@ export function parseImportedConfig(text: string): WinKitBoxExportConfig {
     },
     selectedToolIds: Array.isArray(parsed.selectedToolIds) ? parsed.selectedToolIds.map(String) : [],
     customTools: normalizeStoredCustomTools(parsed.customTools),
-    customCategories: normalizeCategoryDefinitions((parsed as { customCategories?: unknown }).customCategories)
+    customCategories: normalizeCategoryDefinitions((parsed as { customCategories?: unknown }).customCategories),
+    hiddenToolIds: Array.isArray(parsed.hiddenToolIds)
+      ? parsed.hiddenToolIds.map(String)
+      : undefined,
   };
 }
 

@@ -21,6 +21,7 @@ const baseSettings = {
   customTools: [],
   customCategories: [],
   toolCategoryOverrides: {},
+  hiddenToolIds: [],
 };
 
 function findButton(container: HTMLElement, label: string) {

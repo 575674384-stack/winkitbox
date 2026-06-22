@@ -45,6 +45,7 @@ declare global {
         customTools: import("../core/catalog").Tool[];
         customCategories: import("../core/catalog").CategoryDefinition[];
         toolCategoryOverrides: Record<string, string>;
+        hiddenToolIds: string[];
       }>;
       setSettings: (settings: {
         toolRootPath: string;
@@ -61,6 +62,7 @@ declare global {
         customTools?: import("../core/catalog").Tool[];
         customCategories?: import("../core/catalog").CategoryDefinition[];
         toolCategoryOverrides?: Record<string, string>;
+        hiddenToolIds?: string[];
       }) => Promise<{
         toolRootPath: string;
         defaultToolRootPath: string;
@@ -77,6 +79,7 @@ declare global {
         customTools: import("../core/catalog").Tool[];
         customCategories: import("../core/catalog").CategoryDefinition[];
         toolCategoryOverrides: Record<string, string>;
+        hiddenToolIds: string[];
       }>;
       getConfigBackups: () => Promise<import("../core/configBackups").ConfigBackupEntry[]>;
       createConfigBackup: () => Promise<import("../core/configBackups").ConfigBackupEntry[]>;

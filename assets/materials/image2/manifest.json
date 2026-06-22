@@ -1,0 +1,187 @@
+[
+  {
+    "file": "banners/topbar-sky-blue-chibi.png",
+    "title": "蓝色顶部栏 Q版工具箱横幅",
+    "bytes": 1268713
+  },
+  {
+    "file": "banners/topbar-mint-chibi.png",
+    "title": "浅绿顶部栏 Q版工具箱横幅",
+    "bytes": 1645036
+  },
+  {
+    "file": "banners/topbar-amber-chibi.png",
+    "title": "暖黄顶部栏 Q版工具箱横幅",
+    "bytes": 1384032
+  },
+  {
+    "file": "banners/topbar-ice-chibi.png",
+    "title": "冰雪顶部栏 Q版工具箱横幅",
+    "bytes": 1533296
+  },
+  {
+    "file": "banners/topbar-black-male-chibi.png",
+    "title": "黑色顶部栏 Q版男性横幅",
+    "bytes": 1782091
+  },
+  {
+    "file": "banners/topbar-gray-male-chibi.png",
+    "title": "灰色顶部栏 Q版男性横幅",
+    "bytes": 1898425
+  },
+  {
+    "file": "stickers/sticker-blue-toolbox-girl.png",
+    "title": "蓝色工具箱美少女贴纸",
+    "bytes": 1491491
+  },
+  {
+    "file": "stickers/sticker-mint-laptop-repair-girl.png",
+    "title": "浅绿修电脑美少女贴纸",
+    "bytes": 1569755
+  },
+  {
+    "file": "stickers/sticker-amber-toolkit-girl.png",
+    "title": "暖黄工具包美少女贴纸",
+    "bytes": 1733391
+  },
+  {
+    "file": "stickers/sticker-ice-wrench-girl.png",
+    "title": "冰雪扳手美少女贴纸",
+    "bytes": 1737585
+  },
+  {
+    "file": "stickers/sticker-black-diagnostics-boy.png",
+    "title": "黑色诊断男性贴纸",
+    "bytes": 1826697
+  },
+  {
+    "file": "stickers/sticker-gray-technician-boy.png",
+    "title": "灰色技术员男性贴纸",
+    "bytes": 1424927
+  },
+  {
+    "file": "empty-states/empty-toolbox-girl.png",
+    "title": "空工具箱状态插图",
+    "bytes": 1658153
+  },
+  {
+    "file": "empty-states/success-repaired-laptop.png",
+    "title": "成功状态插图",
+    "bytes": 1983581
+  },
+  {
+    "file": "empty-states/error-diagnosis-girl.png",
+    "title": "错误诊断状态插图",
+    "bytes": 1780451
+  },
+  {
+    "file": "empty-states/loading-progress-girl.png",
+    "title": "加载进度状态插图",
+    "bytes": 1853415
+  },
+  {
+    "file": "ui-sheets/atlas-basic-badges-blue.png",
+    "title": "基础徽章图集",
+    "bytes": 1562911
+  },
+  {
+    "file": "ui-sheets/atlas-sidebar-icons-mint.png",
+    "title": "侧边栏图标图集",
+    "bytes": 1685860
+  },
+  {
+    "file": "ui-sheets/atlas-card-backgrounds-mixed.png",
+    "title": "卡片背景图集",
+    "bytes": 1741593
+  },
+  {
+    "file": "ui-sheets/atlas-ornaments-small.png",
+    "title": "小装饰边角图集",
+    "bytes": 1520027
+  },
+  {
+    "file": "ui-sheets/atlas-ui-states-3x3.png",
+    "title": "UI 状态图集",
+    "bytes": 2210628
+  },
+  {
+    "file": "ui-sheets/atlas-sidebar-strips.png",
+    "title": "侧栏竖条图集",
+    "bytes": 1965680
+  },
+  {
+    "file": "ui-sheets/atlas-toolbox-icons-24.png",
+    "title": "24枚工具箱图标 atlas",
+    "bytes": 1962134
+  },
+  {
+    "file": "ui-sheets/atlas-mascot-stickers-16.png",
+    "title": "16枚角色贴纸 atlas",
+    "bytes": 2582216
+  },
+  {
+    "file": "empty-states/atlas-empty-states-with-copy.png",
+    "title": "带中文文案空状态图集",
+    "bytes": 2301040
+  },
+  {
+    "file": "ui-sheets/atlas-empty-state-symbols-16.png",
+    "title": "16枚无字空状态符号 atlas",
+    "bytes": 2047625
+  },
+  {
+    "file": "ui-sheets/atlas-dashboard-widget-backgrounds-12.png",
+    "title": "12枚统计卡背景 atlas",
+    "bytes": 1839304
+  },
+  {
+    "file": "ui-sheets/atlas-dialog-decorations-16.png",
+    "title": "16枚弹窗装饰 atlas",
+    "bytes": 1534072
+  },
+  {
+    "file": "ui-sheets/atlas-system-page-assets-16.png",
+    "title": "16枚本机页素材 atlas",
+    "bytes": 2272800
+  },
+  {
+    "file": "ui-sheets/atlas-install-workflow-assets-16.png",
+    "title": "16枚安装流程素材 atlas",
+    "bytes": 2177483
+  },
+  {
+    "file": "ui-sheets/atlas-ai-assistant-assets-16.png",
+    "title": "16枚 AI 助手素材 atlas",
+    "bytes": 1953095
+  },
+  {
+    "file": "ui-sheets/atlas-update-center-assets-16.png",
+    "title": "16枚更新中心素材 atlas",
+    "bytes": 2159503
+  },
+  {
+    "file": "ui-sheets/atlas-notes-page-assets-16.png",
+    "title": "16枚记事本素材 atlas",
+    "bytes": 2023053
+  },
+  {
+    "file": "ui-sheets/atlas-border-ornaments-24.png",
+    "title": "24枚边角分割装饰 atlas",
+    "bytes": 1483810
+  },
+  {
+    "file": "ui-sheets/atlas-background-patterns-12.png",
+    "title": "12枚背景纹理 atlas",
+    "bytes": 2150805
+  },
+  {
+    "file": "ui-sheets/atlas-tool-card-overlays-16.png",
+    "title": "16枚工具卡覆盖装饰 atlas",
+    "bytes": 1912837
+  },
+  {
+    "file": "ui-sheets/atlas-category-navigation-icons-20.png",
+    "title": "20枚分类导航图标 atlas",
+    "bytes": 2065661
+  }
+]

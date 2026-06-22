@@ -2604,6 +2604,7 @@ function normalizeSettings(settings) {
     customTools: normalizeCustomTools(settings?.customTools),
     customCategories: normalizeCustomCategories(settings?.customCategories),
     toolCategoryOverrides: normalizeToolCategoryOverrides(settings?.toolCategoryOverrides),
+    hiddenToolIds: normalizeHiddenToolIds(settings?.hiddenToolIds),
     previousCodePages: normalizePreviousCodePages(settings?.previousCodePages)
   };
 }
@@ -2681,6 +2682,13 @@ function sanitizeCategoryId(value) {
     .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
+}
+
+function normalizeHiddenToolIds(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((id) => String(id ?? "").trim()).filter(Boolean);
 }
 
 function normalizeCustomTools(value) {
