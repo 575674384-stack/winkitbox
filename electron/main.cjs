@@ -2277,6 +2277,7 @@ function writeSettings(settings) {
         customTools: normalized.customTools,
         customCategories: normalized.customCategories,
         toolCategoryOverrides: normalized.toolCategoryOverrides,
+        hiddenToolIds: normalized.hiddenToolIds,
         previousCodePages: normalized.previousCodePages
       },
       null,
