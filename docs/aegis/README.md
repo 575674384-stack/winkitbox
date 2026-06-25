@@ -12,6 +12,10 @@ For the workspace map and document status, start with [`INDEX.md`](INDEX.md).
 - `plans/2026-06-20-v0.6.2-polish-repair-ai-notes.md`: v0.6.2 polish, source-health repair, AI notes, and release plan.
 - `plans/2026-06-21-v0.7.1-ui-performance-release.md`: v0.7.1 UI polish, performance, theme normalization, and release plan.
 - `plans/2026-06-21-v0.7.2-icons-notes-wiki-themes-release.md`: v0.7.2 page icons, Notes workbench, WIKI, new themes, and release plan.
+- `adr/ADR-0001-theme-id-normalization.md`: theme ID normalization shared between renderer and main process.
+- `adr/ADR-0002-ai-repair-entry-from-activity-log.md`: AI repair entry derived from persistent activity log.
+- `adr/ADR-0003-msix-avoidance-in-ai-repair-prompt.md`: MSIX / App Installer avoidance in AI repair prompt.
+- `work/2026-06-22-ai-repair-msix-health/`: active work record for the AI repair + MSIX health plan.
 
 ## How To Use
 

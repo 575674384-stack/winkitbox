@@ -24,7 +24,6 @@ import {
   Network,
   NotebookPen,
   PackageOpen,
-  Pencil,
   Play,
   Plus,
   RotateCcw,
@@ -585,6 +584,7 @@ export function App() {
   const [dragOverCategoryId, setDragOverCategoryId] = useState<string>();
   const [draggedCategoryId, setDraggedCategoryId] = useState<string>();
   const [categorySortOverId, setCategorySortOverId] = useState<string>();
+  const [categoryMenu, setCategoryMenu] = useState<{ category: ToolCategory; x: number; y: number } | null>(null);
 
   const allTools = useMemo(() => {
     const applyCategoryOverrides = (tools: Tool[]) =>
@@ -835,6 +835,20 @@ export function App() {
     void loadActivityLog();
     void loadAiLog();
   }, []);
+
+  useEffect(() => {
+    if (!categoryMenu) {
+      return undefined;
+    }
+    const close = () => setCategoryMenu(null);
+    window.addEventListener("click", close, { capture: true });
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") close();
+    });
+    return () => {
+      window.removeEventListener("click", close, { capture: true });
+    };
+  }, [categoryMenu]);
 
   useEffect(() => {
     let pendingOutput = "";
@@ -3491,7 +3505,6 @@ export function App() {
                 <Network size={16} />
                 查看本机
               </span>
-              <strong>配置</strong>
             </button>
           </div>
 
@@ -3535,7 +3548,7 @@ export function App() {
                       draggedCategoryId === sortableCategoryId ? "sort-source" : ""
                     } ${
                       categorySortOverId === sortableCategoryId ? "sort-over" : ""
-                    }`}
+                    } ${isEditing ? "editing" : ""}`}
                     key={category}
                     onDragOver={(event) => dragOverCategory(event, category)}
                     onDragLeave={(event) => {
@@ -3554,6 +3567,13 @@ export function App() {
                       }
                     }}
                     onDrop={(event) => void dropToolOnCategory(event, category)}
+                    onContextMenu={(event) => {
+                      if (!editable || isEditing) {
+                        return;
+                      }
+                      event.preventDefault();
+                      setCategoryMenu({ category, x: event.clientX, y: event.clientY });
+                    }}
                   >
                     <button
                       className="category-button"
@@ -3596,31 +3616,6 @@ export function App() {
                       </span>
                       <strong>{count}</strong>
                     </button>
-                    {editable && !isEditing && (
-                      <div className="category-actions">
-                        <button
-                          className="category-action"
-                          type="button"
-                          title="重命名"
-                          onClick={() => {
-                            setEditingCategoryId(category);
-                            setEditingCategoryName(
-                              getCategoryLabel(category, settings.customCategories),
-                            );
-                          }}
-                        >
-                          <Pencil size={12} />
-                        </button>
-                        <button
-                          className="category-action danger"
-                          type="button"
-                          title="删除"
-                          onClick={() => void removeCategoryWithConfirm(category)}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    )}
                     {isEditing && (
                       <div className="category-actions">
                         <button
@@ -3728,7 +3723,6 @@ export function App() {
                 <Plus size={16} />
                 添加工具
               </span>
-              <strong>{customTools.length}</strong>
             </button>
             <button
               className={`category-button ${activeView === "updates" ? "active" : ""}`}
@@ -3739,7 +3733,6 @@ export function App() {
                 <RotateCcw size={16} />
                 工具更新
               </span>
-              <strong>{installedTools.length}</strong>
             </button>
             <button
               className={`category-button ${activeView === "notes" ? "active" : ""}`}
@@ -3750,7 +3743,6 @@ export function App() {
                 <NotebookPen size={16} />
                 记事本
               </span>
-              <strong>{notebookEntries.length}</strong>
             </button>
             <button
               className={`category-button ${activeView === "logs" ? "active" : ""}`}
@@ -3761,13 +3753,6 @@ export function App() {
                 <Terminal size={16} />
                 日志中心
               </span>
-              {(activityStats.failed > 0 || activityStats.warnings > 0) && (
-                <strong>
-                  {activityStats.failed > 0
-                    ? activityStats.failed
-                    : activityStats.warnings}
-                </strong>
-              )}
             </button>
           </div>
 
@@ -3785,7 +3770,6 @@ export function App() {
                 <Github size={16} />
                 GitHub 榜单
               </span>
-              <strong>Win</strong>
             </button>
           </div>
         </div>
@@ -3803,6 +3787,40 @@ export function App() {
           </button>
         </div>
       </aside>
+
+      {categoryMenu && (
+        <div
+          className="category-context-menu"
+          style={{ left: categoryMenu.x, top: categoryMenu.y }}
+          role="menu"
+        >
+          <button
+            className="category-context-item"
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setEditingCategoryId(categoryMenu.category);
+              setEditingCategoryName(
+                getCategoryLabel(categoryMenu.category, settings.customCategories),
+              );
+              setCategoryMenu(null);
+            }}
+          >
+            重命名
+          </button>
+          <button
+            className="category-context-item danger"
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              void removeCategoryWithConfirm(categoryMenu.category);
+              setCategoryMenu(null);
+            }}
+          >
+            删除分类
+          </button>
+        </div>
+      )}
 
       {activeView === "discover" && (
         <section className="workspace">
